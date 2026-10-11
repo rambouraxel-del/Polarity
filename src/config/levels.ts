@@ -23,7 +23,11 @@ export interface LevelDef {
   lateWeights?: PatternWeights;
   /** Moment (s) où `lateWeights` commence à apparaître. */
   lateFrom?: number;
-  /** Seuils de score pour 1, 2 et 3 étoiles (le déblocage, lui, ne dépend que de la survie). */
+  /**
+   * Seuils de score pour 1, 2 et 3 étoiles (le déblocage, lui, ne dépend que de la survie).
+   * Calibrage initial (npm run sim) : 1★ ≈ 35 % et 2★ ≈ 70 % du score médian du bot « prudent »,
+   * 3★ ≈ 70 % du bot « expert ». À réajuster avec des essais de joueurs.
+   */
   stars: [number, number, number];
 }
 
@@ -33,21 +37,21 @@ export const LEVELS: LevelDef[] = [
     hint: 'Touchez ou appuyez sur Espace pour inverser la direction.',
     dStart: 0, dEnd: 0.12, pacing: 'steady',
     weights: { shot: 1 },
-    stars: [4000, 8000, 13000],
+    stars: [42000, 85000, 116000],
   },
   {
     id: 2, name: 'Lignes de mire',
     hint: 'Les tirs diamétraux coupent l’orbite à deux endroits opposés.',
     dStart: 0.05, dEnd: 0.2, pacing: 'steady',
     weights: { shot: 1, diameter: 0.8 },
-    stars: [4500, 9000, 14000],
+    stars: [44000, 88000, 116000],
   },
   {
     id: 3, name: 'Courant',
     hint: 'Nouveau : secteurs électriques. Quittez la zone pointillée avant qu’elle ne s’allume.',
     dStart: 0.08, dEnd: 0.24, pacing: 'steady',
     weights: { arc: 1, shot: 0.35 },
-    stars: [4500, 9000, 14000],
+    stars: [23000, 46000, 92000],
   },
   {
     id: 4, name: 'Contretemps',
@@ -55,56 +59,56 @@ export const LEVELS: LevelDef[] = [
     dStart: 0.12, dEnd: 0.32, pacing: 'pulse',
     weights: { arc: 0.8, shot: 0.6, diameter: 0.4 },
     lateWeights: { twinArcs: 0.6 }, lateFrom: 35,
-    stars: [5000, 10000, 15500],
+    stars: [32000, 64000, 100000],
   },
   {
     id: 5, name: 'Doublé',
     hint: 'Deux tirs à la fois : cherchez l’espace entre les lignes.',
     dStart: 0.18, dEnd: 0.4, pacing: 'steady',
     weights: { parallel: 1, cross: 0.6, shot: 0.5 },
-    stars: [5000, 10000, 15500],
+    stars: [44000, 89000, 116000],
   },
   {
     id: 6, name: 'Première tenaille',
     hint: 'Attaque combinée : esquivez la première menace en anticipant la seconde.',
     dStart: 0.22, dEnd: 0.45, pacing: 'crescendo',
     weights: { shotArc: 1, arc: 0.5, shot: 0.5, parallel: 0.3 },
-    stars: [5500, 11000, 16500],
+    stars: [30000, 61000, 98000],
   },
   {
     id: 7, name: 'Poursuite',
     hint: 'Les secteurs s’enchaînent : changez de direction au bon moment.',
     dStart: 0.28, dEnd: 0.5, pacing: 'pulse',
     weights: { chase: 1, burst: 0.7, arc: 0.4, cross: 0.4 },
-    stars: [5500, 11000, 17000],
+    stars: [39000, 78000, 101000],
   },
   {
     id: 8, name: 'Écho',
     hint: 'Certains tirs reviennent par le même chemin, en sens inverse.',
     dStart: 0.32, dEnd: 0.55, pacing: 'steady',
     weights: { echo: 1, shotArc: 0.7, twinArcs: 0.5, diameter: 0.4 },
-    stars: [6000, 12000, 18000],
+    stars: [19000, 39000, 85000],
   },
   {
     id: 9, name: 'Mosaïque',
     hint: 'Motifs mélangés : lisez l’annonce entière avant de bouger.',
     dStart: 0.38, dEnd: 0.62, pacing: 'steady',
     weights: { shot: 0.5, parallel: 0.6, cross: 0.6, arc: 0.5, chase: 0.6, shotArc: 0.7, echo: 0.5 },
-    stars: [6000, 12000, 18500],
+    stars: [35000, 70000, 102000],
   },
   {
     id: 10, name: 'Fenêtres étroites',
     hint: 'Les annonces raccourcissent : anticipez la menace suivante.',
     dStart: 0.44, dEnd: 0.7, pacing: 'pulse',
     weights: { burst: 0.8, pincer: 0.7, cross: 0.6, chase: 0.6, twinArcs: 0.5 },
-    stars: [6500, 13000, 19500],
+    stars: [30000, 60000, 91000],
   },
   {
     id: 11, name: 'Haute tension',
     hint: 'Tenailles et rafales : gardez toujours une sortie en tête.',
     dStart: 0.5, dEnd: 0.76, pacing: 'crescendo',
     weights: { pincer: 0.8, shotArc: 0.8, echo: 0.6, burst: 0.6, parallel: 0.5, arc: 0.4 },
-    stars: [6500, 13000, 20000],
+    stars: [26000, 51000, 89000],
   },
   {
     id: 12, name: 'Polarité',
@@ -114,7 +118,7 @@ export const LEVELS: LevelDef[] = [
       shot: 0.3, diameter: 0.3, parallel: 0.5, cross: 0.6, burst: 0.6, arc: 0.4,
       twinArcs: 0.5, chase: 0.6, shotArc: 0.7, pincer: 0.7, echo: 0.6,
     },
-    stars: [7000, 14000, 21000],
+    stars: [28000, 57000, 98000],
   },
 ];
 

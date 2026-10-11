@@ -11,6 +11,7 @@ import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './pr
 import { isSkinUnlocked, skinById, SKINS } from './progression/skins';
 import { ArenaRenderer, COLORS } from './render/ArenaRenderer';
 import { BrowserStore, defaultSave, loadSave, writeSave, type KeyValueStore, type SaveData } from './save/save';
+import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
 import { escapeHtml } from './ui/format';
@@ -181,7 +182,11 @@ export class App {
     else if (cfg.mode === 'daily') this.bestAtStart = this.save.daily[cfg.date ?? '']?.bestTime ?? 0;
     else this.bestAtStart = 0;
 
+    // Mode démonstration (?demo) : le joueur automatique joue, pour inspecter les motifs.
+    const demo = new URLSearchParams(location.search).has('demo');
+    let bot: Bot | null = null;
     this.session = new GameSession(cfg, {
+      onBeforeStep: demo ? (s) => (bot ??= new Bot(s.sim)).tick() : undefined,
       onEvent: (e, s) => this.onSimEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
     });

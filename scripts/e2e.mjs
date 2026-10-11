@@ -33,8 +33,18 @@ const PORT = 4179;
 const URL = `http://127.0.0.1:${PORT}/`;
 mkdirSync('screenshots', { recursive: true });
 
-const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
+const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
   stdio: ['ignore', 'pipe', 'pipe'],
+});
+// Le serveur est toujours arrêté, même en cas d'échec
+process.on('exit', () => server.kill());
+process.on('uncaughtException', (e) => {
+  console.error(e);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(e);
+  process.exit(1);
 });
 await new Promise((resolve, reject) => {
   const t = setTimeout(() => reject(new Error('serveur non démarré')), 20000);
@@ -47,7 +57,7 @@ await new Promise((resolve, reject) => {
 });
 
 const { chromium } = await loadPlaywright();
-const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--autoplay-policy=no-user-gesture-required'] });
+const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--autoplay-policy=no-user-gesture-required', '--js-flags=--expose-gc', '--enable-precise-memory-info'] });
 const failures = [];
 const check = (cond, msg) => {
   if (!cond) failures.push(msg);
@@ -184,6 +194,31 @@ const state = (page) =>
   }
   st = await state(page);
   check(st && st.phase === 'over', 'Relances successives sans blocage');
+
+  // Relance au clavier : Espace sur l'écran de résultat (bouton Rejouer focalisé après la protection)
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(200);
+  st = await state(page);
+  check(st && st.phase === 'running' && st.time < 0.5, 'Espace relance depuis l’écran de résultat');
+
+  // Mémoire : 20 relances supplémentaires ne doivent pas faire croître le tas
+  const heap = () => page.evaluate(() => { window.gc?.(); return performance.memory?.usedJSHeapSize ?? 0; });
+  const fastDeath = () => page.evaluate(() => {
+    const s = window.__polarite.session;
+    for (let k = 0; k < 120 * 90 && s.sim.state === 'running'; k++) s.sim.step();
+    s.frame(0.1); for (let k = 0; k < 20; k++) s.frame(0.1);
+  });
+  await fastDeath();
+  await page.waitForTimeout(800);
+  const h0 = await heap();
+  for (let i = 0; i < 20; i++) {
+    await page.evaluate(() => window.__polarite.startRun({ mode: 'survival', seed: 1 }));
+    await page.waitForTimeout(30);
+    await fastDeath();
+  }
+  await page.waitForTimeout(800);
+  const h1 = await heap();
+  check(h0 === 0 || h1 - h0 < 8 * 1024 * 1024, `Pas de fuite évidente après 20 relances (tas ${(h0 / 1048576).toFixed(1)} → ${(h1 / 1048576).toFixed(1)} Mo)`);
 
   // Survie
   await page.click('[data-action="home"], [data-action="levels"]');

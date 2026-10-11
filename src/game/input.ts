@@ -24,8 +24,11 @@ export class InputController {
     this.gameEl.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', this.onKeyDown, { passive: false });
     window.addEventListener('keyup', this.onKeyUp, { passive: false });
-    // Toute interaction (y compris sur les menus) peut débloquer l'audio
-    window.addEventListener('pointerdown', () => this.h.firstInteraction(), { capture: true, passive: true });
+    // Toute interaction (y compris sur les menus) peut débloquer l'audio. Sur écran tactile, seuls
+    // pointerup/touchend comptent comme geste d'activation pour le navigateur : on les écoute aussi.
+    for (const type of ['pointerdown', 'pointerup', 'touchend'] as const) {
+      window.addEventListener(type, () => this.h.firstInteraction(), { capture: true, passive: true });
+    }
     // Empêche le défilement / zoom de la page pendant une interaction dans le jeu
     this.gameEl.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
     this.gameEl.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });

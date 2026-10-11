@@ -6,6 +6,8 @@ import type { SimEvent, Simulation } from '../sim/simulation';
 export type Phase = 'running' | 'paused' | 'countdown' | 'ending' | 'over';
 
 export interface SessionHooks {
+  /** Appelé avant chaque pas de simulation (outil de démonstration). */
+  onBeforeStep?(session: GameSession): void;
   onEvent?(e: SimEvent, session: GameSession): void;
   onPhase?(phase: Phase, session: GameSession): void;
   /** Appelé une seule fois, à la fin de la partie (mort ou réussite). */
@@ -38,6 +40,7 @@ export class GameSession {
       case 'running': {
         this.acc += dt;
         while (this.acc >= SIM.dt && this.sim.state === 'running') {
+          this.hooks.onBeforeStep?.(this);
           this.sim.step();
           this.acc -= SIM.dt;
           this.drain();

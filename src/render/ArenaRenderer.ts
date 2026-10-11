@@ -396,7 +396,8 @@ export class ArenaRenderer {
     g.lineStyle(Math.max(2 * this.dpr, 3.5 * s), 0xffffff, 0.95);
     const span = a1 - a0;
     const n = Math.max(6, Math.round(span / 0.05));
-    const phase = this.reducedEffects ? 0 : Math.floor(clock * 20);
+    // Alternance lente du motif (6 Hz, sans variation de luminosité globale) : pas de clignotement agressif
+    const phase = this.reducedEffects ? 0 : Math.floor(clock * 6);
     g.beginPath();
     for (let i = 0; i <= n; i++) {
       const a = a0 + (span * i) / n;

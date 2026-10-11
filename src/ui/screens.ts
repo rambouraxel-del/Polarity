@@ -221,7 +221,9 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean): string {
     <p class="sub">${isDaily && r.date ? `Défi du ${escapeHtml(formatDateFr(r.date))} (UTC)` : 'Survie'}</p>
     <div class="stats">
       <div class="stat"><div class="k">Durée</div><div class="v ${report.newRecord ? 'up' : ''}">${formatTime(r.time)}</div></div>
-      <div class="stat"><div class="k">${isDaily ? 'Meilleur du jour' : 'Record'}</div><div class="v">${formatTime(best)}</div></div>
+      ${report.newRecord && report.previousBestTime > 0
+        ? `<div class="stat"><div class="k">Record précédent</div><div class="v">${formatTime(report.previousBestTime)}</div></div>`
+        : `<div class="stat"><div class="k">${isDaily ? 'Meilleur du jour' : 'Record'}</div><div class="v">${formatTime(best)}</div></div>`}
       <div class="stat"><div class="k">Écart avec le record précédent</div><div class="v">${report.previousBestTime > 0 ? formatDelta(diff) : '—'}</div></div>
       <div class="stat"><div class="k">Score</div><div class="v">${formatScore(r.score)}</div></div>
     </div>

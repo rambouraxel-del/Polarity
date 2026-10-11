@@ -1,8 +1,9 @@
 # Reprise
 
-**Dernière étape vérifiée :** jeu complet jouable, tests unitaires (64) et e2e verts.
+**Dernière étape vérifiée :** livraison complète. `npm run check` (64 tests) et `npm run e2e` (33 contrôles) verts.
 
-**Fichiers clés :** `src/app.ts`, `src/sim/*`, `src/config/balance.ts`, `src/config/levels.ts`, `src/ui/screens.ts`.
+**Fichiers clés :** `src/app.ts` (orchestration), `src/sim/*` (gameplay), `src/config/balance.ts` et `src/config/levels.ts`
+(équilibrage), `src/ui/screens.ts` (écrans), `scripts/e2e.mjs` (test navigateur), `scripts/balance.ts` (bots).
 
-**Prochaine action :** calibrer les seuils d'étoiles (`npm run sim`), relecture visuelle avec le mode démo (`?demo`),
-puis finaliser README/PROGRESS.
+**Prochaine action :** recueillir les retours de joueurs, ajuster `src/config/*`, relancer `npm run sim` pour
+recalibrer les étoiles, puis `npm run check && npm run build && npm run e2e`.

@@ -1,32 +1,37 @@
 /**
- * Outil d'équilibrage : fait jouer le bot sur chaque niveau et en Survie.
- * Usage : npm run sim [-- survie-minutes]
- * Le bot est surhumain en réflexes : ces chiffres calibrent les seuils, ils ne remplacent pas des essais.
+ * Outil d'équilibrage : fait jouer deux bots sur chaque niveau et en Survie.
+ *  - « expert » : esquive parfaite et recherche active des balises ;
+ *  - « prudent » : esquive parfaite mais n'inverse que lorsque c'est nécessaire.
+ * Usage : npm run sim [-- minutesDeSurvie]
+ * Les bots ont des réflexes surhumains : ces chiffres aident à placer les seuils, ils ne remplacent pas des essais.
  */
+import { LEVEL_DURATION } from '../src/config/balance';
 import { LEVELS } from '../src/config/levels';
 import { levelProfile, survivalProfile } from '../src/modes/profiles';
 import { playWithBot } from '../src/sim/bot';
 import { Simulation } from '../src/sim/simulation';
-import { LEVEL_DURATION } from '../src/config/balance';
 
 const runs = 6;
+const median = (a: number[]) => [...a].sort((x, y) => x - y)[a.length >> 1];
+const round = (n: number) => Math.round(n / 500) * 500;
+
 for (const level of LEVELS) {
-  const scores: number[] = [];
+  const res: Record<string, number[]> = { expert: [], prudent: [] };
   let wins = 0;
   let deferred = 0;
-  let flips = 0;
-  const t0 = Date.now();
   for (let r = 0; r < runs; r++) {
-    const sim = new Simulation({ seed: 1000 + r * 7919 + level.id, profile: levelProfile(level), timeLimit: LEVEL_DURATION });
-    playWithBot(sim, LEVEL_DURATION + 1);
-    if (sim.state === 'complete') wins++;
-    scores.push(sim.scoring.score);
-    deferred += sim.director.deferred;
-    flips += sim.flips / (sim.time / 60);
+    for (const greed of [true, false]) {
+      const sim = new Simulation({ seed: 1000 + r * 7919 + level.id, profile: levelProfile(level), timeLimit: LEVEL_DURATION });
+      playWithBot(sim, LEVEL_DURATION + 1, greed);
+      if (sim.state === 'complete') wins++;
+      deferred += sim.director.deferred;
+      res[greed ? 'expert' : 'prudent'].push(sim.scoring.score);
+    }
   }
-  scores.sort((a, b) => a - b);
+  const e = median(res.expert);
+  const p = median(res.prudent);
   console.log(
-    `Niveau ${level.id} ${level.name.padEnd(20)} réussites ${wins}/${runs} score min ${scores[0]} méd ${scores[runs >> 1]} max ${scores[runs - 1]} | seuils ${level.stars.join('/')} | reports ${deferred} | inv/min ${(flips / runs).toFixed(0)} | ${Date.now() - t0} ms`,
+    `Niveau ${String(level.id).padStart(2)} ${level.name.padEnd(20)} réussites ${wins}/${2 * runs} | expert ${e} | prudent ${p} | seuils actuels ${level.stars.join('/')} | suggérés ${round(p * 0.45)}/${round(p * 0.9)}/${round(e * 0.75)} | reports ${deferred}`,
   );
 }
 
@@ -36,6 +41,6 @@ for (let r = 0; r < 3; r++) {
   const sim = new Simulation({ seed: 42 + r, profile: survivalProfile(), timeLimit: null });
   playWithBot(sim, minutes * 60);
   console.log(
-    `Survie #${r} : ${sim.state} à ${sim.time.toFixed(1)} s, score ${sim.scoring.score}, vagues ${sim.director.waveCount}, reports ${sim.director.deferred}, inv/min ${(sim.flips / (sim.time / 60)).toFixed(0)}, mult moyen ${(sim.scoring.score/Math.max(1,sim.scoring.beacons*100+sim.scoring.cycles*500)).toFixed(2)}, ${Date.now() - t0} ms`,
+    `Survie #${r} : ${sim.state} à ${sim.time.toFixed(1)} s, score ${sim.scoring.score}, vagues ${sim.director.waveCount}, reports ${sim.director.deferred}, inversions/min ${(sim.flips / (sim.time / 60)).toFixed(0)}, ${Date.now() - t0} ms`,
   );
 }
