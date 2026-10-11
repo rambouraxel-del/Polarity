@@ -54,6 +54,7 @@ export class Simulation {
   dir: 1 | -1 = PLAYER.startDirection;
   flips = 0;
   private pendingFlips = 0;
+  private hazardCount = 0;
   /** Familles déjà vues pendant cette partie. */
   readonly seenFamilies = new Set<Family>();
 
@@ -90,7 +91,12 @@ export class Simulation {
 
     // 2. Nouvelle vague éventuelle
     const added = this.director.update(t0, this);
-    if (added) for (const h of added) this.hazards.push(h);
+    if (added) {
+      for (const h of added) {
+        h.id = ++this.hazardCount;
+        this.hazards.push(h);
+      }
+    }
 
     // 3. Annonces et activations (événements pour le son et l'affichage)
     for (const h of this.hazards) {

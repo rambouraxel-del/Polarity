@@ -8,6 +8,7 @@ import { wrapAngle } from '../core/math';
 
 export interface ProjectileHazard {
   kind: 'projectile';
+  /** Attribué par la simulation (séquentiel, déterministe). */
   id: number;
   /** Motif qui a créé la menace (pour l'affichage d'introduction). */
   pattern: string;
@@ -49,11 +50,6 @@ export interface SectorHazard {
 
 export type Hazard = ProjectileHazard | SectorHazard;
 
-let nextId = 1;
-
-export function resetHazardIds(): void {
-  nextId = 1;
-}
 
 /**
  * Projectile traversant l'arène en ligne droite et coupant l'orbite aux angles a1 puis a2.
@@ -94,7 +90,7 @@ export function makeChordProjectile(
   const threatEnd = launch + (S + exitAlong) / speed;
   return {
     kind: 'projectile',
-    id: nextId++,
+    id: 0,
     pattern,
     warnStart,
     launch,
@@ -123,7 +119,7 @@ export function makeSector(
   const activeStart = warnStart + warn;
   return {
     kind: 'sector',
-    id: nextId++,
+    id: 0,
     pattern,
     warnStart,
     activeStart,
