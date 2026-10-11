@@ -7,7 +7,6 @@ export const emptyProfile: DifficultyProfile = {
   weights: () => ({}),
   intervalScale: () => 1,
   firstWaveDelay: 1e9,
-  breaths: false,
   spawnUntil: null,
   respite: true,
 };

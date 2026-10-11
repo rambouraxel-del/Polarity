@@ -1,10 +1,11 @@
 import { ARENA, PLAYER, SIM } from '../config/balance';
+import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
 import { wrapAngle } from '../core/math';
 import { Rng } from '../core/rng';
 import { BeaconRing } from './beacons';
 import { hazardHits } from './collision';
 import { Director, type DifficultyProfile } from './director';
-import type { Hazard } from './hazards';
+import { projectileX, projectileY, type Hazard } from './hazards';
 import { PATTERNS, type Family } from './patterns';
 import { Scoring } from './scoring';
 
@@ -15,7 +16,8 @@ export type SimEvent =
   | { type: 'multiplier'; value: number; up: boolean }
   | { type: 'warn'; kind: Hazard['kind']; family: Family }
   | { type: 'activate' }
-  | { type: 'death'; x: number; y: number }
+  /** (x, y) : position du vaisseau ; (hitX, hitY) : point de contact avec la menace. */
+  | { type: 'death'; x: number; y: number; hitX: number; hitY: number; by: Hazard['kind'] }
   | { type: 'complete' };
 
 export type SimState = 'running' | 'dead' | 'complete';
@@ -120,10 +122,10 @@ export class Simulation {
     // 5. Collision continue sur [t0, t1] (évaluée avant tout le reste)
     if (!this.invincible) {
       for (const h of this.hazards) {
-        if (hazardHits(h, from, delta, t0, t1, PLAYER.hitRadius)) {
+        if (hazardHits(h, from, delta, t0, t1, playerHitRadius())) {
           this.angle = from + delta;
           this.stepIndex++;
-          this.die();
+          this.die(h, t1);
           return;
         }
       }
@@ -177,11 +179,24 @@ export class Simulation {
     return this.dir;
   }
 
-  private die(): void {
+  private die(h: Hazard, t: number): void {
     if (this.state !== 'running') return;
     this.state = 'dead';
     this.pendingFlips = 0;
-    this.events.push({ type: 'death', x: this.playerX(), y: this.playerY() });
+    const x = this.playerX();
+    const y = this.playerY();
+    let hitX = x;
+    let hitY = y;
+    if (h.kind === 'projectile') {
+      // Contact : sur le segment entre les centres, à la frontière des deux hitboxes
+      const bx = projectileX(h, Math.min(t, h.end));
+      const by = projectileY(h, Math.min(t, h.end));
+      const pr = playerHitRadius();
+      const k = pr / (pr + projectileHitRadius());
+      hitX = x + (bx - x) * k;
+      hitY = y + (by - y) * k;
+    }
+    this.events.push({ type: 'death', x, y, hitX, hitY, by: h.kind });
   }
 
   private readonly onCollect = (index: number): void => {

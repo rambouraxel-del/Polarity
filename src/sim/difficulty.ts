@@ -21,13 +21,16 @@ function at(key: RangeKey, d: number): number {
   return lerp(r.easy, r.hard, d);
 }
 
-export function paramsFor(dRaw: number, out?: DifficultyParams): DifficultyParams {
+/**
+ * @param warnScale réduction des annonces (1 = inchangé) ; les planchers de CAPS s'appliquent toujours.
+ */
+export function paramsFor(dRaw: number, out?: DifficultyParams, warnScale = 1): DifficultyParams {
   const d = clamp(dRaw, 0, 1);
   const p = out ?? ({} as DifficultyParams);
   p.d = d;
   p.waveInterval = Math.max(CAPS.minWaveInterval, at('waveInterval', d));
-  p.projectileWarn = Math.max(CAPS.minProjectileWarn, at('projectileWarn', d));
-  p.sectorWarn = Math.max(CAPS.minSectorWarn, at('sectorWarn', d));
+  p.projectileWarn = Math.max(CAPS.minProjectileWarn, at('projectileWarn', d) * warnScale);
+  p.sectorWarn = Math.max(CAPS.minSectorWarn, at('sectorWarn', d) * warnScale);
   p.projectileSpeed = Math.min(CAPS.maxProjectileSpeed, at('projectileSpeed', d));
   p.sectorActive = at('sectorActive', d);
   p.sectorHalfWidth = at('sectorHalfWidth', d);

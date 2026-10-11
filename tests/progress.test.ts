@@ -3,7 +3,9 @@ import { LEVELS } from '../src/config/levels';
 import { dailySeed, formatDateFr, utcDateString } from '../src/modes/daily';
 import { createSimulation } from '../src/modes/run';
 import { applyRun, beatsRecord, isLevelUnlocked, starsFor } from '../src/progression/progress';
-import { CORRUPT_KEY, defaultSave, loadSave, MemoryStore, SAVE_KEY, writeSave } from '../src/save/save';
+import { BALANCE_VERSION } from '../src/config/version';
+import { hasLegacyRecords, legacyDailyList, legacySurvivalBest } from '../src/progression/progress';
+import { BACKUP_PREFIX, CORRUPT_KEY, defaultSave, eraseAll, loadSave, MemoryStore, SAVE_KEY, SAVE_VERSION, writeSave } from '../src/save/save';
 
 const levelRun = (id: number, outcome: 'dead' | 'complete', score = 1000) =>
   ({ mode: 'level', levelId: id, time: outcome === 'complete' ? 90 : 30, score, cycles: 2, bestMultiplier: 2, outcome }) as const;
@@ -134,7 +136,126 @@ describe('Sauvegarde', () => {
   });
 
   it('stockage indisponible : aucune exception', () => {
-    const broken = { get: () => { throw new Error('refus'); }, set: () => { throw new Error('refus'); } };
+    const refuse = () => { throw new Error('refus'); };
+    const broken = { get: refuse, set: refuse, remove: refuse };
     expect(() => writeSave(broken, defaultSave())).not.toThrow();
+  });
+});
+
+/** Sauvegarde telle que l'écrivait la v1.0 (format 1, sans notion d'équilibrage). */
+const V1_SAVE = {
+  version: 1,
+  levels: { '1': { completed: true, bestScore: 52000, stars: 2 }, '2': { completed: true, bestScore: 41000, stars: 1 } },
+  survival: { bestTime: 312.4, bestScore: 88000, runs: 14 },
+  daily: { '2026-10-09': { bestTime: 95.5, bestScore: 20000, runs: 3 }, '2026-10-10': { bestTime: 140.2, bestScore: 31000, runs: 2 } },
+  achievements: { first_cycle: 1700000000000, first_level: 1700000100000, survive_60: 1700000200000 },
+  skin: 'aurore',
+  options: { muted: true, volume: 0.4, reducedEffects: true, tutorialSeen: true },
+  seenIntros: ['projectile', 'sector'],
+  stats: { totalCycles: 42, totalRuns: 30 },
+};
+
+describe('Migration de la sauvegarde v1.0 → v1.1', () => {
+  const load = () => {
+    const store = new MemoryStore();
+    store.set(SAVE_KEY, JSON.stringify(V1_SAVE));
+    return { store, res: loadSave(store) };
+  };
+
+  it('préserve la progression : niveaux, étoiles, succès, apparence, options, statistiques', () => {
+    const { res } = load();
+    expect(res.status).toBe('migrated');
+    expect(res.data.version).toBe(SAVE_VERSION);
+    expect(res.data.levels).toEqual(V1_SAVE.levels);
+    expect(res.data.achievements).toEqual(V1_SAVE.achievements);
+    expect(res.data.skin).toBe('aurore');
+    expect(res.data.options).toEqual(V1_SAVE.options);
+    expect(res.data.seenIntros).toEqual(V1_SAVE.seenIntros);
+    expect(res.data.stats).toEqual(V1_SAVE.stats);
+    expect(isLevelUnlocked(res.data, 3)).toBe(true);
+  });
+
+  it('range les anciens records à part : les records actuels repartent de zéro', () => {
+    const { res } = load();
+    expect(res.data.balance).toBe(BALANCE_VERSION);
+    expect(res.data.survival).toEqual({ bestTime: 0, bestScore: 0, runs: 0 });
+    expect(res.data.daily).toEqual({});
+    expect(res.data.archive['1'].survival).toEqual(V1_SAVE.survival);
+    expect(res.data.archive['1'].daily).toEqual(V1_SAVE.daily);
+    expect(hasLegacyRecords(res.data)).toBe(true);
+    expect(legacySurvivalBest(res.data)).toEqual({ version: 1, time: 312.4, score: 88000 });
+    expect(legacyDailyList(res.data).map((d) => d.date)).toEqual(['2026-10-10', '2026-10-09']);
+    // L'information sur le nouvel équilibrage reste à lire
+    expect(res.data.balanceNoticeSeen).toBeLessThan(BALANCE_VERSION);
+  });
+
+  it('conserve une copie de l’ancienne sauvegarde, sans jamais l’écraser', () => {
+    const { store } = load();
+    const backup = store.get(`${BACKUP_PREFIX}1`);
+    expect(backup).not.toBeNull();
+    expect(JSON.parse(backup as string)).toEqual(V1_SAVE);
+    // Seconde lecture d'une sauvegarde déjà migrée : la copie reste celle d'origine
+    const res = loadSave(store);
+    writeSave(store, res.data);
+    loadSave(store);
+    expect(JSON.parse(store.get(`${BACKUP_PREFIX}1`) as string)).toEqual(V1_SAVE);
+  });
+
+  it('un record sous le nouvel équilibrage n’est jamais comparé à l’ancien', () => {
+    const { res } = load();
+    // 20 s : bien en dessous de l'ancien record (312 s), mais c'est un record sous le nouvel équilibrage
+    const rep = applyRun(res.data, { mode: 'survival', time: 20, score: 3000, cycles: 0, bestMultiplier: 1, outcome: 'dead' });
+    expect(rep.newRecord).toBe(true);
+    expect(rep.previousBestTime).toBe(0);
+    expect(rep.legacyBestTime).toBeCloseTo(312.4);
+    expect(res.data.survival.bestTime).toBe(20);
+    expect(res.data.archive['1'].survival.bestTime).toBe(312.4);
+    // Défi : l'ancien résultat de la même date reste à part
+    const d = applyRun(res.data, { mode: 'daily', date: '2026-10-10', time: 15, score: 1, cycles: 0, bestMultiplier: 1, outcome: 'dead' });
+    expect(d.newRecord).toBe(true);
+    expect(d.legacyBestTime).toBeCloseTo(140.2);
+    expect(res.data.daily['2026-10-10'].bestTime).toBe(15);
+    expect(res.data.archive['1'].daily['2026-10-10'].bestTime).toBe(140.2);
+  });
+
+  it('la migration est stable : une sauvegarde déjà migrée se relit à l’identique', () => {
+    const { store, res } = load();
+    applyRun(res.data, { mode: 'survival', time: 50, score: 100, cycles: 0, bestMultiplier: 1, outcome: 'dead' });
+    writeSave(store, res.data);
+    const again = loadSave(store);
+    expect(again.status).toBe('ok');
+    expect(again.data).toEqual(res.data);
+  });
+
+  it('une sauvegarde v1 sans records de Survie ne déclenche pas d’information inutile', () => {
+    const store = new MemoryStore();
+    store.set(SAVE_KEY, JSON.stringify({ version: 1, levels: { '1': { completed: true, bestScore: 1, stars: 0 } } }));
+    const res = loadSave(store);
+    expect(hasLegacyRecords(res.data)).toBe(false);
+    expect(res.data.levels['1'].completed).toBe(true);
+  });
+
+  it('un nouveau joueur n’a rien à migrer', () => {
+    const res = loadSave(new MemoryStore());
+    expect(res.status).toBe('new');
+    expect(res.data.balance).toBe(BALANCE_VERSION);
+    expect(res.data.balanceNoticeSeen).toBe(BALANCE_VERSION);
+  });
+
+  it('l’effacement explicite supprime aussi les copies', () => {
+    const { store } = load();
+    eraseAll(store);
+    expect(store.get(SAVE_KEY)).toBeNull();
+    expect(store.get(`${BACKUP_PREFIX}1`)).toBeNull();
+  });
+
+  it('une sauvegarde v1 abîmée garde ses parties valides et ne bloque pas le démarrage', () => {
+    const store = new MemoryStore();
+    store.set(SAVE_KEY, JSON.stringify({ ...V1_SAVE, survival: 'oups', daily: [1, 2], levels: { '1': { completed: true, bestScore: 5, stars: 3 }, zz: 1 } }));
+    const res = loadSave(store);
+    expect(res.status).toBe('migrated');
+    expect(res.data.levels['1'].stars).toBe(3);
+    expect(res.data.skin).toBe('aurore');
+    expect(res.data.survival.bestTime).toBe(0);
   });
 });

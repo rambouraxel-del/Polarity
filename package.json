@@ -1,7 +1,7 @@
 {
   "name": "polarite",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Polarité — jeu d'arcade web : inversez la direction de votre vaisseau en orbite pour éviter les dangers.",
   "type": "module",
   "scripts": {
@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "sim": "vite-node scripts/balance.ts",
     "e2e": "node scripts/e2e.mjs",
-    "check": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run typecheck && npm run test && npm run build",
+    "perf": "node scripts/perf.mjs",
+    "sprites": "python3 scripts/process-sprites.py"
   },
   "dependencies": {
     "phaser": "3.90.0"

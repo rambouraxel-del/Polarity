@@ -2,7 +2,8 @@ import { LEVEL_DURATION } from '../config/balance';
 import { LEVELS } from '../config/levels';
 import { formatDateFr } from '../modes/daily';
 import { ACHIEVEMENTS, achievementById } from '../progression/achievements';
-import { isLevelUnlocked, type RunReport } from '../progression/progress';
+import { BALANCE_VERSION } from '../config/version';
+import { hasLegacyRecords, isLevelUnlocked, legacyDailyList, legacySurvivalBest, type RunReport } from '../progression/progress';
 import { SKINS, isSkinUnlocked, type Skin } from '../progression/skins';
 import type { SaveData } from '../save/save';
 import { escapeHtml, formatDelta, formatScore, formatTime, starsHtml } from './format';
@@ -19,7 +20,19 @@ function back(title: string): string {
 }
 
 export function homeScreen(save: SaveData, today: string): string {
-  const surv = save.survival.bestTime > 0 ? `Record : ${formatTime(save.survival.bestTime)}` : 'Tenez le plus longtemps possible';
+  const legacy = legacySurvivalBest(save);
+  const surv =
+    save.survival.bestTime > 0
+      ? `Record : ${formatTime(save.survival.bestTime)}`
+      : legacy
+        ? `Record à établir · ancien équilibrage : ${formatTime(legacy.time)}`
+        : 'Tenez le plus longtemps possible';
+  const notice =
+    hasLegacyRecords(save) && save.balanceNoticeSeen < BALANCE_VERSION
+      ? `<div class="notice cyan" role="status">Équilibrage mis à jour : la Survie et le défi montent plus vite en difficulté, le vaisseau et les astéroïdes sont plus grands et les hitboxes légèrement ajustées.
+         Vos records précédents sont conservés à part (« ancien équilibrage ») et ne sont pas comparés aux nouveaux.
+         <button class="btn" data-action="dismiss-notice">Compris</button></div>`
+      : '';
   const done = LEVELS.filter((l) => save.levels[String(l.id)]?.completed).length;
   const stars = LEVELS.reduce((s, l) => s + (save.levels[String(l.id)]?.stars ?? 0), 0);
   const daily = save.daily[today];
@@ -28,6 +41,7 @@ export function homeScreen(save: SaveData, today: string): string {
   <div class="panel bare">
     <h1 class="title">POLARITÉ</h1>
     <p class="tagline">Un vaisseau, une orbite, une seule commande : inverser.</p>
+    ${notice}
     <div class="menu">
       <button class="btn primary" data-action="levels">Niveaux<span class="hint">${done}/${LEVELS.length} terminés · ${stars}/${LEVELS.length * 3} ★</span></button>
       <button class="btn primary" data-action="survival">Survie<span class="hint">${escapeHtml(surv)}</span></button>
@@ -73,6 +87,12 @@ export function dailyScreen(save: SaveData, today: string): string {
         .map((d) => `<li><span>${escapeHtml(formatDateFr(d))}</span><span>${formatTime(save.daily[d].bestTime)} · ${formatScore(save.daily[d].bestScore)} pts</span></li>`)
         .join('')}</ul>`
     : '';
+  const old = legacyDailyList(save);
+  const oldList = old.length
+    ? `<h3>Ancien équilibrage</h3><ul class="daily-list">${old
+        .map((d) => `<li><span>${escapeHtml(formatDateFr(d.date))}</span><span>${formatTime(d.time)} · ${formatScore(d.score)} pts</span></li>`)
+        .join('')}</ul><p class="small" style="text-align:left">Obtenus avant la mise à jour : non comparables aux résultats actuels.</p>`
+    : '';
   return `<div class="panel">${back('Défi quotidien')}
     <p class="sub">Défi du <strong>${escapeHtml(formatDateFr(today))}</strong> (date UTC)</p>
     <p>Règles de la Survie, avec des motifs générés à partir d’une graine identique pour tous les joueurs aujourd’hui. Vos inversions changent la suite : jouez juste.</p>
@@ -82,6 +102,7 @@ export function dailyScreen(save: SaveData, today: string): string {
     </div>
     <button class="btn primary" data-action="play-daily" style="width:100%">Jouer le défi</button>
     ${list}
+    ${oldList}
     <p class="small">Résultats enregistrés sur cet appareil uniquement. Il n’y a pas de classement en ligne.</p>
   </div>`;
 }
@@ -227,6 +248,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean): string {
       <div class="stat"><div class="k">Écart avec le record précédent</div><div class="v">${report.previousBestTime > 0 ? formatDelta(diff) : '—'}</div></div>
       <div class="stat"><div class="k">Score</div><div class="v">${formatScore(r.score)}</div></div>
     </div>
+    ${report.legacyBestTime > 0 ? `<p class="small" style="margin:0 0 8px">Ancien équilibrage : ${formatTime(report.legacyBestTime)} (non comparable)</p>` : ''}
     ${achievementsNotice(report)}
     <div class="menu">${replay}<button class="btn" data-action="home">Menu principal</button></div>
   </div>`;

@@ -25,10 +25,7 @@ export const PLAYER = {
   /** Angle de départ (haut de l'écran ; l'axe y pointe vers le bas). */
   startAngle: -Math.PI / 2,
   startDirection: 1 as 1 | -1,
-  /** Taille visuelle du triangle (rayon circonscrit). */
-  visualRadius: 11,
-  /** Hitbox indulgente, plus petite que le visuel. */
-  hitRadius: 7,
+  // Hitboxes : config/hitbox.ts. Visuels : config/visuals.ts.
 } as const;
 
 export const BEACONS = {
@@ -57,11 +54,6 @@ export const RESPITE = {
   cooldown: 5,
   /** Cumul maximal de répit sur une même vague en attente. */
   maxPerWave: 1.2,
-} as const;
-
-export const PROJECTILE = {
-  hitRadius: 8,
-  visualRadius: 10,
 } as const;
 
 export const SECTOR = {
@@ -118,26 +110,7 @@ export const CAPS = {
   maxActiveHazards: 8,
 } as const;
 
-export const SURVIVAL = {
-  /** Constante de temps de la courbe d(t) = dMax · (1 − e^(−t/τ)). */
-  tau: 170,
-  dMax: 0.93,
-  /** Vague initiale. */
-  firstWaveDelay: 1.6,
-  /** Respiration : toutes les N vagues, une pause supplémentaire. */
-  breathEvery: { min: 6, max: 9 },
-  breathDuration: { min: 1.2, max: 2.0 },
-  /** Modulation lente du rythme au-delà de la phase d'apprentissage. */
-  rhythmAmplitude: 0.12,
-  rhythmPeriod: 37,
-  /** Temps (s) de déblocage des familles de motifs. */
-  unlock: {
-    sector: 18,
-    doubleProjectile: 40,
-    combo: 70,
-    advanced: 130,
-  },
-} as const;
+// Courbe et paliers de la Survie : config/survival.ts
 
 export const LEVEL_DURATION = 90;
 

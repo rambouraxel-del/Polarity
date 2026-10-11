@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
-import { ARENA, BEACONS, PLAYER, PROJECTILE } from '../config/balance';
+import { ARENA, BEACONS, PLAYER } from '../config/balance';
+import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
+import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import { TAU } from '../core/math';
 import type { GameSession } from '../game/session';
 import type { ProjectileHazard, SectorHazard } from '../sim/hazards';
 import type { Skin } from '../progression/skins';
+import { heading, spriteRotation } from './geometry';
 
 /** Couleurs fixes des menaces : jamais reprises par les apparences. */
 export const COLORS = {
@@ -16,9 +19,23 @@ export const COLORS = {
 };
 
 const R = ARENA.orbitRadius;
-const TRAIL_LEN = 24;
-const MAX_PARTICLES = 160;
+const TRAIL_LEN = 10;
+const MAX_PARTICLES = FX.maxParticles;
 const MAX_POPUPS = 8;
+const MAX_RINGS = 4;
+/** Clés des textures (chargées par GameScene). */
+export const SHIP_TEXTURE = 'ship';
+export const ASTEROID_TEXTURES = ['ast1', 'ast2', 'ast3', 'ast4'] as const;
+/** Part de la toile du sprite occupée par la plus grande dimension du dessin. */
+const CONTENT = VISUAL.spriteContent / VISUAL.spriteCanvas;
+
+/** Hachage entier déterministe → [0, 1) : choix décoratifs liés à l'identifiant d'une menace, sans toucher au RNG du jeu. */
+function hash01(n: number, salt: number): number {
+  let x = Math.imul(n | 0, 374761393) + Math.imul(salt | 0, 668265263);
+  x = Math.imul(x ^ (x >>> 13), 1274126177);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+}
 
 interface Popup {
   text: Phaser.GameObjects.Text;
@@ -27,16 +44,36 @@ interface Popup {
   y: number;
 }
 
+interface Ring {
+  x: number;
+  y: number;
+  t: number;
+  life: number;
+  radius: number;
+  color: number;
+}
+
 /**
- * Dessine l'arène avec les primitives Phaser (aucune image).
+ * Dessine l'arène : vaisseau et astéroïdes en sprites, tout le reste (orbite, annonces, secteurs, réacteur,
+ * traînées, particules, impact) par code. Les sprites ne contiennent aucun effet.
  * Les annonces sont en pointillés et contours ; les dangers actifs sont pleins et épais :
  * la forme porte l'information, pas seulement la couleur.
  */
 export class ArenaRenderer {
   private readonly bg: Phaser.GameObjects.Graphics;
   private readonly g: Phaser.GameObjects.Graphics;
+  private readonly trailG: Phaser.GameObjects.Graphics;
+  private readonly shipG: Phaser.GameObjects.Graphics;
   private readonly fx: Phaser.GameObjects.Graphics;
+  private readonly dbg: Phaser.GameObjects.Graphics;
   private readonly flash: Phaser.GameObjects.Rectangle;
+  private readonly shipSprite: Phaser.GameObjects.Image;
+  private readonly asteroidPool: { img: Phaser.GameObjects.Image; tex: string }[] = [];
+  private readonly scene: Phaser.Scene;
+  private readonly rings: Ring[] = [];
+  private emitAcc = 0;
+  /** Affiche les hitboxes et silhouettes (URL ?debug). */
+  debug = false;
   private cx = 0;
   private cy = 0;
   private scale = 1;
@@ -56,17 +93,25 @@ export class ArenaRenderer {
   private readonly plife = new Float32Array(MAX_PARTICLES);
   private readonly pmax = new Float32Array(MAX_PARTICLES);
   private readonly pcol = new Uint32Array(MAX_PARTICLES);
+  /** 0 = étincelle (trait), 1 = point. */
+  private readonly pkind = new Uint8Array(MAX_PARTICLES);
+  private readonly psize = new Float32Array(MAX_PARTICLES);
   private pnext = 0;
   private readonly popups: Popup[] = [];
   private idleAngle: number = PLAYER.startAngle;
   reducedEffects = false;
 
   constructor(scene: Phaser.Scene) {
-    // Profondeurs : fond < textes flottants < arène et menaces < effets < flash
+    this.scene = scene;
+    // Profondeurs : fond < textes < arène/annonces < traînées < astéroïdes < réacteur < vaisseau < effets < flash
     this.bg = scene.add.graphics().setDepth(0);
     this.g = scene.add.graphics().setDepth(2);
-    this.fx = scene.add.graphics().setDepth(3);
-    this.flash = scene.add.rectangle(0, 0, 10, 10, 0xffffff, 0).setOrigin(0, 0).setDepth(4);
+    this.trailG = scene.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
+    this.shipG = scene.add.graphics().setDepth(4.5).setBlendMode(Phaser.BlendModes.ADD);
+    this.shipSprite = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(5).setVisible(false);
+    this.fx = scene.add.graphics().setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
+    this.flash = scene.add.rectangle(0, 0, 10, 10, 0xffffff, 0).setOrigin(0, 0).setDepth(7);
+    this.dbg = scene.add.graphics().setDepth(8);
     for (let i = 0; i < MAX_POPUPS; i++) {
       const text = scene.add
         .text(0, 0, '', { fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', fontStyle: 'bold', color: '#ffe680' })
@@ -85,7 +130,28 @@ export class ArenaRenderer {
     this.scale = radiusPx / ARENA.viewRadius;
     this.flash.setSize(width, height);
     for (const p of this.popups) p.text.setFontSize(Math.round(15 * dpr));
+    this.applySpriteScale();
     this.drawBackground(width, height);
+  }
+
+  /** Taille d'affichage des sprites : la plus grande dimension du dessin = 2 × rayon visuel (+15 %). */
+  private applySpriteScale(): void {
+    const shipPx = (2 * shipRadius() * this.scale) / CONTENT;
+    this.shipSprite.setDisplaySize(shipPx, shipPx);
+    const astPx = (2 * asteroidRadius() * this.scale) / CONTENT;
+    for (const a of this.asteroidPool) a.img.setDisplaySize(astPx, astPx);
+  }
+
+  private asteroidSlot(i: number): { img: Phaser.GameObjects.Image; tex: string } {
+    let slot = this.asteroidPool[i];
+    if (!slot) {
+      const img = this.scene.add.image(0, 0, ASTEROID_TEXTURES[0]).setDepth(4).setVisible(false);
+      const px = (2 * asteroidRadius() * this.scale) / CONTENT;
+      img.setDisplaySize(px, px);
+      slot = { img, tex: ASTEROID_TEXTURES[0] };
+      this.asteroidPool[i] = slot;
+    }
+    return slot;
   }
 
   private drawBackground(w: number, h: number): void {
@@ -121,7 +187,10 @@ export class ArenaRenderer {
   draw(session: GameSession | null, skin: Skin, realDt: number, clock: number): void {
     const g = this.g;
     g.clear();
+    this.trailG.clear();
+    this.shipG.clear();
     this.fx.clear();
+    this.dbg.clear();
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - realDt * 40 * this.dpr);
       this.ox = (Math.random() - 0.5) * this.shake;
@@ -147,29 +216,42 @@ export class ArenaRenderer {
       dir = 1;
       t = clock;
     }
+    // Les émissions de particules s'arrêtent en pause et pendant le compte à rebours
+    const emitting = !session || session.phase === 'running';
+    this.emitAcc = Math.min(0.1, this.emitAcc + (emitting ? realDt : 0));
 
     this.drawOrbit(skin);
     this.drawBeacons(sim ? sim.beacons.active : null, sim ? sim.beacons.angles : null, skin, clock);
 
+    let asteroids = 0;
     if (sim) {
       for (const h of sim.hazards) if (h.kind === 'sector') this.drawSector(h, t, clock);
-      for (const h of sim.hazards) if (h.kind === 'projectile') this.drawProjectile(h, t, clock);
+      for (const h of sim.hazards) {
+        if (h.kind !== 'projectile') continue;
+        this.drawProjectileWarning(h, t, clock);
+        if (t >= h.launch && t <= h.end) this.drawAsteroid(h, t, asteroids++, emitting, realDt);
+      }
     }
+    for (let i = asteroids; i < this.asteroidPool.length; i++) this.asteroidPool[i].img.setVisible(false);
 
     const alive = !sim || sim.state !== 'dead';
     this.updateTrail(angle, realDt);
     if (alive) {
       this.drawTrail(skin);
-      this.drawShip(angle, dir, skin);
+      this.drawShip(angle, dir, skin, clock, emitting);
+    } else {
+      this.shipSprite.setVisible(false);
     }
 
+    this.drawImpacts(realDt);
     this.drawRing(realDt);
     this.updateParticles(realDt);
     this.updatePopups(realDt);
     if (this.flashAlpha > 0) {
-      this.flashAlpha = Math.max(0, this.flashAlpha - realDt * 1.2);
+      this.flashAlpha = Math.max(0, this.flashAlpha - realDt * 1.6);
     }
     this.flash.setFillStyle(0xffffff, this.flashAlpha);
+    if (this.debug) this.drawDebug(sim, angle);
   }
 
   private drawOrbit(skin: Skin): void {
@@ -211,30 +293,63 @@ export class ArenaRenderer {
     }
   }
 
-  private drawShip(angle: number, dir: 1 | -1, skin: Skin): void {
-    const g = this.g;
-    const s = this.scale;
+  private drawShip(angle: number, dir: 1 | -1, skin: Skin, clock: number, emitting: boolean): void {
     const c = Math.cos(angle);
     const si = Math.sin(angle);
     const px = R * c;
     const py = R * si;
-    // Tangente dans le sens du mouvement et normale radiale
-    const tx = -si * dir;
-    const ty = c * dir;
-    const v = PLAYER.visualRadius;
-    const tipX = px + tx * v * 1.25;
-    const tipY = py + ty * v * 1.25;
-    const bx = px - tx * v * 0.75;
-    const by = py - ty * v * 0.75;
-    const w = v * 0.85;
-    g.fillStyle(skin.ship, 0.14);
-    g.fillCircle(this.sx(px), this.sy(py), v * 2.2 * s);
-    g.fillStyle(skin.ship, 1);
-    g.fillTriangle(
-      this.sx(tipX), this.sy(tipY),
-      this.sx(bx + c * w), this.sy(by + si * w),
-      this.sx(bx - c * w), this.sy(by - si * w),
-    );
+    // Direction du déplacement : le vaisseau pointe toujours vers l'avant, immédiatement après une inversion
+    const { x: tx, y: ty } = heading(angle, dir);
+    const sprite = this.shipSprite;
+    sprite.setVisible(true).setTint(0xffffff);
+    sprite.setPosition(this.sx(px), this.sy(py));
+    // La texture pointe vers le haut : rotation instantanée, sans interpolation
+    sprite.setRotation(spriteRotation(tx, ty));
+    // Les apparences teintent légèrement le vaisseau (la teinte blanche par défaut ne change rien)
+    if (skin.ship !== 0xffffff) sprite.setTint(skin.ship);
+
+    // Réacteur : derrière le vaisseau, à l'opposé du déplacement. Purement décoratif.
+    const L = shipRadius();
+    const th = FX.thruster;
+    const flick = this.reducedEffects ? 1 : 1 + th.flicker * Math.sin(clock * 38) * Math.sin(clock * 23 + 1);
+    const len = th.length * flick;
+    const nx = c; // normale (radiale) : décalage latéral des deux tuyères
+    const ny = si;
+    const side = shipHalfWidth() * 0.3;
+    const g = this.shipG;
+    for (const off of [-side, side]) {
+      const sx0 = px - tx * L * 0.72 + nx * off;
+      const sy0 = py - ty * L * 0.72 + ny * off;
+      const ex = sx0 - tx * len;
+      const ey = sy0 - ty * len;
+      const w = th.width * 0.5;
+      // Halo large, flamme, cœur : triangles effilés vers l'arrière
+      g.fillStyle(th.glowColor, 0.13);
+      g.fillTriangle(this.sx(sx0 + nx * w * 1.5), this.sy(sy0 + ny * w * 1.5), this.sx(sx0 - nx * w * 1.5), this.sy(sy0 - ny * w * 1.5), this.sx(ex), this.sy(ey));
+      g.fillStyle(th.glowColor, 0.42);
+      g.fillTriangle(this.sx(sx0 + nx * w), this.sy(sy0 + ny * w), this.sx(sx0 - nx * w), this.sy(sy0 - ny * w), this.sx(sx0 - tx * len * 0.8), this.sy(sy0 - ty * len * 0.8));
+      g.fillStyle(th.coreColor, 0.85);
+      g.fillTriangle(this.sx(sx0 + nx * w * 0.45), this.sy(sy0 + ny * w * 0.45), this.sx(sx0 - nx * w * 0.45), this.sy(sy0 - ny * w * 0.45), this.sx(sx0 - tx * len * 0.5), this.sy(sy0 - ty * len * 0.5));
+    }
+    // Étincelles : vers l'arrière, courtes
+    if (emitting && !this.reducedEffects) {
+      const n = Math.floor(this.emitAcc * FX.thrusterSparks.rate);
+      for (let i = 0; i < n; i++) {
+        const off = (Math.random() < 0.5 ? -side : side) + (Math.random() - 0.5) * 2;
+        const k = Math.random();
+        this.spawn(
+          px - tx * (L * 0.72 + len * 0.6) + nx * off,
+          py - ty * (L * 0.72 + len * 0.6) + ny * off,
+          -tx * FX.thrusterSparks.speed * (0.6 + k) + nx * (Math.random() - 0.5) * 14,
+          -ty * FX.thrusterSparks.speed * (0.6 + k) + ny * (Math.random() - 0.5) * 14,
+          FX.thrusterSparks.life * (0.6 + 0.4 * Math.random()),
+          i % 3 === 0 ? 0xffffff : th.glowColor,
+          1,
+          1.1,
+        );
+      }
+      if (n > 0) this.emitAcc = 0;
+    }
   }
 
   private updateTrail(angle: number, realDt: number): void {
@@ -247,6 +362,7 @@ export class ArenaRenderer {
     }
   }
 
+  /** L'inversion est immédiate : l'ancienne traînée (désormais devant le vaisseau) disparaît aussitôt. */
   resetTrail(): void {
     this.trailCount = 0;
   }
@@ -259,7 +375,7 @@ export class ArenaRenderer {
       const a0 = this.trail[i - 1];
       const a1 = this.trail[i];
       const k = 1 - i / TRAIL_LEN;
-      g.lineStyle(4 * s * k, skin.trail, 0.35 * k);
+      g.lineStyle(2.5 * s * k, skin.trail, 0.22 * k);
       g.lineBetween(this.sx(R * Math.cos(a0)), this.sy(R * Math.sin(a0)), this.sx(R * Math.cos(a1)), this.sy(R * Math.sin(a1)));
     }
   }
@@ -283,7 +399,7 @@ export class ArenaRenderer {
     this.g.lineBetween(x - size, y + size, x + size, y - size);
   }
 
-  private drawProjectile(h: ProjectileHazard, t: number, clock: number): void {
+  private drawProjectileWarning(h: ProjectileHazard, t: number, clock: number): void {
     if (t < h.warnStart) return;
     const g = this.g;
     const s = this.scale;
@@ -328,20 +444,71 @@ export class ArenaRenderer {
     g.lineStyle(Math.max(2.5 * this.dpr, 4 * s), color, 1);
     if (t < h.crossTime1 + 0.05) this.cross(this.sx(R * Math.cos(h.cross1)), this.sy(R * Math.sin(h.cross1)), 11 * s);
     if (t < h.crossTime2 + 0.05) this.cross(this.sx(R * Math.cos(h.cross2)), this.sy(R * Math.sin(h.cross2)), 11 * s);
+  }
 
-    if (t >= h.launch) {
-      const x = h.x0 + h.vx * (t - h.launch);
-      const y = h.y0 + h.vy * (t - h.launch);
-      const r = PROJECTILE.visualRadius;
-      // Traînée
-      g.lineStyle(r * 1.2 * s, color, 0.35);
-      g.lineBetween(this.sx(x - ux * 46), this.sy(y - uy * 46), this.sx(x), this.sy(y));
-      g.fillStyle(color, 0.25);
-      g.fillCircle(this.sx(x), this.sy(y), r * 2 * s);
-      g.fillStyle(color, 1);
-      g.fillCircle(this.sx(x), this.sy(y), r * s);
-      g.fillStyle(0xffffff, 1);
-      g.fillCircle(this.sx(x), this.sy(y), r * 0.45 * s);
+  /** Astéroïde : sprite tournant, avec traînée et braises derrière lui (opposées au déplacement). Décoratif. */
+  private drawAsteroid(h: ProjectileHazard, t: number, slotIndex: number, emitting: boolean, dt: number): void {
+    const slot = this.asteroidSlot(slotIndex);
+    const x = h.x0 + h.vx * (t - h.launch);
+    const y = h.y0 + h.vy * (t - h.launch);
+    const speed = Math.hypot(h.vx, h.vy);
+    const ux = h.vx / speed;
+    const uy = h.vy / speed;
+    const variant = Math.floor(hash01(h.id, 1) * ASTEROID_TEXTURES.length);
+    const tex = ASTEROID_TEXTURES[variant];
+    if (slot.tex !== tex) {
+      slot.img.setTexture(tex);
+      slot.tex = tex;
+    }
+    const spin = (hash01(h.id, 2) - 0.5) * 2.6;
+    slot.img
+      .setVisible(true)
+      .setPosition(this.sx(x), this.sy(y))
+      .setRotation(hash01(h.id, 3) * TAU + spin * (t - h.launch));
+
+    const r = asteroidRadius();
+    const s = this.scale;
+    const tr = FX.asteroidTrail;
+    const g = this.trailG;
+    // Traînée : triangles effilés vers l'arrière (ADD), courte et discrète
+    const len = this.reducedEffects ? tr.length * 0.6 : tr.length;
+    const tailX = x - ux * len;
+    const tailY = y - uy * len;
+    const nx = -uy;
+    const ny = ux;
+    const layers: [number, number, number][] = [
+      [0.95, 0.09, tr.glowColor],
+      [0.6, 0.18, tr.glowColor],
+      [0.28, 0.36, tr.coreColor],
+    ];
+    for (const [w, a, col] of layers) {
+      g.fillStyle(col, a);
+      g.fillTriangle(
+        this.sx(tailX), this.sy(tailY),
+        this.sx(x + nx * r * w), this.sy(y + ny * r * w),
+        this.sx(x - nx * r * w), this.sy(y - ny * r * w),
+      );
+    }
+    // Lueur orangée autour de la roche (fissures incandescentes)
+    g.fillStyle(tr.glowColor, 0.05);
+    g.fillCircle(this.sx(x), this.sy(y), r * 1.55 * s);
+    g.fillStyle(tr.glowColor, 0.07);
+    g.fillCircle(this.sx(x), this.sy(y), r * 1.2 * s);
+
+    if (emitting && !this.reducedEffects) {
+      const n = Math.floor(dt * FX.asteroidEmbers.rate + Math.random());
+      for (let i = 0; i < n; i++) {
+        const lat = (Math.random() - 0.5) * r * 1.2;
+        this.spawn(
+          x - ux * r * 0.8 + nx * lat, y - uy * r * 0.8 + ny * lat,
+          -ux * FX.asteroidEmbers.speed * (0.4 + Math.random()) + nx * (Math.random() - 0.5) * 18,
+          -uy * FX.asteroidEmbers.speed * (0.4 + Math.random()) + ny * (Math.random() - 0.5) * 18,
+          FX.asteroidEmbers.life * (0.6 + 0.4 * Math.random()),
+          Math.random() < 0.5 ? tr.coreColor : tr.glowColor,
+          1,
+          1.3,
+        );
+      }
     }
   }
 
@@ -423,20 +590,27 @@ export class ArenaRenderer {
 
   // ————————————————————————————————————————————— effets
 
+  /** Ajoute une particule décorative (tampon circulaire : aucune allocation, plafond FX.maxParticles). */
+  private spawn(x: number, y: number, vx: number, vy: number, life: number, color: number, kind: 0 | 1, size: number): void {
+    const k = this.pnext;
+    this.pnext = (this.pnext + 1) % MAX_PARTICLES;
+    this.px[k] = x;
+    this.py[k] = y;
+    this.pvx[k] = vx;
+    this.pvy[k] = vy;
+    this.plife[k] = life;
+    this.pmax[k] = life;
+    this.pcol[k] = color;
+    this.pkind[k] = kind;
+    this.psize[k] = size;
+  }
+
   burst(x: number, y: number, color: number, count: number, speed: number, life: number): void {
     const n = this.reducedEffects ? Math.ceil(count / 3) : count;
     for (let i = 0; i < n; i++) {
-      const k = this.pnext;
-      this.pnext = (this.pnext + 1) % MAX_PARTICLES;
       const a = Math.random() * TAU;
       const v = speed * (0.4 + Math.random() * 0.6);
-      this.px[k] = x;
-      this.py[k] = y;
-      this.pvx[k] = Math.cos(a) * v;
-      this.pvy[k] = Math.sin(a) * v;
-      this.plife[k] = life * (0.6 + Math.random() * 0.4);
-      this.pmax[k] = this.plife[k];
-      this.pcol[k] = color;
+      this.spawn(x, y, Math.cos(a) * v, Math.sin(a) * v, life * (0.6 + Math.random() * 0.4), color, 0, 1);
     }
   }
 
@@ -447,15 +621,20 @@ export class ArenaRenderer {
       if (this.plife[k] <= 0) continue;
       this.plife[k] -= dt;
       if (this.plife[k] <= 0) continue;
-      const x0 = this.px[k];
-      const y0 = this.py[k];
       this.px[k] += this.pvx[k] * dt;
       this.py[k] += this.pvy[k] * dt;
-      this.pvx[k] *= 0.96;
-      this.pvy[k] *= 0.96;
+      const damp = this.pkind[k] === 0 ? 0.96 : 0.985;
+      this.pvx[k] *= damp;
+      this.pvy[k] *= damp;
       const a = this.plife[k] / this.pmax[k];
-      g.lineStyle(2.5 * s, this.pcol[k], a);
-      g.lineBetween(this.sx(x0), this.sy(y0), this.sx(this.px[k] + (this.px[k] - x0) * 2), this.sy(this.py[k] + (this.py[k] - y0) * 2));
+      if (this.pkind[k] === 0) {
+        // Traînée proportionnelle à la vitesse (et non à dt) : même aspect quelle que soit la fréquence d'image
+        g.lineStyle(2.5 * s, this.pcol[k], a);
+        g.lineBetween(this.sx(this.px[k]), this.sy(this.py[k]), this.sx(this.px[k] - this.pvx[k] * 0.05), this.sy(this.py[k] - this.pvy[k] * 0.05));
+      } else {
+        g.fillStyle(this.pcol[k], 0.8 * a);
+        g.fillCircle(this.sx(this.px[k]), this.sy(this.py[k]), Math.max(0.8 * this.dpr, this.psize[k] * s * (0.5 + 0.5 * a)));
+      }
     }
   }
 
@@ -505,18 +684,90 @@ export class ArenaRenderer {
       p.life = 0;
       p.text.setVisible(false);
     }
+    this.rings.length = 0;
     this.ringT = -1;
     this.shake = 0;
     this.flashAlpha = 0;
     this.trailCount = 0;
+    this.emitAcc = 0;
+    this.shipSprite.setVisible(false);
+    for (const a of this.asteroidPool) a.img.setVisible(false);
   }
 
-  hit(x: number, y: number): void {
-    this.burst(x, y, 0xffffff, 26, 260, 0.8);
-    this.burst(x, y, COLORS.projectile, 18, 200, 0.7);
+  /**
+   * Impact bref à l'endroit de la collision : éclair, onde de choc, éclats. Le vaisseau disparaît (géré par draw).
+   * Les éclats blancs/cyan viennent du vaisseau, les éclats orange de la roche.
+   */
+  impact(hitX: number, hitY: number, shipX: number, shipY: number, by: 'projectile' | 'sector'): void {
+    const i = FX.impact;
+    this.rings.push({ x: hitX, y: hitY, t: 0, life: i.ringLife, radius: i.ringRadius, color: by === 'projectile' ? 0xffb347 : 0xff3df0 });
+    this.rings.push({ x: hitX, y: hitY, t: -0.05, life: i.ringLife * 0.8, radius: i.ringRadius * 0.6, color: 0xffffff });
+    if (this.rings.length > MAX_RINGS) this.rings.splice(0, this.rings.length - MAX_RINGS);
+    this.flareT = 0;
+    this.flareX = hitX;
+    this.flareY = hitY;
+    this.burst(hitX, hitY, 0xffffff, 16, 240, 0.55);
+    this.burst(shipX, shipY, 0x9ff9ff, 12, 170, 0.5);
+    if (by === 'projectile') this.burst(hitX, hitY, 0xff8a3d, 16, 200, 0.6);
+    else this.burst(hitX, hitY, 0xff3df0, 14, 200, 0.55);
     if (!this.reducedEffects) {
-      this.shake = 14 * this.dpr;
-      this.flashAlpha = 0.22;
+      this.shake = 10 * this.dpr;
+      this.flashAlpha = 0.16;
+    }
+  }
+
+  private flareT = -1;
+  private flareX = 0;
+  private flareY = 0;
+
+  private drawImpacts(dt: number): void {
+    const g = this.fx;
+    const s = this.scale;
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i];
+      r.t += dt;
+      if (r.t >= r.life) {
+        this.rings.splice(i, 1);
+        continue;
+      }
+      if (r.t < 0) continue;
+      const k = r.t / r.life;
+      g.lineStyle(Math.max(1.5 * this.dpr, 4 * s * (1 - k)), r.color, 0.85 * (1 - k));
+      g.strokeCircle(this.sx(r.x), this.sy(r.y), (6 + r.radius * k) * s);
+    }
+    if (this.flareT >= 0) {
+      this.flareT += dt;
+      const k = this.flareT / FX.impact.flareLife;
+      if (k >= 1) this.flareT = -1;
+      else {
+        g.fillStyle(0xffffff, 0.6 * (1 - k));
+        g.fillCircle(this.sx(this.flareX), this.sy(this.flareY), (8 + 14 * k) * s);
+        g.fillStyle(0xffb347, 0.5 * (1 - k));
+        g.fillCircle(this.sx(this.flareX), this.sy(this.flareY), (14 + 20 * k) * s);
+      }
+    }
+  }
+
+  /** Affichage de contrôle (?debug) : silhouettes (pointillés) et hitboxes (traits pleins). */
+  private drawDebug(sim: GameSession['sim'] | null, angle: number): void {
+    const g = this.dbg;
+    const s = this.scale;
+    const lw = Math.max(1, this.dpr);
+    const px = R * Math.cos(angle);
+    const py = R * Math.sin(angle);
+    g.lineStyle(lw, 0xffffff, 0.6);
+    g.strokeCircle(this.sx(px), this.sy(py), shipHalfWidth() * s);
+    g.lineStyle(lw * 1.5, 0x00ff88, 1);
+    g.strokeCircle(this.sx(px), this.sy(py), playerHitRadius() * s);
+    if (!sim) return;
+    for (const h of sim.hazards) {
+      if (h.kind !== 'projectile' || sim.time < h.launch) continue;
+      const x = h.x0 + h.vx * (sim.time - h.launch);
+      const y = h.y0 + h.vy * (sim.time - h.launch);
+      g.lineStyle(lw, 0xffffff, 0.6);
+      g.strokeCircle(this.sx(x), this.sy(y), asteroidMinHalfExtent() * s);
+      g.lineStyle(lw * 1.5, 0xff3355, 1);
+      g.strokeCircle(this.sx(x), this.sy(y), projectileHitRadius() * s);
     }
   }
 }

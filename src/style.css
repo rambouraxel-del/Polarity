@@ -745,3 +745,11 @@ input[type='range'] {
     transition: none !important;
   }
 }
+
+.notice .btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  min-height: 44px;
+  font-size: 16px;
+}

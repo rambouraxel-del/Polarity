@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { Sfx } from './audio/sfx';
-import { ARENA, UI } from './config/balance';
+import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
+import { BALANCE_VERSION } from './config/version';
 import { randomSeed } from './core/rng';
 import { InputController } from './game/input';
 import { GameSession } from './game/session';
@@ -10,7 +11,7 @@ import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
 import { isSkinUnlocked, skinById, SKINS } from './progression/skins';
 import { ArenaRenderer, COLORS } from './render/ArenaRenderer';
-import { BrowserStore, defaultSave, loadSave, writeSave, type KeyValueStore, type SaveData } from './save/save';
+import { BrowserStore, defaultSave, eraseAll, loadSave, writeSave, type KeyValueStore, type SaveData } from './save/save';
 import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
@@ -46,6 +47,7 @@ export class App {
   private bestAtStart = 0;
   private tutorialActive = false;
   private lastCountdownShown = -1;
+  private demoBot: Bot | null = null;
 
   constructor() {
     const res = loadSave(this.store);
@@ -64,6 +66,7 @@ export class App {
   onSceneReady(scene: Phaser.Scene): void {
     this.renderer = new ArenaRenderer(scene);
     this.renderer.reducedEffects = this.save.options.reducedEffects;
+    this.renderer.debug = new URLSearchParams(location.search).has('debug');
     new InputController(this.gameEl, {
       action: () => this.onAction(),
       pauseKey: () => this.onPauseKey(),
@@ -184,12 +187,13 @@ export class App {
 
     // Mode démonstration (?demo) : le joueur automatique joue, pour inspecter les motifs.
     const demo = new URLSearchParams(location.search).has('demo');
-    let bot: Bot | null = null;
-    this.session = new GameSession(cfg, {
-      onBeforeStep: demo ? (s) => (bot ??= new Bot(s.sim)).tick() : undefined,
+    const session = new GameSession(cfg, {
+      onBeforeStep: demo ? () => this.demoBot?.tick() : undefined,
       onEvent: (e, s) => this.onSimEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
     });
+    this.session = session;
+    this.demoBot = demo ? new Bot(session.sim) : null;
 
     this.tutorialActive = false;
     if (!this.save.options.tutorialSeen) {
@@ -202,6 +206,19 @@ export class App {
     } else {
       this.hideBanner();
     }
+  }
+
+  /** Outil de démonstration (?demo) : avance la partie en cours avec le joueur automatique. */
+  fastForward(seconds: number): void {
+    const s = this.session;
+    const bot = this.demoBot;
+    if (!s || !bot) return;
+    const n = Math.round(seconds / SIM.dt);
+    for (let i = 0; i < n && s.sim.state === 'running'; i++) {
+      bot.tick();
+      s.sim.step();
+    }
+    s.sim.events.length = 0;
   }
 
   private endSession(): void {
@@ -278,7 +295,11 @@ export class App {
         break;
       case 'death':
         this.sfx.play('hit');
-        r?.hit(e.x, e.y);
+        r?.impact(e.hitX, e.hitY, e.x, e.y, e.by);
+        break;
+      case 'flip':
+        // Inversion immédiate : l'ancienne traînée (désormais devant le vaisseau) disparaît
+        r?.resetTrail();
         break;
       case 'complete':
         this.sfx.play('success');
@@ -413,9 +434,15 @@ export class App {
         this.persist();
         target.textContent = 'Fait ✓';
         break;
+      case 'dismiss-notice':
+        this.save.balanceNoticeSeen = BALANCE_VERSION;
+        this.persist();
+        this.showScreen('home');
+        break;
       case 'ask-reset': this.showScreen('confirm-reset'); break;
       case 'confirm-reset': {
         const options = this.save.options;
+        eraseAll(this.store);
         this.save = defaultSave();
         this.save.options = options;
         this.persist();

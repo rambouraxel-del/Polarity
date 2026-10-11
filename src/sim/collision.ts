@@ -1,4 +1,5 @@
-import { ARENA, PROJECTILE, SECTOR } from '../config/balance';
+import { ARENA, SECTOR } from '../config/balance';
+import { projectileHitRadius } from '../config/hitbox';
 import { minDistanceLinear, sweepOverlapsArc } from '../core/math';
 import type { Hazard, ProjectileHazard, SectorHazard } from './hazards';
 
@@ -35,7 +36,7 @@ export function projectileHits(
   const bx1 = h.x0 + h.vx * (s1 - h.launch);
   const by1 = h.y0 + h.vy * (s1 - h.launch);
   const dist = minDistanceLinear(px0, py0, px1, py1, bx0, by0, bx1, by1);
-  return dist < playerRadius + PROJECTILE.hitRadius + extraMargin;
+  return dist < playerRadius + projectileHitRadius() + extraMargin;
 }
 
 export function sectorHits(

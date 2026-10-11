@@ -18,7 +18,8 @@ const game = new Phaser.Game({
   audio: { noAudio: true },
   banner: false,
   disableContextMenu: true,
-  render: { antialias: true, powerPreference: 'high-performance' },
+  // Mipmaps : les sprites 128 px sont réduits à 20–50 px à l'écran ; sans cela ils scintilleraient.
+  render: { antialias: true, powerPreference: 'high-performance', mipmapFilter: 'LINEAR_MIPMAP_LINEAR' },
   scene: [new GameScene(app)],
 });
 app.attachGame(game);

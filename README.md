@@ -9,7 +9,10 @@ les six balises pour enchaîner les cycles et faire monter le multiplicateur.
 - **Défi quotidien** : règles de la Survie, mêmes motifs pour tous à une date UTC donnée. Meilleur résultat conservé par date.
 - **Apparences et succès** : 9 succès, 7 apparences purement cosmétiques.
 
-Aucun serveur, aucun compte, aucune ressource externe : tout est généré dans le jeu (formes Phaser, sons Web Audio).
+Style graphique « Néon premium » (v1.1) : vrai vaisseau blanc/argent à cockpit cyan et astéroïdes rocheux aux fissures orange,
+en sprites ; réacteur, traînées, étincelles et impact sont générés par code (voir `docs/ASSETS.md`).
+
+Aucun serveur, aucun compte : les sprites sont des fichiers locaux, les sons sont générés (Web Audio).
 Les records sont enregistrés localement (navigateur) ; il n'existe pas de classement en ligne.
 
 ## Installation et lancement
@@ -42,11 +45,14 @@ npm run typecheck  # TypeScript
 npm test           # tests unitaires (Vitest)
 npm run check      # typecheck + tests + build
 npm run e2e        # test navigateur Chromium (Playwright requis, non inclus) après npm run build
-npm run sim        # outil d'équilibrage : bots sur les 12 niveaux et en Survie
+npm run sim        # outil d'équilibrage : bots sur les 12 niveaux, courbe et mix de motifs de la Survie
+npm run perf       # coût processeur en émulation mobile (node scripts/perf.mjs --dist <dossier> pour comparer deux builds)
+npm run sprites    # recrée les textures 128 px depuis art/source/ (Python + Pillow)
 ```
 
 `npm run e2e` utilise Playwright s'il est installé (localement ou globalement) et écrit des captures dans `screenshots/`.
-Ajoutez `?demo` à l'URL (ex. `http://localhost:5173/?demo`) pour laisser le joueur automatique jouer : utile pour observer les motifs.
+Paramètres d'URL de contrôle : `?demo` laisse le joueur automatique jouer (observer les motifs) ; `?debug` affiche les hitboxes
+(traits pleins) et les silhouettes (traits fins).
 
 ## Commandes de jeu
 
@@ -69,6 +75,14 @@ fenêtre perd le focus ; la reprise est volontaire et précédée d'un compte à
 
 Les annonces se distinguent des dangers actifs par la forme (pointillés/contours contre formes pleines), pas seulement par la couleur.
 
+## Sauvegarde et records
+
+Sauvegarde locale versionnée (format 2). Les **records de Survie et du défi quotidien dépendent de la version d'équilibrage** :
+après la mise à jour v1.1 (courbe plus rapide, hitboxes ajustées), les anciens records sont **conservés à part** (« ancien équilibrage »),
+affichés à titre indicatif et jamais comparés aux nouveaux ; les nouveaux records repartent de zéro. Niveaux débloqués, étoiles, meilleurs
+scores, succès, apparences et options sont **préservés tels quels**. Une copie de l'ancienne sauvegarde est gardée dans le navigateur
+(`polarite.save.avant-v1`) et supprimée seulement par « Effacer toute la progression ».
+
 ## Options
 
 Son (coupure), volume, effets réduits (sans secousse, flash ni traînées), réaffichage de l'astuce de départ,
@@ -76,14 +90,19 @@ effacement de la progression (avec confirmation). Les options sont sauvegardées
 
 ## Structure
 
-Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles) et
+Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets) et
 `docs/MONETISATION.md` (pistes de rentabilité). Suivi : `PROGRESS.md`, reprise : `RESUME.md`.
 
 ## Limites connues
 
 - L'équilibrage (vitesses, cadences, seuils d'étoiles, ambition de 15–20 min en Survie) est calibré avec des bots aux
-  réflexes parfaits, **pas encore validé par des joueurs**. Tous les réglages sont dans `src/config/`.
+  réflexes parfaits, **pas encore validé par des joueurs**. La courbe de Survie v1.1 est ~2,5× plus rapide : à confirmer en jeu
+  (par exemple, vérifier qu'elle reste jouable pour de bons joueurs vers 2–3 minutes). Réglages dans `src/config/` :
+  `survival.ts` (difficulté), `hitbox.ts` (hitboxes), `visuals.ts` (tailles et effets), `balance.ts` (plafonds, score, combo).
 - Le validateur d'évitement écarte les combinaisons manifestement inévitables selon un modèle de joueur (décision toutes
   les 0,125 s, marge de sécurité) ; ce n'est pas une garantie mathématique pour un humain.
 - Tests réalisés en Chromium (bureau et émulation mobile). Safari iOS et Firefox n'ont pas été testés sur appareil réel.
-- Le rendu utilise WebGL (repli Canvas automatique via Phaser) ; le paquet JS fait ~1,3 Mo (≈ 340 Ko gzip), essentiellement Phaser.
+- Le rendu utilise WebGL (repli Canvas automatique via Phaser) ; le paquet JS fait ~1,3 Mo (≈ 340 Ko gzip), essentiellement Phaser,
+  plus ≈ 125 Ko de sprites.
+- Performances mobiles : mesurées seulement en émulation processeur (×4 ralenti, rendu logiciel) : le coût GPU d'un vrai téléphone n'a pas été mesuré.
+- Les sprites sont générés par IA (voir `docs/ASSETS.md`) : vérifier les conditions d'usage du fournisseur avant commercialisation.

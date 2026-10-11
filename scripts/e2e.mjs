@@ -276,6 +276,127 @@ const state = (page) =>
   await context.close();
 }
 
+// ————————————————————————————————————————————— Graphismes « Néon premium », impact, hitbox
+{
+  const { page, context, errors } = await newPage({ width: 1100, height: 800 }, { dpr: 2 });
+  await page.evaluate(() => { window.__polarite.save.options.tutorialSeen = true; });
+  const tex = await page.evaluate(() => ['ship', 'ast1', 'ast2', 'ast3', 'ast4'].every((k) => window.__polarite.game.textures.exists(k)));
+  check(tex, 'Les 5 sprites (vaisseau + 4 astéroïdes) sont chargés');
+  const size = await page.evaluate(() => { const t = window.__polarite.game.textures.get('ship').getSourceImage(); return [t.width, t.height]; });
+  check(size[0] === 128 && size[1] === 128, 'Texture du vaisseau 128×128 (puissance de deux, mipmaps)');
+
+  await page.click('[data-action="survival"]');
+  await page.waitForTimeout(500);
+  const visible = await page.evaluate(() => window.__polarite.renderer.shipSprite.visible);
+  check(visible, 'Le sprite du vaisseau est affiché en partie');
+
+  // Inversion : le sprite se retourne aussitôt (nez et flamme changent de sens), sans interpolation
+  const rot = () => page.evaluate(() => window.__polarite.renderer.shipSprite.rotation);
+  const r0 = await rot();
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(60);
+  const r1 = await rot();
+  let diff = Math.abs(r1 - r0) % (2 * Math.PI);
+  if (diff > Math.PI) diff = 2 * Math.PI - diff;
+  check(Math.abs(diff - Math.PI) < 0.45, `Inversion : le vaisseau se retourne immédiatement (Δ ≈ ${(diff / Math.PI).toFixed(2)} π)`);
+
+  // Agrandissement des visuels de 15 % : taille affichée du sprite = 2 × rayon visuel / 0,9375 × échelle
+  const dims = await page.evaluate(() => {
+    const r = window.__polarite.renderer;
+    return { w: r.shipSprite.displayWidth, scale: r.scale };
+  });
+  const expected = (2 * 11 * 1.15) / (120 / 128) * dims.scale;
+  check(Math.abs(dims.w - expected) < 0.5, `Vaisseau +15 % (${dims.w.toFixed(1)} px ≈ ${expected.toFixed(1)} px)`);
+
+  // Astéroïde : un projectile actif devient un sprite (sans collision : invincible)
+  await page.evaluate(() => {
+    const s = window.__polarite.session;
+    s.sim.invincible = true;
+    const t = s.sim.time;
+    s.sim.hazards.push({ kind: 'projectile', id: 9001, pattern: 'shot', warnStart: t - 1, launch: t - 0.2, end: t + 20, threatEnd: t + 20,
+      x0: -300, y0: 120, vx: 40, vy: 0, cross1: 0, cross2: 0, crossTime1: t - 1, crossTime2: t - 1, warned: true });
+  });
+  await page.waitForTimeout(250);
+  const nAst = await page.evaluate(() => window.__polarite.renderer.asteroidPool.filter((a) => a.img.visible).length);
+  check(nAst >= 1, 'Un projectile est dessiné par un sprite d’astéroïde');
+  await page.evaluate(() => { window.__polarite.session.sim.hazards.length = 0; });
+
+  // Collision : impact bref au point de contact (anneaux + éclats), puis résultat
+  await page.evaluate(() => { window.__polarite.session.sim.invincible = false; });
+  await page.evaluate(() => {
+    const s = window.__polarite.session;
+    const t = s.sim.time;
+    s.sim.hazards.push({ kind: 'sector', id: 9002, pattern: 'arc', warnStart: t, activeStart: t + 0.02, end: t + 3, threatEnd: t + 3,
+      center: s.sim.angle + s.sim.dir * 0.05, half: 0.4, warned: true, activated: false });
+  });
+  await page.waitForTimeout(140);
+  const impact = await page.evaluate(() => ({ rings: window.__polarite.renderer.rings.length, state: window.__polarite.session.sim.state, ship: window.__polarite.renderer.shipSprite.visible }));
+  check(impact.state === 'dead' && impact.rings >= 1, 'Collision : impact (onde de choc) déclenché au point de contact');
+  check(!impact.ship, 'Le vaisseau disparaît à l’impact');
+  await page.screenshot({ path: 'screenshots/40-impact.png' });
+  await page.waitForTimeout(900);
+  const ringsAfter = await page.evaluate(() => window.__polarite.renderer.rings.length);
+  check(ringsAfter === 0, 'L’impact reste bref (onde de choc terminée en moins d’une seconde)');
+  check((await page.locator('[data-replay]').count()) === 1, 'Écran de résultat après l’impact');
+
+  // Aperçu des hitboxes (?debug)
+  await page.goto(URL + '?demo&debug');
+  await page.waitForFunction(() => !!window.__polarite && window.__polarite.renderer);
+  await page.evaluate(() => { window.__polarite.save.options.tutorialSeen = true; });
+  await page.click('[data-action="survival"]');
+  await page.evaluate(() => window.__polarite.fastForward(70));
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'screenshots/41-debug-hitbox.png' });
+  const debugOn = await page.evaluate(() => window.__polarite.renderer.debug);
+  check(debugOn === true, 'Aperçu des hitboxes (?debug) disponible');
+  check(errors.length === 0, `Aucune erreur console (graphismes)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
+  await context.close();
+}
+
+// ————————————————————————————————————————————— Migration de la sauvegarde v1.0
+{
+  const v1 = {
+    version: 1,
+    levels: { '1': { completed: true, bestScore: 52000, stars: 2 }, '2': { completed: true, bestScore: 41000, stars: 3 } },
+    survival: { bestTime: 312.4, bestScore: 88000, runs: 14 },
+    daily: { '2026-10-10': { bestTime: 140.2, bestScore: 31000, runs: 2 } },
+    achievements: { first_cycle: 1, first_level: 2 },
+    skin: 'aurore',
+    options: { muted: true, volume: 0.4, reducedEffects: false, tutorialSeen: true },
+    seenIntros: ['projectile'], stats: { totalCycles: 42, totalRuns: 30 },
+  };
+  const context = await browser.newContext({ viewport: { width: 900, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript((save) => { if (!localStorage.getItem('polarite.save')) localStorage.setItem('polarite.save', JSON.stringify(save)); }, v1);
+  await page.goto(URL);
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  const home = await page.locator('#screen').innerText();
+  check(home.includes('Équilibrage mis à jour'), 'Migration : information sur le nouvel équilibrage affichée');
+  check(/ancien équilibrage : 5:12/.test(home), 'Migration : ancien record de Survie (5:12,4) conservé et distingué');
+  const saved = await page.evaluate(() => {
+    const a = window.__polarite.save;
+    return { l: a.levels, skin: a.skin, ach: Object.keys(a.achievements).length, surv: a.survival.bestTime, arch: a.archive['1'].survival.bestTime, opt: a.options.muted };
+  });
+  check(saved.l['2'].stars === 3 && saved.skin === 'aurore' && saved.ach === 2 && saved.opt === true, 'Migration : niveaux, étoiles, succès, apparence et options préservés');
+  check(saved.surv === 0 && Math.abs(saved.arch - 312.4) < 1e-9, 'Migration : records actuels remis à zéro, anciens rangés à part');
+  const backup = await page.evaluate(() => localStorage.getItem('polarite.save.avant-v1'));
+  check(backup !== null && JSON.parse(backup).survival.bestTime === 312.4, 'Migration : copie de l’ancienne sauvegarde conservée');
+  // Le niveau 3 est ouvert (niveau 2 réussi)
+  await page.evaluate(() => window.__polarite.showScreen('levels'));
+  check((await page.locator('.level-card:not(:disabled)').count()) === 3, 'Migration : niveaux débloqués conservés (1, 2, 3)');
+  await page.evaluate(() => window.__polarite.showScreen('home'));
+  await page.click('[data-action="dismiss-notice"]');
+  check(!(await page.locator('#screen').innerText()).includes('Équilibrage mis à jour'), 'L’information se ferme et ne revient pas');
+  await page.screenshot({ path: 'screenshots/42-migration.png' });
+  await page.reload();
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  check(!(await page.locator('#screen').innerText()).includes('Équilibrage mis à jour'), 'L’information reste fermée après rechargement');
+  check(errors.length === 0, 'Aucune erreur (migration)');
+  await context.close();
+}
+
 // ————————————————————————————————————————————— Mobile portrait (tactile)
 {
   const { page, context, errors } = await newPage({ width: 390, height: 844 }, { touch: true, dpr: 3 });

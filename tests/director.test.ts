@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CAPS, LEVEL_DURATION, SECTOR, SIM, SURVIVAL } from '../src/config/balance';
+import { CAPS, LEVEL_DURATION, SECTOR, SIM } from '../src/config/balance';
+import { SURVIVAL } from '../src/config/survival';
 import { LEVELS } from '../src/config/levels';
 import { TAU } from '../src/core/math';
 import { levelProfile, survivalDifficulty, survivalProfile } from '../src/modes/profiles';

@@ -1,4 +1,4 @@
-import { RESPITE, SAFETY, SECTOR, SURVIVAL } from '../config/balance';
+import { CAPS, RESPITE, SAFETY, SECTOR } from '../config/balance';
 import { TAU } from '../core/math';
 import type { Rng } from '../core/rng';
 import { paramsFor, type DifficultyParams } from './difficulty';
@@ -15,12 +15,19 @@ export interface DifficultyProfile {
   /** Modulation du rythme (1 = normal). */
   intervalScale(t: number): number;
   firstWaveDelay: number;
-  /** Respirations périodiques (pauses plus longues entre certaines vagues). */
-  breaths: boolean;
+  /** Réduction des annonces (1 = inchangé). Les planchers de CAPS s'appliquent toujours. */
+  warnScale?: number;
+  /** Respirations : toutes les `every` vagues, une pause supplémentaire de `duration`. Absent = aucune. */
+  breath?(t: number): BreathParams | null;
   /** Plus aucune vague après ce temps (fin de niveau), ou null. */
   spawnUntil: number | null;
   /** Répit accordé à chaque cycle complet. */
   respite: boolean;
+}
+
+export interface BreathParams {
+  every: { min: number; max: number };
+  duration: { min: number; max: number };
 }
 
 export interface DirectorWorld {
@@ -39,6 +46,8 @@ export class Director {
   respiteThisWave = 0;
   lastRespiteAt = -Infinity;
   readonly params: DifficultyParams = paramsFor(0);
+  /** Observateur facultatif (tests, outils d'équilibrage) : instant et motif de chaque vague acceptée. */
+  onWave?: (time: number, pattern: PatternId) => void;
   private nextBreathWave: number;
   private readonly scratch: Hazard[] = [];
   private readonly weightBuf: number[] = [];
@@ -46,7 +55,9 @@ export class Director {
 
   constructor(private readonly profile: DifficultyProfile, private readonly rng: Rng) {
     this.nextWaveAt = profile.firstWaveDelay;
-    this.nextBreathWave = rng.int(SURVIVAL.breathEvery.min, SURVIVAL.breathEvery.max);
+    // Le tirage est conservé même sans respirations : l'ordre des tirages des niveaux reste celui de la v1.0.
+    const b0 = profile.breath?.(0);
+    this.nextBreathWave = b0 ? rng.int(b0.every.min, b0.every.max) : rng.int(6, 9);
   }
 
   /** Lance une vague si elle est due. Renvoie les menaces ajoutées (ou null). */
@@ -57,7 +68,7 @@ export class Director {
       this.nextWaveAt = Infinity;
       return null;
     }
-    const p = paramsFor(this.profile.difficulty(now), this.params);
+    const p = paramsFor(this.profile.difficulty(now), this.params, this.profile.warnScale ?? 1);
     const weights = this.profile.weights(now);
     this.idBuf.length = 0;
     this.weightBuf.length = 0;
@@ -92,7 +103,7 @@ export class Director {
       });
       all.length = 0;
       if (!ok) continue;
-      this.accept(now, def.cost, p);
+      this.accept(now, id, def.cost, p);
       return added;
     }
     this.deferred++;
@@ -100,14 +111,17 @@ export class Director {
     return null;
   }
 
-  private accept(now: number, cost: number, p: DifficultyParams): void {
+  private accept(now: number, pattern: PatternId, cost: number, p: DifficultyParams): void {
     this.waveCount++;
-    let interval = p.waveInterval * cost * this.profile.intervalScale(now);
-    if (this.profile.breaths && this.waveCount >= this.nextBreathWave) {
-      interval += this.rng.range(SURVIVAL.breathDuration.min, SURVIVAL.breathDuration.max);
-      this.nextBreathWave += this.rng.int(SURVIVAL.breathEvery.min, SURVIVAL.breathEvery.max);
+    // Plafond : jamais moins de CAPS.minWaveInterval entre deux vagues, quelle que soit l'intensité.
+    let interval = Math.max(CAPS.minWaveInterval, p.waveInterval * cost * this.profile.intervalScale(now));
+    const breath = this.profile.breath?.(now);
+    if (breath && this.waveCount >= this.nextBreathWave) {
+      interval += this.rng.range(breath.duration.min, breath.duration.max);
+      this.nextBreathWave = this.waveCount + this.rng.int(breath.every.min, breath.every.max);
     }
     this.nextWaveAt = now + interval;
+    this.onWave?.(now, pattern);
     this.respiteThisWave = 0;
   }
 

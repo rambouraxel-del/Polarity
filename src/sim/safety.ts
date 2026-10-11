@@ -1,4 +1,5 @@
 import { PLAYER, SAFETY } from '../config/balance';
+import { playerHitRadius } from '../config/hitbox';
 import { hazardHits } from './collision';
 import type { Hazard } from './hazards';
 
@@ -95,7 +96,7 @@ function transitionSafe(a: number, delta: number, t0: number, ds: number, sub: n
     const sa = a + sd * j;
     const s0 = t0 + st * j;
     for (const h of relevant) {
-      if (hazardHits(h, sa, sd, s0, s0 + st, PLAYER.hitRadius, margin, SAFETY.timeMargin)) return false;
+      if (hazardHits(h, sa, sd, s0, s0 + st, playerHitRadius(), margin, SAFETY.timeMargin)) return false;
     }
   }
   return true;

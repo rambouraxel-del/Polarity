@@ -28,8 +28,35 @@ export interface RunReport {
   /** Survie et défi */
   previousBestTime: number;
   newRecord: boolean;
+  /** Meilleur temps sous un ancien équilibrage (0 si aucun) : affiché à titre indicatif, jamais comparé. */
+  legacyBestTime: number;
   /** Nouveaux succès. */
   achievements: AchievementDef[];
+}
+
+/** Meilleur record de Survie obtenu sous un ancien équilibrage (non comparable aux records actuels), ou null. */
+export function legacySurvivalBest(save: SaveData): { version: number; time: number; score: number } | null {
+  let best: { version: number; time: number; score: number } | null = null;
+  for (const [k, rec] of Object.entries(save.archive)) {
+    if (rec.survival.bestTime <= 0) continue;
+    if (!best || beatsRecord(rec.survival.bestTime, rec.survival.bestScore, best.time, best.score)) {
+      best = { version: Number(k), time: rec.survival.bestTime, score: rec.survival.bestScore };
+    }
+  }
+  return best;
+}
+
+/** Résultats du défi quotidien sous un ancien équilibrage, du plus récent au plus ancien. */
+export function legacyDailyList(save: SaveData, limit = 5): { date: string; time: number; score: number }[] {
+  const all: { date: string; time: number; score: number }[] = [];
+  for (const rec of Object.values(save.archive)) {
+    for (const [date, r] of Object.entries(rec.daily)) all.push({ date, time: r.bestTime, score: r.bestScore });
+  }
+  return all.sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, limit);
+}
+
+export function hasLegacyRecords(save: SaveData): boolean {
+  return legacySurvivalBest(save) !== null || legacyDailyList(save, 1).length > 0;
 }
 
 /** Le niveau 1 est toujours ouvert ; le niveau n s'ouvre quand le niveau n − 1 est réussi. */
@@ -62,6 +89,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     unlockedLevel: null,
     previousBestTime: 0,
     newRecord: false,
+    legacyBestTime: 0,
     achievements: [],
   };
   save.stats.totalRuns++;
@@ -88,6 +116,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     }
   } else if (run.mode === 'survival') {
     const rec = save.survival;
+    report.legacyBestTime = legacySurvivalBest(save)?.time ?? 0;
     report.previousBestTime = rec.bestTime;
     report.previousBestScore = rec.bestScore;
     rec.runs++;
@@ -98,6 +127,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     }
   } else if (run.mode === 'daily' && run.date) {
     const rec = save.daily[run.date] ?? { bestTime: 0, bestScore: 0, runs: 0 };
+    for (const old of Object.values(save.archive)) report.legacyBestTime = Math.max(report.legacyBestTime, old.daily[run.date]?.bestTime ?? 0);
     report.previousBestTime = rec.bestTime;
     report.previousBestScore = rec.bestScore;
     rec.runs++;

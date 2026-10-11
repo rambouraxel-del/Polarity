@@ -4,9 +4,20 @@
  * on retombe sur des valeurs par défaut (et la donnée corrompue est mise de côté, pas effacée).
  */
 
-export const SAVE_VERSION = 1;
+import { BALANCE_VERSION } from '../config/version';
+
+/**
+ * Versions du format :
+ *  1 — v1.0 : records de Survie / défi sans notion d'équilibrage.
+ *  2 — v1.1 : records rattachés à une version d'équilibrage (`balance`) ; les records d'un ancien équilibrage
+ *      sont rangés dans `archive` (jamais comparés ni supprimés). Niveaux, étoiles, succès, apparences et
+ *      options sont inchangés.
+ */
+export const SAVE_VERSION = 2;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
+/** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
+export const BACKUP_PREFIX = 'polarite.save.avant-v';
 /** Nombre de dates conservées pour le défi quotidien. */
 export const DAILY_KEEP = 30;
 
@@ -31,11 +42,25 @@ export interface Options {
   tutorialSeen: boolean;
 }
 
-export interface SaveData {
-  version: number;
-  levels: Record<string, LevelRecord>;
+/** Records de Survie et de défi obtenus sous un ancien équilibrage. */
+export interface ArchivedRecords {
   survival: RunRecord;
   daily: Record<string, RunRecord>;
+}
+
+export interface SaveData {
+  version: number;
+  /** Version d'équilibrage à laquelle appartiennent `survival` et `daily`. */
+  balance: number;
+  levels: Record<string, LevelRecord>;
+  /** Records de Survie sous l'équilibrage actuel. */
+  survival: RunRecord;
+  /** Records du défi quotidien, par date UTC, sous l'équilibrage actuel. */
+  daily: Record<string, RunRecord>;
+  /** Anciens équilibrages, par numéro de version : conservés à titre indicatif, non comparables. */
+  archive: Record<string, ArchivedRecords>;
+  /** Dernière version d'équilibrage dont le joueur a lu l'information. */
+  balanceNoticeSeen: number;
   achievements: Record<string, number>;
   skin: string;
   options: Options;
@@ -47,14 +72,18 @@ export interface SaveData {
 export interface KeyValueStore {
   get(key: string): string | null;
   set(key: string, value: string): void;
+  remove(key: string): void;
 }
 
 export function defaultSave(): SaveData {
   return {
     version: SAVE_VERSION,
+    balance: BALANCE_VERSION,
     levels: {},
     survival: { bestTime: 0, bestScore: 0, runs: 0 },
     daily: {},
+    archive: {},
+    balanceNoticeSeen: BALANCE_VERSION,
     achievements: {},
     skin: 'classique',
     options: { muted: false, volume: 0.7, reducedEffects: false, tutorialSeen: false },
@@ -80,6 +109,14 @@ export class BrowserStore implements KeyValueStore {
       /* stockage indisponible : la partie continue sans sauvegarde */
     }
   }
+
+  remove(key: string): void {
+    try {
+      globalThis.localStorage?.removeItem(key);
+    } catch {
+      /* ignoré */
+    }
+  }
 }
 
 export class MemoryStore implements KeyValueStore {
@@ -90,12 +127,24 @@ export class MemoryStore implements KeyValueStore {
   set(key: string, value: string): void {
     this.map.set(key, value);
   }
+  remove(key: string): void {
+    this.map.delete(key);
+  }
 }
 
 const num = (v: unknown, def: number, min = -Infinity, max = Infinity): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def;
 const bool = (v: unknown, def: boolean): boolean => (typeof v === 'boolean' ? v : def);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function sanitizeDaily(raw: Record<string, unknown>): Record<string, RunRecord> {
+  const daily: Record<string, RunRecord> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(k)) daily[k] = sanitizeRun(v);
+  }
+  pruneDaily(daily);
+  return daily;
+}
 
 function sanitizeRun(v: unknown): RunRecord {
   const o = isObj(v) ? v : {};
@@ -123,12 +172,24 @@ export function sanitize(raw: unknown): SaveData {
     }
   }
   out.survival = sanitizeRun(raw.survival);
-  if (isObj(raw.daily)) {
-    for (const [k, v] of Object.entries(raw.daily)) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(k)) out.daily[k] = sanitizeRun(v);
+  if (isObj(raw.daily)) out.daily = sanitizeDaily(raw.daily);
+  if (isObj(raw.archive)) {
+    for (const [k, v] of Object.entries(raw.archive)) {
+      if (!/^\d+$/.test(k) || !isObj(v)) continue;
+      out.archive[k] = { survival: sanitizeRun(v.survival), daily: isObj(v.daily) ? sanitizeDaily(v.daily) : {} };
     }
-    pruneDaily(out.daily);
   }
+  out.balanceNoticeSeen = Math.floor(num(raw.balanceNoticeSeen, BALANCE_VERSION, 0));
+  // Records d'un ancien équilibrage : rangés à part, les records de l'équilibrage actuel repartent de zéro.
+  const balance = Math.floor(num(raw.balance, BALANCE_VERSION, 1));
+  if (balance < BALANCE_VERSION) {
+    const key = String(balance);
+    if (!out.archive[key]) out.archive[key] = { survival: out.survival, daily: out.daily };
+    out.survival = defaultSave().survival;
+    out.daily = {};
+    out.balanceNoticeSeen = Math.min(out.balanceNoticeSeen, balance);
+  }
+  out.balance = BALANCE_VERSION;
   if (isObj(raw.achievements)) {
     for (const [k, v] of Object.entries(raw.achievements)) {
       if (typeof v === 'number' && Number.isFinite(v)) out.achievements[k] = v;
@@ -156,13 +217,13 @@ export function sanitize(raw: unknown): SaveData {
   return out;
 }
 
-/** Migration des anciens formats (aucun pour l'instant : la version 1 est la première). */
+/** Migration des anciens formats. La validation champ par champ (sanitize) fait ensuite le tri. */
 export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   const v = typeof raw.version === 'number' ? raw.version : 0;
-  if (v < 1) {
-    // Format sans version : tenté tel quel, la validation fait le tri.
-  }
-  return { ...raw, version: SAVE_VERSION };
+  const out: Record<string, unknown> = { ...raw, version: SAVE_VERSION };
+  // Avant la v2, les records n'avaient pas de notion d'équilibrage : ils appartiennent à l'équilibrage 1.
+  if (v < 2) out.balance = 1;
+  return out;
 }
 
 export function pruneDaily(daily: Record<string, RunRecord>): void {
@@ -172,7 +233,7 @@ export function pruneDaily(daily: Record<string, RunRecord>): void {
 
 export interface LoadResult {
   data: SaveData;
-  status: 'new' | 'ok' | 'corrupt' | 'future';
+  status: 'new' | 'ok' | 'migrated' | 'corrupt' | 'future';
 }
 
 export function loadSave(store: KeyValueStore): LoadResult {
@@ -194,6 +255,13 @@ export function loadSave(store: KeyValueStore): LoadResult {
     store.set(CORRUPT_KEY, text);
     return { data: sanitize(parsed), status: 'future' };
   }
+  const version = typeof parsed.version === 'number' ? parsed.version : 0;
+  if (version < SAVE_VERSION) {
+    // Copie de sauvegarde avant migration (une seule fois, jamais écrasée)
+    const backupKey = `${BACKUP_PREFIX}${version}`;
+    if (store.get(backupKey) === null) store.set(backupKey, text);
+    return { data: sanitize(migrate(parsed)), status: 'migrated' };
+  }
   return { data: sanitize(migrate(parsed)), status: 'ok' };
 }
 
@@ -203,4 +271,9 @@ export function writeSave(store: KeyValueStore, data: SaveData): void {
   } catch {
     /* ignoré */
   }
+}
+
+/** Effacement explicite et confirmé : supprime aussi les copies de sauvegarde conservées lors des migrations. */
+export function eraseAll(store: KeyValueStore): void {
+  for (const key of [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`]) store.remove(key);
 }
