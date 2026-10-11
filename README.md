@@ -28,6 +28,13 @@ npm run build
 npm run preview    # aperçu local du build
 ```
 
+## Publication sur GitHub Pages
+
+Le workflow `.github/workflows/pages.yml` lance les tests, construit le jeu et le publie à chaque push sur `main`
+(ou à la demande depuis l'onglet Actions). Réglage unique dans le dépôt : **Settings → Pages → Source : GitHub Actions**.
+Le jeu est ensuite disponible sur `https://<utilisateur>.github.io/<dépôt>/`. Les chemins du build sont relatifs :
+il fonctionne dans n'importe quel sous-dossier.
+
 ## Vérifications
 
 ```bash
