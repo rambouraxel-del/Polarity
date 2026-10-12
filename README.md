@@ -11,6 +11,7 @@ les six balises pour enchaîner les cycles et faire monter le multiplicateur.
   et gagne 5 points de pourcentage toutes les 30 s (100 % à 6 min). Des **événements** rythment la partie : *pluie de météores* (12 s) et *tempête électrique* (10 s),
   annoncés 2 s avant, suivis de 3 s de respiration. Trois dangers s'y ajoutent peu à peu : **astéroïde fragmenté**, **convoi d'astéroïdes**, **laser balayeur**.
 - **Défi quotidien** : règles de la Survie, mêmes motifs et mêmes événements (graine = date UTC) pour tous. Meilleur résultat conservé par date.
+- **Éclats et boutique** : en Survie, un éclat apparaît 5 s sur l'orbite (+5 Éclats), les niveaux rapportent 50 / +15 par étoile / 10 ; les Éclats achètent des vaisseaux, traînées et packs cosmétiques. Les Prismes (monnaie premium) sont préparés mais **non achetables** (« Bientôt disponible »). Voir `docs/ECONOMIE.md`.
 - **Apparences et succès** : 9 succès, 7 apparences purement cosmétiques (coque, ailes, cockpit et réacteur de couleurs différentes, même hitbox). Menu avec grand aperçu animé, cartes *Équipé / Disponible / Verrouillé*, bouton « Équiper » et condition de déblocage précise (`docs/APPARENCES.md`).
 
 Style graphique « Néon premium » (v1.1) : vrai vaisseau blanc/argent à cockpit cyan et astéroïdes rocheux aux fissures orange,
@@ -102,7 +103,7 @@ effacement de la progression (avec confirmation). Les options sont sauvegardées
 
 ## Structure
 
-Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/INTERFACE.md` (direction artistique, thème, écrans), `docs/APPARENCES.md` (ajouter une apparence), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
+Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/INTERFACE.md` (direction artistique, thème, écrans), `docs/APPARENCES.md` (ajouter une apparence), `docs/ECONOMIE.md` (Éclats, Prismes, boutique), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
 `docs/MONETISATION.md` (pistes de rentabilité). Suivi : `PROGRESS.md`, reprise : `RESUME.md`.
 
 ## Limites connues

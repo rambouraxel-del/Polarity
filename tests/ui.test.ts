@@ -7,6 +7,8 @@ import { ACHIEVEMENTS } from '../src/progression/achievements';
 import { BACKUP_PREFIX, BALANCE_BACKUP_PREFIX, CORRUPT_KEY, SAVE_KEY, defaultSave } from '../src/save/save';
 import { THEME, contrast, themeVariables, type ThemeColor } from '../src/ui/theme';
 import { bannerHelp } from '../src/ui/controls';
+import { applyRun } from '../src/progression/progress';
+import { formatScore } from '../src/ui/format';
 import * as S from '../src/ui/screens';
 
 const STYLES = join(__dirname, '..', 'src', 'styles');
@@ -73,7 +75,7 @@ describe('écrans : données réelles', () => {
 
   it('accueil : Survie en tête, puis Niveaux et Défi quotidien, puis Apparences, Succès, Options', () => {
     const html = S.homeScreen(save, '2026-10-12');
-    const order = ['data-action="survival"', 'data-action="levels"', 'data-action="daily"', 'data-action="skins"', 'data-action="achievements"', 'data-action="options"'];
+    const order = ['data-action="survival"', 'data-action="levels"', 'data-action="daily"', 'data-action="shop"', 'data-action="skins"', 'data-action="achievements"', 'data-action="options"'];
     const idx = order.map((s) => html.indexOf(s));
     expect(idx.every((i) => i >= 0)).toBe(true);
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);
@@ -100,17 +102,23 @@ describe('écrans : données réelles', () => {
 
 describe('menu Apparences', () => {
   const save = defaultSave();
+  save.owned = ['aurore', 'ambre'];
   save.achievements = { first_cycle: 1, survive_60: 2 };
   save.skin = 'aurore';
 
-  it('une carte par apparence avec son état (équipé, disponible, verrouillé)', () => {
+  it('cartes : vaisseaux possédés et exclusivités de succès, avec leur état', () => {
     const html = S.collectionScreen(save, 'skins');
-    expect(html.match(/class="skin /g)?.length).toBe(7);
+    // Classique, Aurore, Ambre (possédés) + Glace, Solaire, Prisme (exclusivités de succès) ; Menthe, Spectre et Néon sont dans la boutique
+    expect(html.match(/class="skin /g)?.length).toBe(6);
     expect(html).toContain('chip--equipped');
     expect(html).toContain('chip--available');
     expect(html).toContain('chip--locked');
-    // Équipée : Aurore (aperçu par défaut)
     expect(html).toContain('data-skin-preview="aurore"');
+    expect(html).not.toContain('data-skin="menthe"');
+    // Soldes et accès à la boutique
+    expect(html).toContain('data-wallet="shards"');
+    expect(html).toContain('data-wallet="prisms"');
+    expect(html).toContain('data-action="shop"');
   });
 
   it('apparence disponible : bouton « Équiper » actif', () => {
@@ -120,11 +128,12 @@ describe('menu Apparences', () => {
     expect(html).toContain('Équiper');
   });
 
-  it('apparence verrouillée : condition précise et bouton inactif', () => {
+  it('exclusivité de succès : condition précise et bouton « Succès requis » inactif', () => {
     const html = S.collectionScreen(save, 'skins', 'glace');
     expect(html).toContain('Pleine charge');
     expect(html).toContain('Atteindre le multiplicateur maximal');
     expect(html).toMatch(/data-action="equip-skin"\s+disabled/);
+    expect(html).toContain('Succès requis');
     expect(html).toContain('skin-preview--locked');
   });
 
@@ -133,8 +142,9 @@ describe('menu Apparences', () => {
     expect(html).toMatch(/data-action="equip-skin"\s+disabled[^>]*>.*Équipé/s);
   });
 
-  it('identifiant sélectionné inconnu → modèle classique', () => {
-    expect(S.collectionScreen(save, 'skins', 'inconnue')).toContain('data-skin-preview="classique"');
+  it('identifiant sélectionné inconnu ou non affiché → apparence équipée', () => {
+    expect(S.collectionScreen(save, 'skins', 'inconnue')).toContain('data-skin-preview="aurore"');
+    expect(S.collectionScreen(save, 'skins', 'menthe')).toContain('data-skin-preview="aurore"');
   });
 });
 
@@ -151,5 +161,122 @@ describe('aide aux contrôles', () => {
     expect(desk).not.toContain('Touchez');
     expect(bannerHelp(true)).not.toContain('Espace');
     expect(bannerHelp(false)).toContain('Espace');
+  });
+});
+
+describe('boutique et soldes', () => {
+  const base = (): ReturnType<typeof defaultSave> => {
+    const s = defaultSave();
+    s.wallet = { shards: 1200, prisms: 0 };
+    s.owned = ['aurore'];
+    s.skin = 'aurore';
+    return s;
+  };
+
+  it('les deux soldes sont affichés sur l’accueil, la boutique et les apparences', () => {
+    const save = base();
+    for (const html of [S.homeScreen(save, '2026-10-12'), S.shopScreen(save, 'ships'), S.collectionScreen(save, 'skins')]) {
+      expect(html).toContain('data-wallet="shards"');
+      expect(html).toContain('data-wallet="prisms"');
+      expect(html).toContain(formatScore(1200));
+      expect(html).toContain('Éclats');
+      expect(html).toContain('Prismes');
+    }
+  });
+
+  it('trois onglets : Vaisseaux, Traînées, Packs', () => {
+    const html = S.shopScreen(base(), 'ships');
+    for (const a of ['tab-shop-ships', 'tab-shop-trails', 'tab-shop-packs']) expect(html).toContain(`data-action="${a}"`);
+    expect(S.shopScreen(base(), 'trails')).toContain('data-item="glacier"');
+    expect(S.shopScreen(base(), 'packs')).toContain('data-item="pack-spectre"');
+  });
+
+  it('états : Acheter, Solde insuffisant, Équiper, Équipé, Succès requis, Bientôt disponible', () => {
+    const save = base();
+    // Acheter (menthe 200 ≤ 1200)
+    let html = S.shopScreen(save, 'ships', 'menthe');
+    expect(html).toMatch(/data-action="buy"[^>]*data-item="menthe"/);
+    expect(html).toContain('Acheter');
+    // Solde insuffisant
+    save.wallet.shards = 50;
+    html = S.shopScreen(save, 'ships', 'menthe');
+    expect(html).toContain('Solde insuffisant');
+    expect(html).toMatch(/data-action="buy"\s+disabled/);
+    expect(html).toContain('Il vous manque 150 Éclats');
+    // Possédé non équipé : Équiper
+    save.owned.push('ambre');
+    html = S.shopScreen(save, 'ships', 'ambre');
+    expect(html).toMatch(/data-action="equip-item"[^>]*data-item="ambre"/);
+    expect(html).toContain('Possédé');
+    // Équipé
+    html = S.shopScreen(save, 'ships', 'aurore');
+    expect(html).toContain('Équipé');
+    // Succès requis : condition affichée
+    html = S.shopScreen(save, 'ships', 'solaire');
+    expect(html).toContain('Succès requis');
+    expect(html).toContain('Endurance');
+    // Premium : Bientôt disponible, aucun bouton de paiement actif
+    html = S.shopScreen(save, 'ships', 'neon');
+    expect(html).toContain('Bientôt disponible');
+    expect(html).toContain('Prismes');
+    expect(html).not.toMatch(/data-action="buy"(?![^>]*disabled)[^>]*data-item="neon"/);
+    expect(html).not.toMatch(/data-action="buy"\s+data-item="neon"/);
+  });
+
+  it('chaque article affiche aperçu, contenu, prix et monnaie', () => {
+    const save = base();
+    const html = S.shopScreen(save, 'packs', 'pack-spectre');
+    expect(html).toContain('data-skin-preview="spectre"');
+    expect(html).toContain('Vaisseau Spectre');
+    expect(html).toContain('Traînée Ultraviolet');
+    expect(html).toContain('900');
+    expect(html).toContain('Éclats');
+    const trail = S.shopScreen(save, 'trails', 'glacier');
+    expect(trail).toContain('data-trail-color=');
+    expect(trail).toContain('250');
+  });
+
+  it('aucun article premium n’a de bouton de paiement actif, dans aucun onglet', () => {
+    const save = base();
+    save.wallet.prisms = 100000;
+    for (const tab of ['ships', 'trails', 'packs'] as const) {
+      for (const item of ['neon', 'nebuleuse', 'pack-neon']) {
+        const html = S.shopScreen(save, tab, item);
+        const enabled = html.match(/<button[^>]*data-action="buy"[^>]*>/g)?.filter((b) => !b.includes('disabled') && b.includes(item)) ?? [];
+        expect(enabled).toEqual([]);
+      }
+    }
+  });
+
+  it('confirmation : récapitulatif sans rien débiter', () => {
+    const save = base();
+    const html = S.confirmPurchaseScreen(save, 'spectre');
+    expect(html).toContain('Confirmer l’achat');
+    expect(html).toContain('600');
+    expect(html).toMatch(/data-action="confirm-buy"[^>]*data-item="spectre"/);
+    expect(save.wallet.shards).toBe(1200);
+    expect(save.owned).toEqual(['aurore']);
+    // Article inconnu ou premium : pas d'achat possible
+    expect(S.confirmPurchaseScreen(save, 'inconnu')).not.toContain('confirm-buy');
+  });
+
+  it('résultat : Éclats gagnés, origine et nouveau solde ; réafficher l’écran ne recrédite rien', () => {
+    const save = defaultSave();
+    const rep = applyRun(save, { mode: 'level', levelId: 1, time: 90, score: 60000, cycles: 2, bestMultiplier: 2, outcome: 'complete' });
+    expect(save.wallet.shards).toBe(rep.levelReward!.total);
+    const html = S.resultScreen(rep, true);
+    expect(html).toContain('Première réussite du niveau');
+    expect(html).toContain(`+${rep.levelReward!.total}`);
+    expect(html).toContain('Nouveau solde');
+    const before = save.wallet.shards;
+    S.resultScreen(rep, true);
+    S.resultScreen(rep, true);
+    expect(save.wallet.shards).toBe(before);
+    // Survie : Éclats collectés sur l'orbite
+    const surv = applyRun(save, { mode: 'survival', time: 84.6, score: 12400, cycles: 3, bestMultiplier: 3, outcome: 'dead', shards: 25 });
+    const h2 = S.resultScreen(surv, false);
+    expect(h2).toContain('Éclats collectés sur l’orbite');
+    expect(h2).toContain('+25');
+    expect(save.wallet.shards).toBe(before);
   });
 });

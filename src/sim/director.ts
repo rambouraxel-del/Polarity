@@ -24,6 +24,8 @@ export interface DifficultyProfile {
   breath?(t: number): BreathParams | null;
   /** Événements (Survie / défi quotidien) : absent = aucun. */
   events?: boolean;
+  /** Éclats sur l'orbite (Survie) : absent = aucun. */
+  shards?: boolean;
   /** Plus aucune vague après ce temps (fin de niveau), ou null. */
   spawnUntil: number | null;
   /** Répit accordé à chaque cycle complet. */

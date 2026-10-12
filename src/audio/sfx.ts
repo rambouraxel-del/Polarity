@@ -3,7 +3,7 @@
  * Le contexte audio n'est créé qu'après une interaction utilisateur.
  * Les sons complètent l'image ; aucune information n'est transmise uniquement par le son.
  */
-export type SoundName = 'flip' | 'collect' | 'cycle' | 'warn' | 'activate' | 'hit' | 'success' | 'record' | 'ui' | 'tick';
+export type SoundName = 'flip' | 'collect' | 'cycle' | 'warn' | 'activate' | 'hit' | 'success' | 'record' | 'ui' | 'tick' | 'shard' | 'shardSpawn';
 
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -96,6 +96,14 @@ export class Sfx {
         break;
       case 'record':
         [0, 0.09, 0.18, 0.3].forEach((d, i) => this.tone('sine', 660 * Math.pow(1.19, i), 0, 0.25, 0.22, d));
+        break;
+      case 'shard':
+        // Deux notes cristallines montantes : distinctes de la collecte d'une balise
+        [0, 0.07].forEach((d, i) => this.tone('sine', 988 * Math.pow(1.5, i), 0, 0.22, 0.2, d));
+        this.tone('triangle', 1976, 0, 0.3, 0.06, 0.07);
+        break;
+      case 'shardSpawn':
+        this.tone('sine', 1320, 1760, 0.14, 0.08);
         break;
       case 'ui':
         this.tone('sine', 880, 0, 0.05, 0.1);

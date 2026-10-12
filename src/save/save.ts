@@ -4,6 +4,8 @@
  * on retombe sur des valeurs par défaut (et la donnée corrompue est mise de côté, pas effacée).
  */
 
+import { LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
+import { DEFAULT_TRAIL_ID } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 
 /**
@@ -12,8 +14,11 @@ import { BALANCE_VERSION } from '../config/version';
  *  2 — v1.1 : records rattachés à une version d'équilibrage (`balance`) ; les records d'un ancien équilibrage
  *      sont rangés dans `archive` (jamais comparés ni supprimés). Niveaux, étoiles, succès, apparences et
  *      options sont inchangés.
+ *  3 — v1.5 : économie (soldes d'Éclats et de Prismes, cosmétiques possédés, traînée équipée, récompenses de niveau déjà
+ *      versées). Migration : soldes à 0, cosmétiques déjà obtenus conservés, récompenses historiques marquées comme
+ *      traitées (aucun crédit rétroactif).
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -50,6 +55,18 @@ export interface ArchivedRecords {
   daily: Record<string, RunRecord>;
 }
 
+/** Soldes des deux monnaies (entiers positifs). Les Prismes ne sont jamais crédités par le jeu local. */
+export interface Wallet {
+  shards: number;
+  prisms: number;
+}
+
+/** Récompenses de niveau déjà versées : bonus de première réussite, et nombre d'étoiles déjà rémunérées. */
+export interface LevelPayout {
+  first: boolean;
+  stars: number;
+}
+
 export interface SaveData {
   version: number;
   /** Version d'équilibrage à laquelle appartiennent `survival` et `daily`. */
@@ -64,7 +81,15 @@ export interface SaveData {
   /** Dernière version d'équilibrage dont le joueur a lu l'information. */
   balanceNoticeSeen: number;
   achievements: Record<string, number>;
+  /** Apparence de vaisseau équipée. */
   skin: string;
+  /** Traînée équipée. */
+  trail: string;
+  wallet: Wallet;
+  /** Cosmétiques possédés (achetés ou conservés d'une version précédente), hors articles gratuits et exclusivités de succès. */
+  owned: string[];
+  /** Récompenses de niveau déjà versées, par niveau. */
+  paid: Record<string, LevelPayout>;
   options: Options;
   /** Familles de menaces déjà présentées en Survie. */
   seenIntros: string[];
@@ -88,6 +113,10 @@ export function defaultSave(): SaveData {
     balanceNoticeSeen: BALANCE_VERSION,
     achievements: {},
     skin: 'classique',
+    trail: DEFAULT_TRAIL_ID,
+    wallet: { ...WALLET_START },
+    owned: [],
+    paid: {},
     options: { muted: false, volume: 0.7, reducedEffects: false, tutorialSeen: false },
     seenIntros: [],
     stats: { totalCycles: 0, totalRuns: 0 },
@@ -198,6 +227,23 @@ export function sanitize(raw: unknown): SaveData {
     }
   }
   if (typeof raw.skin === 'string' && raw.skin.length < 40) out.skin = raw.skin;
+  if (typeof raw.trail === 'string' && raw.trail.length < 40) out.trail = raw.trail;
+  if (isObj(raw.wallet)) {
+    out.wallet = {
+      shards: Math.floor(num(raw.wallet.shards, WALLET_START.shards, 0, WALLET_MAX)),
+      prisms: Math.floor(num(raw.wallet.prisms, WALLET_START.prisms, 0, WALLET_MAX)),
+    };
+  }
+  if (Array.isArray(raw.owned)) {
+    const ids = raw.owned.filter((s): s is string => typeof s === 'string' && s.length > 0 && s.length < 40);
+    out.owned = [...new Set(ids)].slice(0, 200);
+  }
+  if (isObj(raw.paid)) {
+    for (const [k, v] of Object.entries(raw.paid)) {
+      if (!/^\d+$/.test(k) || !isObj(v)) continue;
+      out.paid[k] = { first: bool(v.first, false), stars: Math.floor(num(v.stars, 0, 0, 3)) };
+    }
+  }
   if (isObj(raw.options)) {
     const o = raw.options;
     out.options = {
@@ -225,6 +271,25 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...raw, version: SAVE_VERSION };
   // Avant la v2, les records n'avaient pas de notion d'équilibrage : ils appartiennent à l'équilibrage 1.
   if (v < 2) out.balance = 1;
+  // Avant la v3 : pas d'économie. Soldes à 0 ; cosmétiques déjà obtenus conservés ; récompenses de niveau historiques
+  // marquées comme déjà versées (aucun crédit rétroactif).
+  if (v < 3) {
+    const ach = isObj(raw.achievements) ? raw.achievements : {};
+    const owned = Object.entries(LEGACY_SKIN_ACHIEVEMENTS)
+      .filter(([, achievement]) => typeof ach[achievement] === 'number')
+      .map(([id]) => id);
+    out.owned = owned;
+    out.wallet = { ...WALLET_START };
+    out.trail = DEFAULT_TRAIL_ID;
+    const paid: Record<string, LevelPayout> = {};
+    if (isObj(raw.levels)) {
+      for (const [k, lv] of Object.entries(raw.levels)) {
+        if (!isObj(lv)) continue;
+        paid[k] = { first: lv.completed === true, stars: Math.floor(num(lv.stars, 0, 0, 3)) };
+      }
+    }
+    out.paid = paid;
+  }
   return out;
 }
 
@@ -262,6 +327,12 @@ export function loadSave(store: KeyValueStore): LoadResult {
     // Copie de sauvegarde avant migration (une seule fois, jamais écrasée)
     const backupKey = `${BACKUP_PREFIX}${version}`;
     if (store.get(backupKey) === null) store.set(backupKey, text);
+    // Un ancien format peut aussi porter des records d'un ancien équilibrage : copie dédiée, comme avant
+    const oldBalance = typeof parsed.balance === 'number' ? Math.floor(parsed.balance) : 1;
+    if (oldBalance < BALANCE_VERSION) {
+      const balanceKey = `${BALANCE_BACKUP_PREFIX}${oldBalance}`;
+      if (store.get(balanceKey) === null) store.set(balanceKey, text);
+    }
     return { data: sanitize(migrate(parsed)), status: 'migrated' };
   }
   // Même format, mais records d'un ancien équilibrage : copie de sécurité avant de les ranger à part
@@ -284,7 +355,7 @@ export function writeSave(store: KeyValueStore, data: SaveData): void {
 
 /** Effacement explicite et confirmé : supprime aussi les copies de sauvegarde conservées lors des migrations. */
 export function eraseAll(store: KeyValueStore): void {
-  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
+  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
   for (let b = 1; b <= 20; b++) keys.push(`${BALANCE_BACKUP_PREFIX}${b}`);
   for (const key of keys) store.remove(key);
 }

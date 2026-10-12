@@ -1,15 +1,18 @@
 import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
+import { catalogItem, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
 import { LEVELS } from '../config/levels';
+import { TRAILS, trailById } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
-import { ACHIEVEMENTS } from '../progression/achievements';
+import { ACHIEVEMENTS, achievementById } from '../progression/achievements';
 import { hasLegacyRecords, isLevelUnlocked, legacyDailyList, legacySurvivalBest, type RunReport } from '../progression/progress';
-import { SKINS, isSkinUnlocked, resolveEquipped, skinById, unlockAchievementId, unlockCondition, type Skin } from '../progression/skins';
+import { balanceOf, isOwned, itemPrice, itemState, type ItemState } from '../progression/shop';
+import { SKINS, isSkinOwned, resolveEquipped, unlockAchievementId, unlockCondition, type Skin } from '../progression/skins';
 import { skinThumb } from '../render/skinSprites';
 import type { SaveData } from '../save/save';
 import logoUrl from '../assets/ui/logo.png';
-import { button, notice, screenHead, setting, stat, switchButton, tabs } from './components';
+import { CURRENCY_NAME, button, coin, notice, price, screenHead, setting, stat, switchButton, tabs, walletBar } from './components';
 import { escapeHtml, formatDelta, formatScore, formatTime, starsHtml } from './format';
 import { homeHelp } from './controls';
 import { ICONS } from './icons';
@@ -61,14 +64,18 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
     </div>
     <div class="home__menu">
       ${banner}
+      ${walletBar(save.wallet)}
       ${button({ action: 'survival', label: 'Survie', sub: surv, icon: 'play', variant: 'primary', size: 'hero' })}
       ${button({ action: 'levels', label: 'Niveaux', sub: `${done}/${LEVELS.length} terminés · ${stars}/${LEVELS.length * 3} étoiles`, icon: 'levels', variant: 'secondary', size: 'row', chevron: true })}
       ${button({ action: 'daily', label: 'Défi quotidien', sub: dailyHint, icon: 'calendar', variant: 'secondary', size: 'row', chevron: true })}
       <div class="btn-row">
+        ${button({ action: 'shop', label: 'Boutique', icon: 'shop', variant: 'secondary', size: 'compact' })}
         ${button({ action: 'skins', label: 'Apparences', icon: 'rocket', variant: 'secondary', size: 'compact' })}
-        ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
       </div>
-      ${button({ action: 'options', label: 'Options', icon: 'gear', variant: 'ghost' })}
+      <div class="btn-row">
+        ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
+        ${button({ action: 'options', label: 'Options', icon: 'gear', variant: 'secondary', size: 'compact' })}
+      </div>
       <p class="small home__help">${homeHelp(touch)}</p>
     </div>
   </div>`;
@@ -140,43 +147,66 @@ type SkinState = 'equipped' | 'available' | 'locked';
 const STATE_LABEL: Record<SkinState, string> = { equipped: 'Équipé', available: 'Disponible', locked: 'Verrouillé' };
 
 function skinState(save: SaveData, skin: Skin): SkinState {
-  if (!isSkinUnlocked(skin, save.achievements)) return 'locked';
-  return resolveEquipped(save.skin, save.achievements).id === skin.id ? 'equipped' : 'available';
+  if (!isSkinOwned(skin, save)) return 'locked';
+  return resolveEquipped(save.skin, save).id === skin.id ? 'equipped' : 'available';
 }
 
 const stateChip = (st: SkinState): string =>
   `<span class="chip chip--${st}">${st === 'equipped' ? ICONS.check : st === 'locked' ? ICONS.lock : ''}${STATE_LABEL[st]}</span>`;
 
+/** Miniature d'un vaisseau (sprite recoloré) ; à défaut, une icône. */
+const shipThumb = (id: string): string => {
+  const thumb = skinThumb(id);
+  return thumb ? `<img src="${thumb}" alt="" width="64" height="64" decoding="async" />` : ICONS.rocket;
+};
+
 function skinCard(save: SaveData, skin: Skin, selected: boolean): string {
   const st = skinState(save, skin);
-  const thumb = skinThumb(skin.id);
   return `<button class="skin skin--${st}${selected ? ' skin--selected' : ''}" data-action="select-skin" data-skin="${skin.id}" aria-pressed="${selected}" aria-label="${escapeHtml(skin.name)} — ${STATE_LABEL[st].toLowerCase()}">
-    <span class="skin__thumb">${thumb ? `<img src="${thumb}" alt="" width="64" height="64" decoding="async" />` : ICONS.rocket}${st === 'locked' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__thumb">${shipThumb(skin.id)}${st === 'locked' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
     <span class="skin__name">${escapeHtml(skin.name)}</span>
     ${stateChip(st)}
   </button>`;
 }
 
-/** Condition de déblocage précise d'une apparence verrouillée (nom du succès et ce qu'il faut accomplir). */
+/** Condition de déblocage précise d'une exclusivité de succès. */
 function unlockText(skin: Skin, unlocked: boolean): string {
   const c = unlockCondition(skin);
-  if (!c) return 'Disponible dès le départ.';
-  const what = `succès «\u00a0${escapeHtml(c.name)}\u00a0»${c.description ? `\u00a0: ${escapeHtml(c.description)}` : ''}`;
+  if (!c) return unlocked ? 'Disponible.' : 'À acheter dans la boutique.';
+  const what = `succès « ${escapeHtml(c.name)} »${c.description ? ` : ${escapeHtml(c.description)}` : ''}`;
   return unlocked ? `Débloquée par le ${what}` : `Pour la débloquer : ${what}`;
 }
 
+/** Vaisseaux affichés dans Apparences : ceux que l'on possède, et les exclusivités de succès (verrouillées tant que le succès manque). */
+const wardrobe = (save: SaveData): Skin[] => SKINS.filter((k) => isSkinOwned(k, save) || unlockAchievementId(k) !== null);
+
+/** Traînées possédées : sélection rapide sous la grille. */
+function trailRow(save: SaveData): string {
+  const owned = TRAILS.filter((t) => isOwned(save, t.id));
+  const chips = owned
+    .map((t) => {
+      const on = save.trail === t.id;
+      const swatch = t.color === null ? '' : `<i class="swatch" style="background:#${t.color.toString(16).padStart(6, '0')}"></i>`;
+      return `<button class="trail-chip${on ? ' trail-chip--on' : ''}" data-action="equip-item" data-item="${t.id}" aria-pressed="${on}">${swatch}${escapeHtml(t.name)}${on ? ICONS.check : ''}</button>`;
+    })
+    .join('');
+  return `<h3 class="section-title">Traînée</h3><div class="trail-row" role="group" aria-label="Traînée équipée">${chips}</div>`;
+}
+
 function skinsPanel(save: SaveData, head: string, selectedId?: string): string {
-  const equipped = resolveEquipped(save.skin, save.achievements);
-  const sel = skinById(selectedId ?? equipped.id);
+  const equipped = resolveEquipped(save.skin, save);
+  const list = wardrobe(save);
+  const sel = list.find((k) => k.id === selectedId) ?? equipped;
   const st = skinState(save, sel);
   const action =
     st === 'available'
       ? button({ action: 'equip-skin', label: 'Équiper', icon: 'check', variant: 'primary', attrs: `data-skin="${sel.id}"` })
       : st === 'equipped'
         ? button({ action: 'equip-skin', label: 'Équipé', icon: 'check', variant: 'secondary', attrs: 'disabled' })
-        : button({ action: 'equip-skin', label: 'Verrouillée', icon: 'lock', variant: 'secondary', attrs: 'disabled' });
-  const cards = SKINS.map((k) => skinCard(save, k, k.id === sel.id)).join('');
+        : button({ action: 'equip-skin', label: 'Succès requis', icon: 'lock', variant: 'secondary', attrs: 'disabled' });
+  const cards = list.map((k) => skinCard(save, k, k.id === sel.id)).join('');
   return `<div class="panel panel--wide">${head}
+    ${walletBar(save.wallet)}
     <div class="skin-stage">
       <div class="skin-preview${st === 'locked' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${sel.id}" role="img" aria-label="Aperçu de l’apparence ${escapeHtml(sel.name)}"></canvas>
@@ -190,7 +220,175 @@ function skinsPanel(save: SaveData, head: string, selectedId?: string): string {
       </div>
     </div>
     <div class="skins" role="group" aria-label="Apparences">${cards}</div>
-    <p class="small" style="margin-top:12px">Purement esthétiques : aucune apparence ne modifie les performances. Les menaces gardent toujours leurs couleurs.</p>
+    ${trailRow(save)}
+    <div class="shop-link">${button({ action: 'shop', label: 'Voir la boutique', icon: 'shop', variant: 'secondary', chevron: true })}</div>
+    <p class="small" style="margin-top:12px">Purement esthétiques : aucune apparence ni traînée ne modifie les performances. Les menaces gardent toujours leurs couleurs.</p>
+  </div>`;
+}
+
+// ————————————————————————————————————————————— Boutique
+
+export type ShopTab = 'ships' | 'trails' | 'packs';
+
+export const SHOP_TABS: { id: ShopTab; label: string; kind: ItemKind }[] = [
+  { id: 'ships', label: 'Vaisseaux', kind: 'ship' },
+  { id: 'trails', label: 'Traînées', kind: 'trail' },
+  { id: 'packs', label: 'Packs', kind: 'pack' },
+];
+
+const KIND_LABEL: Record<ItemKind, string> = { ship: 'Vaisseau', trail: 'Traînée', pack: 'Pack' };
+
+/** Couleur d'une traînée (« assortie » : celle du vaisseau équipé). */
+function trailColor(save: SaveData, trailId: string): number {
+  return trailById(trailId).color ?? resolveEquipped(save.skin, save).colors.trail;
+}
+
+const hex6 = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
+
+function trailSwatch(color: number): string {
+  return `<svg class="trail-swatch" viewBox="0 0 64 64" aria-hidden="true"><path d="M8 50C14 24 34 10 56 14" fill="none" stroke="${hex6(color)}" stroke-opacity="0.25" stroke-width="12" stroke-linecap="round"/><path d="M8 50C14 24 34 10 56 14" fill="none" stroke="${hex6(color)}" stroke-width="5" stroke-linecap="round"/></svg>`;
+}
+
+/** Aperçu d'un article : vaisseau (miniature), traînée (trait coloré) ou contenu d'un pack. */
+function itemThumb(save: SaveData, item: CatalogItem): string {
+  if (item.kind === 'ship') return shipThumb(item.id);
+  if (item.kind === 'trail') return trailSwatch(trailColor(save, item.id));
+  return (item.contents ?? [])
+    .map((id) => {
+      const c = catalogItem(id);
+      return c ? `<span class="pack-part">${itemThumb(save, c)}</span>` : '';
+    })
+    .join('');
+}
+
+/** Pastille d'état ou de prix d'un article. */
+function itemBadge(state: ItemState, item: CatalogItem): string {
+  const p = itemPrice(item);
+  switch (state) {
+    case 'equipped': return `<span class="chip chip--equipped">${ICONS.check}Équipé</span>`;
+    case 'owned': return '<span class="chip chip--owned">Possédé</span>';
+    case 'achievement': return `<span class="chip chip--locked">${ICONS.lock}Succès requis</span>`;
+    case 'soon': return `<span class="chip chip--soon">Bientôt disponible</span>${p ? price(p.currency, p.amount) : ''}`;
+    default: return p ? price(p.currency, p.amount) : '';
+  }
+}
+
+function itemCard(save: SaveData, item: CatalogItem, selected: boolean): string {
+  const st = itemState(save, item);
+  return `<button class="skin item item--${st}${selected ? ' skin--selected' : ''}" data-action="select-item" data-item="${item.id}" aria-pressed="${selected}" aria-label="${escapeHtml(item.name)}">
+    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'achievement' || st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__name">${escapeHtml(item.name)}</span>
+    <span class="item__badge">${itemBadge(st, item)}</span>
+  </button>`;
+}
+
+/** Note explicative et bouton d'action selon l'état de l'article. */
+function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: string; button: string } {
+  const p = itemPrice(item);
+  switch (st) {
+    case 'buy':
+      return { note: '', button: button({ action: 'buy', label: 'Acheter', icon: 'shop', variant: 'primary', attrs: `data-item="${item.id}"` }) };
+    case 'insufficient': {
+      const missing = p ? p.amount - balanceOf(save, p.currency) : 0;
+      return {
+        note: p ? `Il vous manque ${formatScore(missing)} ${CURRENCY_NAME[p.currency]}.` : '',
+        button: button({ action: 'buy', label: 'Solde insuffisant', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
+      };
+    }
+    case 'achievement': {
+      const a = item.acquire.type === 'achievement' ? achievementById(item.acquire.id) : undefined;
+      return {
+        note: a ? `Succès requis : « ${escapeHtml(a.name)} » : ${escapeHtml(a.description)}` : 'Exclusivité d’un succès.',
+        button: button({ action: 'buy', label: 'Succès requis', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
+      };
+    }
+    case 'soon':
+      return {
+        note: 'Article premium (Prismes), destiné aux futurs achats. Aucun paiement n’est actif dans cette version.',
+        button: button({ action: 'buy', label: 'Bientôt disponible', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
+      };
+    case 'owned':
+      return item.kind === 'pack'
+        ? { note: '', button: button({ action: 'buy', label: 'Possédé', icon: 'check', variant: 'secondary', attrs: 'disabled' }) }
+        : { note: '', button: button({ action: 'equip-item', label: 'Équiper', icon: 'check', variant: 'primary', attrs: `data-item="${item.id}"` }) };
+    default:
+      return { note: '', button: button({ action: 'buy', label: 'Équipé', icon: 'check', variant: 'secondary', attrs: 'disabled' }) };
+  }
+}
+
+/** Vaisseau et traînée affichés dans l'aperçu animé d'un article. */
+function previewOf(save: SaveData, item: CatalogItem): { skin: string; trail: number | null } {
+  if (item.kind === 'ship') return { skin: item.id, trail: null };
+  if (item.kind === 'trail') return { skin: resolveEquipped(save.skin, save).id, trail: trailColor(save, item.id) };
+  const parts = (item.contents ?? []).map((id) => catalogItem(id)).filter((c): c is CatalogItem => !!c);
+  const ship = parts.find((c) => c.kind === 'ship');
+  const trail = parts.find((c) => c.kind === 'trail');
+  return { skin: ship?.id ?? resolveEquipped(save.skin, save).id, trail: trail ? trailColor(save, trail.id) : null };
+}
+
+export function shopScreen(save: SaveData, tab: ShopTab, selectedId?: string): string {
+  const kind = SHOP_TABS.find((t) => t.id === tab)?.kind ?? 'ship';
+  const items = itemsOfKind(kind);
+  // Par défaut : l'article équipé de l'onglet (sinon le premier)
+  const sel = items.find((i) => i.id === selectedId) ?? items.find((i) => itemState(save, i) === 'equipped') ?? items[0];
+  const st = itemState(save, sel);
+  const act = itemAction(save, sel, st);
+  const prev = previewOf(save, sel);
+  const p = itemPrice(sel);
+  const contents =
+    sel.kind === 'pack'
+      ? `<ul class="pack-list">${(sel.contents ?? [])
+          .map((id) => {
+            const c = catalogItem(id);
+            return c ? `<li>${KIND_LABEL[c.kind]} ${escapeHtml(c.name)}${isOwned(save, id) ? ' <span class="chip chip--owned">Possédé</span>' : ''}</li>` : '';
+          })
+          .join('')}</ul>`
+      : '';
+  const owned = sel.kind === 'pack' ? (sel.contents ?? []).filter((id) => isOwned(save, id)).length : 0;
+  const packNote = owned > 0 && st !== 'owned' ? `<p class="shop-note">Contient ${owned} article${owned > 1 ? 's' : ''} que vous possédez déjà.</p>` : '';
+  return `<div class="panel panel--wide">${screenHead('Boutique')}
+    ${walletBar(save.wallet)}
+    ${tabs(SHOP_TABS.map((t) => ({ id: t.id, label: t.label, action: `tab-shop-${t.id}` })), tab)}
+    <div class="skin-stage">
+      <div class="skin-preview${st === 'achievement' || st === 'soon' ? ' skin-preview--locked' : ''}">
+        <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
+      </div>
+      <div class="skin-info">
+        <span class="kind-label">${KIND_LABEL[sel.kind]}</span>
+        <h3 class="skin-info__name">${escapeHtml(sel.name)}</h3>
+        <p class="skin-info__cond">${escapeHtml(sel.blurb)}</p>
+        ${contents}
+        <div class="item__badge item__badge--lg">${itemBadge(st, sel)}</div>
+        ${p && (st === 'buy' || st === 'insufficient') ? `<p class="shop-balance">Solde : <strong>${formatScore(balanceOf(save, p.currency))}</strong> ${CURRENCY_NAME[p.currency]}</p>` : ''}
+        ${act.note ? `<p class="shop-note" id="item-note">${act.note}</p>` : ''}
+        ${packNote}
+        ${act.button}
+      </div>
+    </div>
+    <div class="skins" role="group" aria-label="${SHOP_TABS.find((t) => t.id === tab)?.label ?? ''}">${items.map((i) => itemCard(save, i, i.id === sel.id)).join('')}</div>
+    <p class="small" style="margin-top:12px">Les achats sont purement cosmétiques : mêmes vitesses et mêmes hitboxes dans tous les modes. Les Éclats se gagnent en jouant.</p>
+  </div>`;
+}
+
+/** Confirmation d'un achat en Éclats : récapitulatif, solde avant / après. */
+export function confirmPurchaseScreen(save: SaveData, itemId: string): string {
+  const item = catalogItem(itemId);
+  const p = item ? itemPrice(item) : null;
+  if (!item || !p) {
+    return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>${button({ action: 'shop', label: 'Retour à la boutique', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
+  }
+  const bal = balanceOf(save, p.currency);
+  return `<div class="panel panel--pause">
+    <h2 class="title">Confirmer l’achat</h2>
+    <p class="sub" style="margin:4px 0 10px">${KIND_LABEL[item.kind]} ${escapeHtml(item.name)}</p>
+    <div class="confirm__thumb">${itemThumb(save, item)}</div>
+    <div class="confirm__row"><span>Prix</span>${price(p.currency, p.amount)}</div>
+    <div class="confirm__row"><span>Solde actuel</span><strong>${formatScore(bal)}</strong></div>
+    <div class="confirm__row"><span>Solde après l’achat</span><strong>${formatScore(Math.max(0, bal - p.amount))}</strong></div>
+    <div class="btn-stack" style="margin-top:14px">
+      ${button({ action: 'confirm-buy', label: 'Confirmer l’achat', icon: 'check', variant: 'primary', attrs: `data-item="${item.id}" data-autofocus` })}
+      ${button({ action: 'shop', label: 'Annuler', variant: 'ghost' })}
+    </div>
   </div>`;
 }
 
@@ -267,6 +465,28 @@ function achievementsNotice(report: RunReport): string {
     .join('');
 }
 
+/**
+ * Éclats gagnés pendant la partie, avec leur origine et le solde après la partie.
+ * Les montants viennent du rapport de fin de partie (crédités une seule fois) : ouvrir ou réafficher l'écran ne crédite rien.
+ */
+function rewardsBlock(report: RunReport): string {
+  const lr = report.levelReward;
+  const rows: [string, number][] = [];
+  if (report.orbitShards > 0) rows.push(['Éclats collectés sur l’orbite', report.orbitShards]);
+  if (lr) {
+    if (lr.firstClear > 0) rows.push(['Première réussite du niveau', lr.firstClear]);
+    if (lr.newStars > 0) rows.push([`Nouvelle${lr.newStars > 1 ? 's' : ''} étoile${lr.newStars > 1 ? 's' : ''} (${lr.newStars} × ${lr.starReward / lr.newStars})`, lr.starReward]);
+    if (lr.repeatClear > 0) rows.push(['Réussite répétée', lr.repeatClear]);
+  }
+  const total = rows.reduce((t, r) => t + r[1], 0);
+  if (rows.length === 0) return '';
+  return `<div class="reward" aria-label="Éclats gagnés">
+    <div class="reward__head">${coin('shards', 'coin--xl')}<div><div class="reward__k">Éclats gagnés</div><div class="reward__v">+${formatScore(total)}</div></div></div>
+    <ul class="reward__list">${rows.map(([label, n]) => `<li><span>${escapeHtml(label)}</span><b>+${formatScore(n)}</b></li>`).join('')}</ul>
+    <div class="reward__balance">Nouveau solde <strong>${formatScore(report.shardsBalance)}</strong> ${CURRENCY_NAME.shards}</div>
+  </div>`;
+}
+
 /** Rejouer : bouton principal, actif après la courte protection contre les clics accidentels (`data-replay`). */
 const replayButton = (): string => button({ action: 'replay', label: 'Rejouer', icon: 'replay', variant: 'primary', attrs: 'data-replay disabled' });
 
@@ -289,6 +509,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean): string {
           ${stat('Étoiles', `${report.stars} / 3`, report.stars === 3)}
         </div>
         ${level && report.stars < 3 ? `<p class="small" style="margin-top:8px">Seuils d’étoiles : ${level.stars.map(formatScore).join(' · ')} points</p>` : ''}
+        ${rewardsBlock(report)}
         ${report.unlockedLevel ? notice(`Niveau ${report.unlockedLevel} débloqué !`, 'cyan') : ''}
         ${!hasNextLevel ? notice('Vous avez terminé le dernier niveau. Bravo !', 'cyan') : ''}
         ${achievementsNotice(report)}
@@ -326,6 +547,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean): string {
       ${record ? stat('Record précédent', formatTime(report.previousBestTime)) : stat(isDaily ? 'Meilleur du jour' : 'Record', formatTime(best))}
       ${stat('Écart avec le record précédent', report.previousBestTime > 0 ? formatDelta(diff) : '—')}
     </div>
+    ${rewardsBlock(report)}
     ${report.legacyBestTime > 0 ? `<p class="small" style="margin-top:8px">Ancien équilibrage : ${formatTime(report.legacyBestTime)} (non comparable)</p>` : ''}
     ${achievementsNotice(report)}
     <div class="btn-stack result__actions">${replayButton()}${button({ action: 'home', label: 'Accueil', icon: 'home', variant: 'ghost' })}</div>

@@ -46,6 +46,25 @@
   margin-top: 2px;
 }
 
+.hud-shards {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-shard);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px rgb(var(--c-shard-rgb) / 0.5);
+}
+
+.hud-shards img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
 .combo-bar {
   display: inline-block;
   width: 54px;

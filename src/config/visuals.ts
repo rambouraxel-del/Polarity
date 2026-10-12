@@ -52,6 +52,8 @@ export const FX = {
   /** Liseré sombre sous le vaisseau (fond de l'arène, alpha normal) : le détache de l'orbite lumineuse et des menaces. */
   shipRim: { alpha: 0.7, grow: 1.12 },
   asteroidEmbers: { rate: 14, life: 0.4, speed: 22 },
+  /** Éclat sur l'orbite : taille et effets (purement visuels ; la zone de collecte est dans config/economy.ts). */
+  shard: { radius: 28, spriteGrow: 1.3, diskGrow: 1.35, ringGrow: 1.5, haloGrow: 2.1, spawnIn: 0.25, pulseHz: 1.2, warnHz: 3, urgentHz: 6 },
   /** Impact : durée de l'onde de choc (s) et rayon final. */
   impact: { ringLife: 0.32, ringRadius: 46, flareLife: 0.16 },
   /** Nombre maximal de particules simultanées (plafond mobile). */

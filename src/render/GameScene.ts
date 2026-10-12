@@ -5,7 +5,8 @@ import ast2 from '../assets/sprites/ast2.png';
 import ast3 from '../assets/sprites/ast3.png';
 import ast4 from '../assets/sprites/ast4.png';
 import ship from '../assets/sprites/ship.png';
-import { ASTEROID_TEXTURES, SHIP_TEXTURE } from './ArenaRenderer';
+import shard from '../assets/ui/eclat.png';
+import { ASTEROID_TEXTURES, SHARD_TEXTURE, SHIP_TEXTURE } from './ArenaRenderer';
 import { registerSkinTextures } from './shipTextures';
 
 /** Scène unique : elle charge les sprites (locaux), délègue la logique à App et sert de boucle de rendu. */
@@ -16,6 +17,7 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image(SHIP_TEXTURE, ship);
+    this.load.image(SHARD_TEXTURE, shard);
     [ast1, ast2, ast3, ast4].forEach((url, i) => this.load.image(ASTEROID_TEXTURES[i], url));
   }
 

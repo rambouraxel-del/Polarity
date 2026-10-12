@@ -69,7 +69,7 @@ export function survivalBreath(t: number) {
   return t < SURVIVAL.intensify.ramp.from ? SURVIVAL.breath : SURVIVAL.intensify;
 }
 
-export function survivalProfile(): DifficultyProfile {
+export function survivalProfile(shards = true): DifficultyProfile {
   return {
     difficulty: survivalDifficulty,
     weights: survivalWeights,
@@ -78,6 +78,7 @@ export function survivalProfile(): DifficultyProfile {
     breath: survivalBreath,
     warnScale: SURVIVAL.warnScale,
     events: true,
+    shards,
     firstWaveDelay: SURVIVAL.firstWaveDelay,
     spawnUntil: null,
     respite: true,

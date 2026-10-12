@@ -1,3 +1,4 @@
+import { LEVEL_REWARDS } from '../config/economy';
 import { LEVELS, levelById, type LevelDef } from '../config/levels';
 import { pruneDaily, type SaveData } from '../save/save';
 import { ACHIEVEMENTS, type AchievementDef } from './achievements';
@@ -15,6 +16,20 @@ export interface RunSummary {
   cycles: number;
   bestMultiplier: number;
   outcome: 'dead' | 'complete';
+  /** Éclats collectés sur l'orbite pendant la partie (déjà crédités et sauvegardés à chaque collecte). */
+  shards?: number;
+}
+
+/** Récompenses d'un niveau réussi (Éclats). */
+export interface LevelReward {
+  /** Bonus de première réussite (une seule fois par niveau). */
+  firstClear: number;
+  /** Étoiles obtenues pour la première fois, et leur récompense. */
+  newStars: number;
+  starReward: number;
+  /** Réussite d'un niveau déjà réussi. */
+  repeatClear: number;
+  total: number;
 }
 
 export interface RunReport {
@@ -32,6 +47,12 @@ export interface RunReport {
   legacyBestTime: number;
   /** Nouveaux succès. */
   achievements: AchievementDef[];
+  /** Éclats collectés sur l'orbite (Survie) : déjà crédités pendant la partie. */
+  orbitShards: number;
+  /** Récompenses de niveau créditées à la fin de cette partie, ou null. */
+  levelReward: LevelReward | null;
+  /** Solde d'Éclats après cette partie (affiché tel quel : jamais recrédité à l'ouverture de l'écran). */
+  shardsBalance: number;
 }
 
 /** Meilleur record de Survie obtenu sous un ancien équilibrage (non comparable aux records actuels), ou null. */
@@ -78,6 +99,22 @@ export function beatsRecord(time: number, score: number, bestTime: number, bestS
   return Math.abs(time - bestTime) <= eps && score > bestScore;
 }
 
+/**
+ * Verse les récompenses d'un niveau réussi : première réussite (une fois), nouvelles étoiles (jamais deux fois la même),
+ * réussites suivantes. Le registre `save.paid` empêche tout second versement ; il est mis à jour avec le crédit.
+ */
+function payLevelReward(save: SaveData, key: string, starsNow: number): LevelReward {
+  const paid = save.paid[key] ?? { first: false, stars: 0 };
+  const firstClear = paid.first ? 0 : LEVEL_REWARDS.firstClear;
+  const repeatClear = paid.first ? LEVEL_REWARDS.repeatClear : 0;
+  const newStars = Math.max(0, starsNow - paid.stars);
+  const starReward = newStars * LEVEL_REWARDS.perStar;
+  const total = firstClear + starReward + repeatClear;
+  save.paid[key] = { first: true, stars: Math.max(paid.stars, starsNow) };
+  save.wallet.shards += total;
+  return { firstClear, newStars, starReward, repeatClear, total };
+}
+
 /** Applique le résultat d'une partie à la sauvegarde (une seule fois par partie). */
 export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): RunReport {
   const report: RunReport = {
@@ -91,6 +128,9 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     newRecord: false,
     legacyBestTime: 0,
     achievements: [],
+    orbitShards: Math.max(0, Math.floor(run.shards ?? 0)),
+    levelReward: null,
+    shardsBalance: 0,
   };
   save.stats.totalRuns++;
   save.stats.totalCycles += run.cycles;
@@ -111,6 +151,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
         report.newBestScore = true;
       }
       save.levels[key] = rec;
+      report.levelReward = payLevelReward(save, key, rec.stars);
       const next = run.levelId + 1;
       if (wasNextLocked && LEVELS.some((l) => l.id === next)) report.unlockedLevel = next;
     }
@@ -139,6 +180,8 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     save.daily[run.date] = rec;
     pruneDaily(save.daily);
   }
+
+  report.shardsBalance = save.wallet.shards;
 
   for (const a of ACHIEVEMENTS) {
     if (save.achievements[a.id] !== undefined) continue;

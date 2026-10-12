@@ -492,11 +492,11 @@ const state = (page) =>
 {
   const { page, context, errors } = await newPage({ width: 1280, height: 800 });
   const go = async (id) => { await page.evaluate((a) => window.__polarite.showScreen(a), id); await page.waitForTimeout(350); };
-  await page.evaluate(() => { const a = window.__polarite; a.save.achievements = { first_cycle: 1 }; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; });
+  await page.evaluate(() => { const a = window.__polarite; a.save.achievements = { first_cycle: 1 }; a.save.owned = ['aurore']; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; });
   await go('skins');
-  check((await page.locator('.skin').count()) === 7, 'Apparences : 7 cartes');
-  check((await page.locator('.skin img').count()) === 7, 'Apparences : une miniature par carte');
-  check((await page.locator('.skin--equipped').count()) === 1 && (await page.locator('.skin--locked').count()) === 5, 'Apparences : 1 équipée, 1 disponible, 5 verrouillées');
+  check((await page.locator('.skin').count()) === 5, 'Apparences : 5 cartes (possédés + exclusivités de succès)');
+  check((await page.locator('.skin img').count()) === 5, 'Apparences : une miniature par carte');
+  check((await page.locator('.skin--equipped').count()) === 1 && (await page.locator('.skin--available').count()) === 1 && (await page.locator('.skin--locked').count()) === 3, 'Apparences : 1 équipée, 1 disponible, 3 verrouillées');
   check((await page.locator('canvas[data-skin-preview="classique"]').count()) === 1, 'Aperçu : le vaisseau équipé est affiché en grand');
   // Aperçu animé : l'image change au cours du temps ; figée en effets réduits
   const frame = () => page.evaluate(() => document.querySelector('canvas[data-skin-preview]').toDataURL());
@@ -569,6 +569,154 @@ const state = (page) =>
   }
 }
 
+// ————————————————————————————————————————————— Économie : Éclats sur l'orbite, récompenses, boutique, Prismes
+{
+  const { page, context, errors } = await newPage({ width: 1280, height: 800 });
+  const sim = (fn, arg) => page.evaluate(fn, arg);
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('polarite.save')));
+  await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; a.save.owned = ['aurore', 'ambre', 'spectre']; });
+
+  // — Éclat sur l'orbite (Survie)
+  await page.click('[data-action="survival"]');
+  await page.waitForTimeout(300);
+  await sim(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; });
+  check(await sim(() => window.__polarite.session.sim.shards !== null), 'Survie : éclats activés');
+  check(!(await page.locator('#hud-shards').evaluate((e) => e.classList.contains('hidden'))), 'HUD : compteur d’Éclats visible en Survie');
+  const first = await sim(() => window.__polarite.session.sim.shards.nextAt);
+  check(first >= 15 && first <= 25, `Première apparition prévue entre 15 et 25 s (${first.toFixed(1)} s)`);
+  await sim(() => { const s = window.__polarite.session.sim; s.shards.nextAt = s.time; });
+  await page.waitForTimeout(500);
+  const active = await sim(() => { const a = window.__polarite.session.sim.shards.active; return a ? { id: a.id, life: a.expiresAt - a.spawnedAt } : null; });
+  check(active && Math.abs(active.life - 5) < 1e-9, 'Un éclat apparaît, disponible 5 secondes');
+  check(await sim(() => window.__polarite.renderer.shardSprite.visible), 'L’éclat est dessiné (sprite au-dessus du rail)');
+  await page.screenshot({ path: 'screenshots/70-eclat-orbite.png' });
+  // Pause : l'expiration est suspendue
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const r0 = await sim(() => { const s = window.__polarite.session.sim; return { t: s.time, rem: s.shards.remaining(s.time) }; });
+  await page.waitForTimeout(1800);
+  const r1 = await sim(() => { const s = window.__polarite.session.sim; return { t: s.time, rem: s.shards.remaining(s.time), has: !!s.shards.active }; });
+  check(r1.t === r0.t && r1.rem === r0.rem && r1.has, 'Pause : apparition, expiration et animation suspendues');
+  await page.click('[data-action="resume"]');
+  await page.waitForTimeout(2600);
+  // Collecte : crédit unique, sauvegardé tout de suite
+  const w0 = await sim(() => window.__polarite.save.wallet.shards);
+  await sim(() => { const s = window.__polarite.session.sim; const a = s.shards.active; s.angle = a.angle - s.dir * 0.12; });
+  await page.waitForTimeout(700);
+  check((await sim(() => window.__polarite.save.wallet.shards)) === w0 + 5, 'Collecte : +5 Éclats');
+  check((await stored()).wallet.shards === w0 + 5, 'Collecte : gain sauvegardé immédiatement');
+  await page.waitForTimeout(1200);
+  check((await sim(() => window.__polarite.save.wallet.shards)) === w0 + 5, 'Un éclat n’est crédité qu’une fois');
+  check((await page.locator('#hud-shards-n').innerText()) === '5', 'HUD : 5 Éclats gagnés pendant la partie');
+  // Disparition sans collecte : aucun gain
+  await sim(() => { const s = window.__polarite.session.sim; s.shards.nextAt = s.time; });
+  await page.waitForTimeout(400);
+  await sim(() => { const s = window.__polarite.session.sim; s.shards.active.expiresAt = s.time + 0.2; s.angle = s.shards.active.angle + Math.PI; });
+  await page.waitForTimeout(700);
+  check(await sim(() => window.__polarite.session.sim.shards.active === null && !window.__polarite.renderer.shardSprite.visible), 'Un éclat non collecté disparaît');
+  check((await sim(() => window.__polarite.save.wallet.shards)) === w0 + 5, 'Disparition : aucun gain');
+  // Mort : les Éclats restent acquis ; le résultat les affiche sans les recréditer
+  await sim(() => { const s = window.__polarite.session.sim; s.invincible = false; for (let i = 0; i < 120 * 90 && s.state === 'running'; i++) s.step(); });
+  await page.waitForTimeout(1800);
+  const resultText = await page.locator('#screen').innerText();
+  check(/Éclats collectés sur l’orbite/.test(resultText) && /\+5/.test(resultText) && /Nouveau solde/.test(resultText), 'Résultat : Éclats gagnés, origine et nouveau solde');
+  check((await sim(() => window.__polarite.save.wallet.shards)) === w0 + 5, 'Mort : les Éclats restent acquis, sans recrédit à l’ouverture du résultat');
+  await page.screenshot({ path: 'screenshots/71-resultat-eclats.png' });
+  // Visibilité de l'éclat sur plusieurs couleurs d'orbite
+  for (const skin of ['classique', 'aurore', 'ambre', 'spectre']) {
+    await page.evaluate((id) => { const a = window.__polarite; a.save.skin = id; a.showScreen('home'); }, skin);
+    await page.click('[data-action="survival"]');
+    await page.waitForTimeout(300);
+    await sim(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; s.shards.nextAt = s.time; });
+    await page.waitForTimeout(700);
+    check(await sim(() => window.__polarite.renderer.shardSprite.visible), `Éclat visible sur l’orbite de l’apparence ${skin}`);
+    await page.screenshot({ path: `screenshots/72-eclat-orbite-${skin}.png` });
+  }
+  await page.evaluate(() => { const a = window.__polarite; a.save.skin = 'classique'; a.showScreen('home'); });
+
+  // — Récompenses de niveau : 50 + 15 par étoile, puis 10 ; jamais deux fois
+  await page.evaluate(() => { const a = window.__polarite; a.save.levels = {}; a.save.paid = {}; a.save.wallet.shards = 0; a.persist(); });
+  const playLevelToEnd = async () => {
+    await page.evaluate(() => window.__polarite.showScreen('levels'));
+    await page.click('[data-action="play-level"][data-level="1"]');
+    await page.waitForTimeout(300);
+    await sim(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; for (let i = 0; i < 120 * 95 && s.state === 'running'; i++) s.step(); });
+    await page.waitForTimeout(1800);
+    return page.locator('#screen').innerText();
+  };
+  const t1 = await playLevelToEnd();
+  const bal1 = await sim(() => window.__polarite.save.wallet.shards);
+  check(/Première réussite du niveau/.test(t1) && /\+50/.test(t1) && bal1 >= 50, `Niveau : première réussite récompensée (solde ${bal1})`);
+  check((await stored()).wallet.shards === bal1, 'Récompense de niveau sauvegardée');
+  const t2 = await playLevelToEnd();
+  const bal2 = await sim(() => window.__polarite.save.wallet.shards);
+  check(/Réussite répétée/.test(t2) && !/Première réussite/.test(t2) && bal2 >= bal1 + 10, `Niveau : réussite répétée +10 (solde ${bal2})`);
+  await page.screenshot({ path: 'screenshots/73-resultat-niveau-eclats.png' });
+
+  // — Boutique
+  await page.evaluate(() => { const a = window.__polarite; a.save.wallet = { shards: 150, prisms: 0 }; a.save.achievements = {}; a.save.owned = []; a.save.skin = 'classique'; a.save.trail = 'auto'; a.persist(); a.showScreen('home'); });
+  await page.waitForTimeout(300);
+  check((await page.locator('.wallet [data-wallet="shards"]').innerText()) === '150' && (await page.locator('.wallet [data-wallet="prisms"]').innerText()) === '0', 'Accueil : les deux soldes (150 Éclats, 0 Prisme)');
+  await page.click('[data-action="shop"]');
+  check((await page.locator('[role="tab"]').allInnerTexts()).join('|').toLowerCase() === 'vaisseaux|traînées|packs', 'Boutique : onglets Vaisseaux, Traînées, Packs');
+  await page.screenshot({ path: 'screenshots/74-boutique.png' });
+  await page.click('[data-item="aurore"]');
+  check(await page.locator('.skin-info [data-action="buy"]').isEnabled(), 'Aurore (100 Éclats) : « Acheter »');
+  await page.click('[data-item="spectre"]');
+  check((await page.locator('.skin-info [data-action="buy"]').innerText()).toLowerCase().includes('solde insuffisant') && (await page.locator('.skin-info [data-action="buy"]').isDisabled()), 'Spectre (600 Éclats) : « Solde insuffisant »');
+  await page.click('[data-item="glace"]');
+  check((await page.locator('.skin-info [data-action="buy"]').innerText()).toLowerCase().includes('succès requis') && (await page.locator('.skin-info [data-action="buy"]').isDisabled()), 'Glace : « Succès requis »');
+  await page.click('[data-item="neon"]');
+  const premiumBtn = page.locator('.skin-info [data-action="buy"]');
+  check((await premiumBtn.innerText()).toLowerCase().includes('bientôt disponible') && (await premiumBtn.isDisabled()), 'Premium (Prismes) : « Bientôt disponible », bouton inactif');
+  check((await page.locator('.skin-info [data-action="buy"]:not([disabled])').count()) === 0, 'Premium : aucun bouton de paiement actif');
+  await page.screenshot({ path: 'screenshots/75-boutique-premium.png' });
+  // Achat : confirmation, puis débit et déblocage ensemble ; aucun double débit
+  await page.click('[data-item="aurore"]');
+  await page.click('.skin-info [data-action="buy"]');
+  check((await page.locator('[data-action="confirm-buy"]').count()) === 1, 'Achat : écran de confirmation');
+  check((await sim(() => window.__polarite.save.wallet.shards)) === 150, 'Confirmation ouverte : rien n’est encore débité');
+  await page.screenshot({ path: 'screenshots/76-confirmation-achat.png' });
+  await page.evaluate(() => { const b = document.querySelector('[data-action="confirm-buy"]'); b.click(); b.click(); });
+  await page.waitForTimeout(300);
+  const st = await stored();
+  check(st.wallet.shards === 50 && st.owned.includes('aurore'), `Achat : 100 Éclats débités une seule fois, Aurore débloquée et sauvegardée (solde ${st.wallet.shards})`);
+  check((await page.locator('.skin-info [data-action="equip-item"]').count()) === 1, 'Après l’achat : « Équiper »');
+  await page.click('.skin-info [data-action="equip-item"]');
+  check((await sim(() => window.__polarite.save.skin)) === 'aurore', 'Équiper : Aurore équipée');
+  // Traînées et packs
+  await page.click('[data-action="tab-shop-trails"]');
+  check((await page.locator('.item').count()) === 5, 'Traînées : 5 articles');
+  await page.click('[data-item="emeraude"]');
+  check((await page.locator('.skin-info [data-action="buy"]').innerText()).toLowerCase().includes('solde insuffisant'), 'Émeraude (150) avec 50 Éclats : solde insuffisant');
+  await page.click('[data-action="tab-shop-packs"]');
+  check((await page.locator('.item').count()) === 3, 'Packs : 3 articles');
+  await page.screenshot({ path: 'screenshots/77-boutique-packs.png' });
+  // Persistance après rechargement
+  await page.reload();
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  const after = await sim(() => ({ w: window.__polarite.save.wallet, skin: window.__polarite.save.skin, owned: window.__polarite.save.owned }));
+  check(after.w.shards === 50 && after.w.prisms === 0 && after.skin === 'aurore' && after.owned.includes('aurore'), 'Rechargement : soldes, achat et apparence équipée conservés');
+  check(errors.filter((e) => !/willReadFrequently/.test(e)).length === 0, `Aucune erreur console (économie)${errors.length ? ' : ' + errors.join(' | ').slice(0, 300) : ''}`);
+  await context.close();
+
+  // Mobile : soldes, boutique, éclat lisibles, sans débordement
+  const mob = await newPage({ width: 390, height: 844 }, { touch: true, dpr: 2 });
+  await mob.page.evaluate(() => { const a = window.__polarite; a.save.wallet = { shards: 345, prisms: 0 }; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; a.showScreen('shop'); });
+  await mob.page.waitForTimeout(400);
+  check(!(await mob.page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), 'Boutique mobile : pas de débordement horizontal');
+  await mob.page.screenshot({ path: 'screenshots/78-boutique-mobile.png' });
+  await mob.page.evaluate(() => window.__polarite.showScreen('home'));
+  await mob.page.tap('[data-action="survival"]');
+  await mob.page.waitForTimeout(300);
+  await mob.page.evaluate(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; s.shards.nextAt = s.time; });
+  await mob.page.waitForTimeout(800);
+  await mob.page.screenshot({ path: 'screenshots/79-eclat-mobile.png' });
+  check(await mob.page.evaluate(() => window.__polarite.renderer.shardSprite.visible && window.__polarite.renderer.shardSprite.displayWidth > 20), 'Mobile : l’éclat est dessiné à une taille lisible');
+  check(mob.errors.filter((e) => !/willReadFrequently/.test(e)).length === 0, 'Aucune erreur console (économie mobile)');
+  await mob.context.close();
+}
+
 // ————————————————————————————————————————————— Interface « Néon premium » : chaque écran, transitions, effets réduits
 for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mobile portrait', true], [844, 390, 'mobile paysage', true], [320, 568, 'petit écran', true]]) {
   const { page, context, errors } = await newPage({ width: w, height: h }, { touch, dpr: 1 });
@@ -581,13 +729,13 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
     check(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Orbitron') || getComputedStyle(document.querySelector('.btn')).fontFamily.includes('Orbitron')), 'Police Orbitron appliquée aux boutons');
     check(await page.evaluate(() => !document.querySelector('#space').classList.contains('hidden')), 'Fond spatial visible dans les menus');
     const order = await page.evaluate(() => [...document.querySelectorAll('#screen .home__menu [data-action]')].map((b) => b.dataset.action));
-    check(order.join() === 'survival,levels,daily,skins,achievements,options', `Accueil : ordre des boutons (${order.join(', ')})`);
+    check(order.join() === 'survival,levels,daily,shop,skins,achievements,options', `Accueil : ordre des boutons (${order.join(', ')})`);
   }
   await go('home');
   const help = await page.locator('.home__help').innerText();
   if (touch) check(/Touchez/.test(help) && !/Espace|Échap/.test(help), `Aide aux contrôles : toucher, sans clavier (${label})`);
   else check(/Cliquez/.test(help) && /Espace/.test(help) && /Échap/.test(help), `Aide aux contrôles : clic, Espace et Échap (${label})`);
-  for (const id of ['home', 'levels', 'daily', 'skins', 'achievements', 'options']) {
+  for (const id of ['home', 'levels', 'daily', 'skins', 'achievements', 'shop', 'options']) {
     if (id === 'achievements') { await go('skins'); await page.click('[data-action="tab-achievements"]'); await page.waitForTimeout(250); } else await go(id);
     check(await noOverflow(), `Écran ${id} sans débordement horizontal (${label})`);
     const ok = await page.evaluate(() => {

@@ -1,5 +1,7 @@
 # Reprise
 
+**Dernière étape (v1.5) :** économie à deux monnaies (Éclats gagnés en jouant, Prismes premium non achetables), éclat sur l'orbite en Survie, récompenses de niveau, boutique cosmétique, sauvegarde format 3. Voir `docs/ECONOMIE.md` ; fichiers clés : `src/config/{economy,catalog,trails}.ts`, `src/sim/shards.ts`, `src/progression/shop.ts`, `src/monetization/payments.ts`, `tests/economy.test.ts`.
+
 **Dernière étape (v1.4) :** vaisseau +20 %, orbite cyan vif, menu Apparences refait, apparences en configuration extensible (`src/config/skins.ts`, `docs/APPARENCES.md`). Gameplay et équilibrage inchangés.
 
 **Dernière étape (v1.3, interface) :** refonte artistique « Néon premium », nom affiché **Polarity**. Voir `docs/INTERFACE.md`. Fichiers clés : `src/config/brand.ts`,
@@ -7,7 +9,7 @@
 `STORAGE_NAMESPACE` ('polarite') ne change jamais. Gameplay et équilibrage inchangés (v1.2 ci-dessous).
 
 **Dernière étape vérifiée :** v1.2 complète (vitesse progressive du vaisseau, astéroïde fragmenté, convoi, laser balayeur, événements, équilibrage adapté à la vitesse,
-version d'équilibrage 3). `npm run check` (179 tests) et `npm run e2e` verts. Branches de sauvegarde : `sauvegarde-v1.0.0`, `sauvegarde-v1.1.1`.
+version d'équilibrage 3). `npm run check` (218 tests) et `npm run e2e` verts. Branches de sauvegarde : `sauvegarde-v1.0.0`, `sauvegarde-v1.1.1`.
 
 **Fichiers clés :** `src/config/{playerSpeed,hazards,events,survival,version}.ts`, `src/sim/{director,safety,speed,hazards,collision,patterns}.ts`,
 `src/render/ArenaRenderer.ts` (fragments, laser), `src/app.ts` (bandeau d'événement), `src/save/save.ts` (archive des records),

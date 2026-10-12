@@ -1,4 +1,5 @@
 import { LEVEL_DURATION } from '../config/balance';
+import { SHARDS } from '../config/economy';
 import type { LevelDef } from '../config/levels';
 import type { RunMode } from '../progression/progress';
 import { Simulation } from '../sim/simulation';
@@ -20,5 +21,7 @@ export function createSimulation(cfg: RunConfig): Simulation {
     return new Simulation({ seed: cfg.seed, profile: levelProfile(cfg.level), timeLimit: LEVEL_DURATION });
   }
   const seed = cfg.mode === 'daily' && cfg.date ? dailySeed(cfg.date) : cfg.seed;
-  return new Simulation({ seed, profile: survivalProfile(), timeLimit: null });
+  // Éclats sur l'orbite : réglage par mode dans config/economy.ts (Survie seulement pour l'instant)
+  const shards = cfg.mode === 'daily' ? SHARDS.modes.daily : SHARDS.modes.survival;
+  return new Simulation({ seed, profile: survivalProfile(shards), timeLimit: null });
 }

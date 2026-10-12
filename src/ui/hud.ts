@@ -1,5 +1,6 @@
 import { LEVEL_DURATION, SCORE } from '../config/balance';
 import type { GameSession } from '../game/session';
+import shardUrl from '../assets/ui/eclat.png';
 import { formatScore, formatTime } from './format';
 
 /** HUD DOM : on ne touche au DOM que lorsque la valeur affichée change. */
@@ -10,8 +11,15 @@ export class Hud {
   private readonly combo = document.getElementById('hud-combo')!;
   private readonly time = document.getElementById('hud-time')!;
   private readonly sub = document.getElementById('hud-sub')!;
+  private readonly shards = document.getElementById('hud-shards')!;
+  private readonly shardsN = document.getElementById('hud-shards-n')!;
   private cache: Record<string, string> = {};
   private recordShown = false;
+
+  constructor() {
+    const img = this.shards.querySelector('img');
+    if (img) img.src = shardUrl;
+  }
 
   show(visible: boolean): void {
     this.root.classList.toggle('hidden', !visible);
@@ -45,6 +53,14 @@ export class Hud {
       this.cache.combo = w;
       this.combo.style.width = w;
     }
+    // Éclats gagnés pendant cette partie (Survie) : déjà crédités à chaque collecte
+    const income = sim.shards?.income ?? -1;
+    const shown = income >= 0 ? '1' : '';
+    if (this.cache.shardsShown !== shown) {
+      this.cache.shardsShown = shown;
+      this.shards.classList.toggle('hidden', income < 0);
+    }
+    if (income >= 0) this.set(this.shardsN, 'shards', String(income));
     let crossed = false;
     if (record === null) {
       // Niveaux : temps restant

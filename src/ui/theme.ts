@@ -30,6 +30,9 @@ export const THEME = {
     /** Texte sur fond clair (boutons principaux). */
     ink: '#031322',
     /** Décor spatial des menus : nébuleuse et planète lointaine (très discrètes). */
+    /** Éclats (violet) et Prismes (rose) : monnaies. */
+    shard: '#B78BFF',
+    prism: '#FF4FD8',
     nebula: '#2A5BFF',
     planet: '#0E3B8C',
   },

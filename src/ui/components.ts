@@ -1,5 +1,9 @@
+import eclatUrl from '../assets/ui/eclat.png';
+import prismeUrl from '../assets/ui/prisme.png';
+import type { Currency } from '../config/catalog';
+import type { Wallet } from '../save/save';
+import { escapeHtml, formatScore } from './format';
 import { ICONS, type IconName } from './icons';
-import { escapeHtml } from './format';
 
 /**
  * Composants HTML réutilisables (boutons, en-têtes, statistiques, réglages…). Leurs styles sont dans
@@ -64,4 +68,26 @@ export function tabs(items: { id: string; label: string; action: string }[], sel
   return `<div class="tabs" role="tablist">${items
     .map((t) => `<button class="tab" role="tab" aria-selected="${t.id === selected}" data-action="${t.action}">${escapeHtml(t.label)}</button>`)
     .join('')}</div>`;
+}
+
+// ————————————————————————————————————————————— Monnaies
+
+export const CURRENCY_NAME: Record<Currency, string> = { shards: 'Éclats', prisms: 'Prismes' };
+const CURRENCY_ICON: Record<Currency, string> = { shards: eclatUrl, prisms: prismeUrl };
+
+/** Icône d'une monnaie : le PNG fourni, utilisé tel quel. */
+export function coin(currency: Currency, cls = ''): string {
+  return `<img class="coin coin--${currency}${cls ? ` ${cls}` : ''}" src="${CURRENCY_ICON[currency]}" alt="" width="28" height="28" decoding="async" />`;
+}
+
+/** Prix : icône, montant et nom de la monnaie. */
+export function price(currency: Currency, amount: number): string {
+  return `<span class="price price--${currency}">${coin(currency)}<strong>${formatScore(amount)}</strong><span class="price__l">${CURRENCY_NAME[currency]}</span></span>`;
+}
+
+/** Les deux soldes (accueil, boutique, apparences). */
+export function walletBar(wallet: Wallet): string {
+  const item = (c: Currency): string =>
+    `<div class="wallet__item wallet__item--${c}">${coin(c, 'coin--lg')}<div class="wallet__text"><span class="wallet__n" data-wallet="${c}">${formatScore(wallet[c])}</span><span class="wallet__l">${CURRENCY_NAME[c]}</span></div></div>`;
+  return `<div class="wallet" role="group" aria-label="Soldes">${item('shards')}<span class="wallet__sep" aria-hidden="true"></span>${item('prisms')}</div>`;
 }

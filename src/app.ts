@@ -10,7 +10,9 @@ import { GameSession } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
-import { isSkinUnlocked, resolveEquipped, skinById } from './progression/skins';
+import { creditShards, equip, isOwned, purchase } from './progression/shop';
+import { resolveEquipped, skinById } from './progression/skins';
+import { DEFAULT_TRAIL_ID } from './config/trails';
 import { ArenaRenderer, COLORS } from './render/ArenaRenderer';
 import { BrowserStore, defaultSave, eraseAll, loadSave, writeSave, type KeyValueStore, type SaveData } from './save/save';
 import { Bot } from './sim/bot';
@@ -23,7 +25,7 @@ import { ShipPreview } from './ui/shipPreview';
 import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 
-type ScreenId = 'home' | 'levels' | 'daily' | 'skins' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'levels' | 'daily' | 'skins' | 'shop' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
 
 /**
  * Chef d'orchestre : écrans, partie en cours, sauvegarde, son et rendu.
@@ -50,6 +52,11 @@ export class App {
   /** Apparence affichée dans l'aperçu du menu (null = celle qui est équipée). */
   private selectedSkin: string | null = null;
   private reducedMotion = false;
+  private shopTab: S.ShopTab = 'ships';
+  private selectedItem: string | null = null;
+  private pendingPurchase: string | null = null;
+  /** Éclats déjà crédités pendant la partie en cours (chaque éclat n'est crédité qu'une fois). */
+  private creditedShards = new Set<number>();
   private eventKey = '';
   private resultLock = 0;
   private clock = 0;
@@ -66,7 +73,8 @@ export class App {
     this.sfx.setVolume(this.save.options.volume);
     this.sfx.setMuted(this.save.options.muted);
     // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
-    this.save.skin = resolveEquipped(this.save.skin, this.save.achievements).id;
+    this.save.skin = resolveEquipped(this.save.skin, this.save).id;
+    if (!isOwned(this.save, this.save.trail)) this.save.trail = DEFAULT_TRAIL_ID;
   }
 
   // ————————————————————————————————————————————— démarrage
@@ -175,6 +183,7 @@ export class App {
     // Fond spatial : menus seulement (pendant une partie, le décor reste sobre)
     this.space?.setVisible(this.session === null);
     this.space?.update(realDt);
+    if (this.renderer) this.renderer.trailId = this.save.trail;
     this.renderer?.draw(this.session, skinById(this.save.skin), realDt, this.clock);
   }
 
@@ -231,6 +240,7 @@ export class App {
     this.renderer?.clearEffects();
     this.hud.reset();
     this.eventKey = '';
+    this.creditedShards.clear();
     this.hud.show(true);
     if (cfg.mode === 'survival') this.bestAtStart = this.save.survival.bestTime;
     else if (cfg.mode === 'daily') this.bestAtStart = this.save.daily[cfg.date ?? '']?.bestTime ?? 0;
@@ -293,6 +303,10 @@ export class App {
     }
     if (s && s.phase === 'paused') {
       this.resume();
+      return;
+    }
+    if (this.screen === 'confirm-purchase') {
+      this.showScreen('shop');
       return;
     }
     if (this.screen && this.screen !== 'home' && this.screen !== 'result') this.showScreen('home');
@@ -363,6 +377,26 @@ export class App {
           r?.ring(0xff3df0);
         }
         break;
+      case 'shard-spawn':
+        this.sfx.play('shardSpawn');
+        break;
+      case 'shard-collect': {
+        // Crédit unique (identifiant de l'éclat), sauvegardé tout de suite : les Éclats restent acquis à la mort
+        if (this.creditedShards.has(e.id)) break;
+        this.creditedShards.add(e.id);
+        creditShards(this.save, e.amount);
+        this.persist();
+        this.sfx.play('shard');
+        const x = ARENA.orbitRadius * Math.cos(e.angle);
+        const y = ARENA.orbitRadius * Math.sin(e.angle);
+        r?.burst(x, y, COLORS.shard, 12, 170, 0.5);
+        r?.burst(x, y, 0xffffff, 6, 120, 0.35);
+        r?.popup(x, y, `+${e.amount}`, '#c9a8ff');
+        break;
+      }
+      case 'shard-expire':
+        r?.burst(ARENA.orbitRadius * Math.cos(e.angle), ARENA.orbitRadius * Math.sin(e.angle), COLORS.shard, 6, 60, 0.4);
+        break;
       case 'flip':
         // Inversion immédiate : l'ancienne traînée (désormais devant le vaisseau) disparaît
         r?.resetTrail();
@@ -418,6 +452,8 @@ export class App {
       case 'levels': html = S.levelsScreen(this.save); break;
       case 'daily': html = S.dailyScreen(this.save, today); break;
       case 'skins': html = S.collectionScreen(this.save, this.collectionTab, this.selectedSkin ?? undefined); break;
+      case 'shop': html = S.shopScreen(this.save, this.shopTab, this.selectedItem ?? undefined); break;
+      case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? ''); break;
       case 'options': html = S.optionsScreen(this.save); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
       case 'pause': html = S.pauseScreen(this.modeLabel()); break;
@@ -438,7 +474,8 @@ export class App {
   private attachSkinPreview(): void {
     const cv = this.screenEl.querySelector<HTMLCanvasElement>('canvas[data-skin-preview]');
     if (!cv) return;
-    new ShipPreview(cv, skinById(cv.dataset.skinPreview ?? ''), this.reducedMotion).start();
+    const trail = cv.dataset.trailColor;
+    new ShipPreview(cv, skinById(cv.dataset.skinPreview ?? ''), this.reducedMotion, trail === undefined ? null : Number(trail)).start();
   }
 
   private modeLabel(): string {
@@ -493,14 +530,44 @@ export class App {
         this.screenEl.querySelector('.skin-stage')?.scrollIntoView({ block: 'nearest', behavior: this.reducedMotion ? 'auto' : 'smooth' });
         break;
       }
-      case 'equip-skin': {
-        const skin = skinById(target.dataset.skin ?? '');
-        if (isSkinUnlocked(skin, this.save.achievements)) {
-          this.save.skin = skin.id;
-          this.selectedSkin = skin.id;
+      case 'equip-skin':
+      case 'equip-item': {
+        const id = target.dataset.skin ?? target.dataset.item ?? '';
+        if (equip(this.save, id)) {
+          if (action === 'equip-skin') this.selectedSkin = id;
           this.persist();
-          this.showScreen('skins', false);
+          this.showScreen(this.screen === 'shop' ? 'shop' : 'skins', false);
         }
+        break;
+      }
+      case 'shop': this.pendingPurchase = null; this.showScreen('shop'); break;
+      case 'tab-shop-ships':
+      case 'tab-shop-trails':
+      case 'tab-shop-packs':
+        this.shopTab = action.slice('tab-shop-'.length) as S.ShopTab;
+        this.selectedItem = null;
+        this.showScreen('shop', false);
+        break;
+      case 'select-item':
+        this.selectedItem = target.dataset.item ?? null;
+        this.showScreen('shop', false);
+        this.screenEl.querySelector('.skin-stage')?.scrollIntoView({ block: 'nearest', behavior: this.reducedMotion ? 'auto' : 'smooth' });
+        break;
+      case 'buy':
+        // Étape de confirmation : rien n'est débité ici
+        this.pendingPurchase = target.dataset.item ?? null;
+        this.showScreen('confirm-purchase');
+        break;
+      case 'confirm-buy': {
+        // Vérification du solde, débit et déblocage dans la même modification, puis une seule écriture. Un article déjà possédé n'est jamais débité.
+        const res = purchase(this.save, target.dataset.item ?? '');
+        if (res.ok) {
+          this.persist();
+          this.sfx.play('success');
+          this.selectedItem = res.item.id;
+        }
+        this.pendingPurchase = null;
+        this.showScreen('shop');
         break;
       }
       case 'toggle-sound':

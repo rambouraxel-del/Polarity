@@ -9,6 +9,7 @@ import { Director, type DifficultyProfile, type DirectorEvent } from './director
 import { projectileX, projectileY, type Hazard } from './hazards';
 import { PATTERNS, type Family, type PatternId } from './patterns';
 import { Scoring } from './scoring';
+import { ShardSpawner, type ShardEvent, type ShardWorld } from './shards';
 import { omegaAt, type SpeedFn } from './speed';
 
 export type SimEvent =
@@ -22,7 +23,9 @@ export type SimEvent =
   | { type: 'event'; stage: DirectorEvent['stage']; kind: EventKind }
   /** (x, y) : position du vaisseau ; (hitX, hitY) : point de contact avec la menace. */
   | { type: 'death'; x: number; y: number; hitX: number; hitY: number; by: Hazard['kind'] }
-  | { type: 'complete' };
+  | { type: 'complete' }
+  /** Éclat sur l'orbite : apparition, collecte (gain unique), disparition. */
+  | ShardEvent;
 
 export type SimState = 'running' | 'dead' | 'complete';
 
@@ -56,6 +59,10 @@ export class Simulation {
   invincible: boolean;
   /** Facteur de vitesse du vaisseau selon le temps de jeu actif (courbe de Survie, ou vitesse du niveau). */
   readonly speedFn: SpeedFn;
+  /** Éclat sur l'orbite (Survie) ; null dans les autres modes. */
+  readonly shards: ShardSpawner | null;
+  private readonly shardWorld: ShardWorld;
+  private readonly shardOut: ShardEvent[] = [];
 
   state: SimState = 'running';
   stepIndex = 0;
@@ -74,6 +81,8 @@ export class Simulation {
     this.timeLimit = opts.timeLimit;
     this.limitSteps = opts.timeLimit === null ? Infinity : Math.round(opts.timeLimit / SIM.dt);
     this.invincible = opts.invincible ?? false;
+    this.shards = opts.profile.shards ? new ShardSpawner(opts.seed) : null;
+    this.shardWorld = { angle: this.angle, dir: this.dir, beacons: this.beacons, speed: this.speedFn };
   }
 
   get time(): number {
@@ -146,6 +155,17 @@ export class Simulation {
 
     // 6. Balises
     this.beacons.sweep(from, delta, this.onCollect, this.onCycle);
+
+    // 6 bis. Éclat sur l'orbite : collecte, disparition ou apparition (temps de jeu actif uniquement)
+    if (this.shards) {
+      const w = this.shardWorld;
+      w.angle = this.angle;
+      w.dir = this.dir;
+      const out = this.shardOut;
+      out.length = 0;
+      this.shards.step(t0 + dt, from, delta, w, out);
+      for (let i = 0; i < out.length; i++) this.events.push(out[i]);
+    }
 
     // 7. Temps et combo
     this.stepIndex++;

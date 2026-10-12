@@ -32,6 +32,8 @@ export class ShipPreview {
     private readonly canvas: HTMLCanvasElement,
     private readonly skin: Skin,
     private readonly reduced: boolean,
+    /** Couleur de traînée à prévisualiser (mode orbite) ; null = vaisseau seul au centre. */
+    private readonly trail: number | null = null,
   ) {}
 
   start(): void {
@@ -86,16 +88,53 @@ export class ShipPreview {
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // Vaisseau : même proportions que dans l'arène (demi-longueur L, flamme et tuyères relatives à L)
-    const shipPx = side * 0.66;
+    ctx.save();
+    if (this.trail === null) {
+      // Vaisseau au centre, rotation lente
+      ctx.translate(cx, cy);
+      ctx.rotate(this.reduced ? 0 : time * SPIN);
+      this.drawShip(ctx, sprite, side * 0.66, time, dt);
+    } else {
+      // Aperçu d'une traînée : le vaisseau parcourt l'orbite (immobile en animation réduite), traînée lumineuse derrière lui
+      const ringR = side * 0.36;
+      const theta = this.reduced ? -0.9 : time * 0.9;
+      this.drawTrailArc(ctx, cx, cy, ringR, theta, side, dpr);
+      const px = cx + ringR * Math.cos(theta);
+      const py = cy + ringR * Math.sin(theta);
+      ctx.translate(px, py);
+      ctx.rotate(Math.atan2(-Math.sin(theta), -Math.cos(theta)));
+      this.drawShip(ctx, sprite, side * 0.27, time, dt);
+    }
+    ctx.restore();
+    this.drawn = true;
+  }
+
+  /** Traînée lumineuse : segments d'orbite derrière le vaisseau, de plus en plus fins et transparents. */
+  private drawTrailArc(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, theta: number, side: number, dpr: number): void {
+    const color = this.trail ?? this.skin.colors.trail;
+    const n = 26;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < n; i++) {
+      const k = 1 - i / n;
+      const a0 = theta - i * 0.04;
+      const a1 = theta - (i + 1) * 0.04;
+      ctx.strokeStyle = rgba(color, 0.18 + 0.7 * k * k);
+      ctx.lineWidth = Math.max(1.5 * dpr, side * 0.03 * (0.25 + 0.75 * k));
+      ctx.beginPath();
+      ctx.moveTo(cx + r * Math.cos(a0), cy + r * Math.sin(a0));
+      ctx.lineTo(cx + r * Math.cos(a1), cy + r * Math.sin(a1));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** Vaisseau au point courant du repère (nez vers le haut) : réacteur animé derrière, lueur discrète puis sprite. */
+  private drawShip(ctx: CanvasRenderingContext2D, sprite: HTMLCanvasElement, shipPx: number, time: number, dt: number): void {
+    const c = this.skin.colors;
     const L = (shipPx * (VISUAL.spriteContent / VISUAL.spriteCanvas)) / 2;
     const k = L / shipRadius();
-    const angle = this.reduced ? 0 : time * SPIN;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-
-    // Réacteur (derrière : vers le bas du sprite), en additif
     const th = FX.thruster;
     const flick = this.reduced ? 1 : 1 + th.flicker * Math.sin(time * 38) * Math.sin(time * 23 + 1);
     const len = th.length * k * flick;
@@ -110,8 +149,6 @@ export class ShipPreview {
     }
     this.updateSparks(ctx, dt, off, y0 + len * 0.6, k);
     ctx.globalCompositeOperation = 'source-over';
-
-    // Lueur discrète puis sprite
     ctx.globalAlpha = FX.shipGlow.alpha;
     ctx.globalCompositeOperation = 'lighter';
     const gp = shipPx * FX.shipGlow.grow;
@@ -119,8 +156,6 @@ export class ShipPreview {
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(sprite, -shipPx / 2, -shipPx / 2, shipPx, shipPx);
-    ctx.restore();
-    this.drawn = true;
   }
 
   private flame(ctx: CanvasRenderingContext2D, x: number, y: number, halfW: number, len: number, color: string): void {

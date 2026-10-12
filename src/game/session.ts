@@ -110,6 +110,7 @@ export class GameSession {
       cycles: s.scoring.cycles,
       bestMultiplier: s.scoring.bestMultiplier,
       outcome: s.state === 'complete' ? 'complete' : 'dead',
+      shards: s.shards?.income ?? 0,
     };
   }
 

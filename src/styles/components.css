@@ -623,3 +623,115 @@
   font-size: 15px;
   font-variant-numeric: tabular-nums;
 }
+
+/* ———————————————————————————— Monnaies : soldes, icônes, prix */
+.coin {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.coin--lg {
+  width: 40px;
+  height: 40px;
+}
+
+.coin--xl {
+  width: 64px;
+  height: 64px;
+}
+
+.wallet {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--line);
+  background: rgb(var(--c-panel-rgb) / 0.62);
+}
+
+.wallet__item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.wallet__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.wallet__n {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-white);
+  white-space: nowrap;
+}
+
+.wallet__l {
+  font-size: 12px;
+  color: var(--c-muted);
+}
+
+.wallet__item--shards .wallet__n {
+  text-shadow: 0 0 10px rgb(var(--c-shard-rgb) / 0.55);
+}
+
+.wallet__item--prisms .wallet__n {
+  text-shadow: 0 0 10px rgb(var(--c-prism-rgb) / 0.5);
+}
+
+.wallet__sep {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  background: var(--line);
+}
+
+.price {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.price .coin {
+  width: 22px;
+  height: 22px;
+}
+
+.price strong {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-white);
+}
+
+.price__l {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+
+.chip--owned {
+  color: var(--c-cyan);
+  border-color: rgb(var(--c-cyan-rgb) / 0.5);
+}
+
+.chip--soon {
+  color: var(--c-gold);
+  border-style: dashed;
+  border-color: rgb(var(--c-gold-rgb) / 0.6);
+  white-space: normal;
+  text-align: center;
+}

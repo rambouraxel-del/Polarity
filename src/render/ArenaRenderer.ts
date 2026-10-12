@@ -4,6 +4,8 @@ import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
 import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import { TAU } from '../core/math';
 import type { GameSession } from '../game/session';
+import { SHARDS } from '../config/economy';
+import { trailById } from '../config/trails';
 import { laserAngle, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
 import type { Skin } from '../progression/skins';
 import { shipTextureFor } from './shipTextures';
@@ -18,6 +20,7 @@ export const COLORS = {
   sector: hexNum(THEME.color.hazardSector),
   danger: 0xffffff,
   gold: hexNum(THEME.color.gold),
+  shard: hexNum(THEME.color.shard),
 };
 
 const R = ARENA.orbitRadius;
@@ -27,6 +30,7 @@ const MAX_POPUPS = 8;
 const MAX_RINGS = 4;
 /** Clés des textures (chargées par GameScene). */
 export const SHIP_TEXTURE = 'ship';
+export const SHARD_TEXTURE = 'shard';
 export const ASTEROID_TEXTURES = ['ast1', 'ast2', 'ast3', 'ast4'] as const;
 /** Part de la toile du sprite occupée par la plus grande dimension du dessin. */
 const CONTENT = VISUAL.spriteContent / VISUAL.spriteCanvas;
@@ -112,6 +116,10 @@ export class ArenaRenderer {
   /** Liseré sombre : silhouette de la couleur du fond, sous la lueur, pour détacher le vaisseau de l'orbite. */
   private readonly shipRim: Phaser.GameObjects.Image;
   private shipKey: string = SHIP_TEXTURE;
+  /** Éclat sur l'orbite : sprite au-dessus du rail, sous les astéroïdes. */
+  private readonly shardSprite: Phaser.GameObjects.Image;
+  /** Traînée équipée (identifiant) : change la couleur de la traînée lumineuse, jamais la hitbox. */
+  trailId = 'auto';
   /** Halo de l'orbite : texture en dégradé radial (pas de traits translucides qui se recouvrent). */
   private readonly orbitGlow: Phaser.GameObjects.Image;
   private readonly asteroidPool: AsteroidSlot[] = [];
@@ -156,6 +164,7 @@ export class ArenaRenderer {
     this.trailG = scene.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
     this.shipG = scene.add.graphics().setDepth(4.5).setBlendMode(Phaser.BlendModes.ADD);
     this.orbitGlow = scene.add.image(0, 0, orbitGlowTexture(scene)).setDepth(1.9).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
+    this.shardSprite = scene.add.image(0, 0, SHARD_TEXTURE).setDepth(3.8).setVisible(false);
     this.shipRim = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(4.7).setVisible(false).setTintFill(COLORS.background).setAlpha(FX.shipRim.alpha);
     this.shipGlow = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(4.8).setVisible(false).setBlendMode(Phaser.BlendModes.ADD).setAlpha(FX.shipGlow.alpha);
     this.shipSprite = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(5).setVisible(false);
@@ -253,6 +262,7 @@ export class ArenaRenderer {
     this.shipGlow.setVisible(false);
     this.shipRim.setVisible(false);
     this.orbitGlow.setVisible(false);
+    this.shardSprite.setVisible(false);
     for (const a of this.asteroidPool) {
       a.img.setVisible(false);
       a.glow.setVisible(false);
@@ -292,6 +302,7 @@ export class ArenaRenderer {
 
     this.drawOrbit(skin);
     this.drawBeacons(sim ? sim.beacons.active : null, sim ? sim.beacons.angles : null, skin, clock);
+    this.drawShard(sim ? sim.shards?.active ?? null : null, t);
 
     let asteroids = 0;
     if (sim) {
@@ -345,6 +356,55 @@ export class ArenaRenderer {
     this.orbitGlow.setVisible(true).setPosition(x, y).setDisplaySize(glowPx, glowPx).setTint(c);
     g.lineStyle(Math.max(2 * this.dpr, 3 * s), c, 1);
     g.strokeCircle(x, y, r);
+  }
+
+  /**
+   * Éclat : disque sombre local (lisible sur toute couleur d'orbite), halo violet discret, sprite à contour sombre, cœur blanc,
+   * anneau qui se vide jusqu'à la disparition et pulsation de plus en plus rapide (temps de jeu : figées en pause).
+   */
+  private drawShard(shard: { angle: number; spawnedAt: number; expiresAt: number } | null, t: number): void {
+    const sprite = this.shardSprite;
+    if (!shard) {
+      sprite.setVisible(false);
+      return;
+    }
+    const V = FX.shard;
+    const g = this.g;
+    const s = this.scale;
+    const rem = Math.max(0, shard.expiresAt - t);
+    const age = Math.max(0, t - shard.spawnedAt);
+    const calm = this.reducedEffects;
+    const hz = rem > 2 ? V.pulseHz : rem > 1 ? V.warnHz : V.urgentHz;
+    const pulse = calm ? 0 : Math.sin(TAU * hz * t);
+    const grow = calm ? 1 : 0.35 + 0.65 * Math.min(1, age / V.spawnIn);
+    const x = this.sx(R * Math.cos(shard.angle));
+    const y = this.sy(R * Math.sin(shard.angle));
+    const r = V.radius * s * grow * (1 + 0.07 * pulse);
+    // Fond sombre local, puis anneau de temps restant (visible aussi sans animation)
+    g.fillStyle(COLORS.background, 0.85);
+    g.fillCircle(x, y, r * V.diskGrow);
+    const ringR = r * V.ringGrow;
+    g.lineStyle(Math.max(1.5 * this.dpr, 2.6 * s), 0x1c1238, 0.9);
+    g.strokeCircle(x, y, ringR);
+    g.lineStyle(Math.max(1.5 * this.dpr, 2.6 * s), COLORS.shard, 0.95);
+    g.beginPath();
+    g.arc(x, y, ringR, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, rem / SHARDS.lifetime), false);
+    g.strokePath();
+    // Halo violet (additif)
+    const halo = this.trailG;
+    halo.fillStyle(COLORS.shard, 0.1);
+    halo.fillCircle(x, y, r * V.haloGrow);
+    halo.fillStyle(COLORS.shard, 0.08);
+    halo.fillCircle(x, y, r * V.haloGrow * 0.72);
+    // Sprite ; dans la dernière seconde, il clignote doucement
+    const alpha = rem > 1 || calm ? 1 : 0.6 + 0.4 * (0.5 + 0.5 * pulse);
+    const px = 2 * r * V.spriteGrow;
+    sprite.setVisible(true).setPosition(x, y).setDisplaySize(px, px).setAlpha(alpha);
+    // Cœur blanc
+    this.shipG.fillStyle(0xffffff, 0.55 + 0.15 * pulse);
+    this.shipG.fillCircle(x, y, r * 0.26);
+    this.shipG.fillStyle(0xffffff, 0.2);
+    this.shipG.fillCircle(x, y, r * 0.5);
   }
 
   private drawBeacons(active: readonly boolean[] | null, angles: readonly number[] | null, skin: Skin, clock: number): void {
@@ -461,11 +521,12 @@ export class ArenaRenderer {
     if (this.reducedEffects || this.trailCount < 2) return;
     const g = this.g;
     const s = this.scale;
+    const trail = trailById(this.trailId).color ?? skin.colors.trail;
     for (let i = 1; i < this.trailCount; i++) {
       const a0 = this.trail[i - 1];
       const a1 = this.trail[i];
       const k = 1 - i / TRAIL_LEN;
-      g.lineStyle(2.5 * s * k, skin.colors.trail, 0.22 * k);
+      g.lineStyle(2.5 * s * k, trail, 0.22 * k);
       g.lineBetween(this.sx(R * Math.cos(a0)), this.sy(R * Math.sin(a0)), this.sx(R * Math.cos(a1)), this.sy(R * Math.sin(a1)));
     }
   }

@@ -16,3 +16,8 @@ avec `npm run sim`, tests de non-régression de la sauvegarde.
 - Classement en ligne (aucune dépendance serveur dans cette version).
 - Vitesse du vaisseau au-delà de 100 % de la référence (plafonnée à 100 % pour cette version).
 - Mesure GPU sur appareils mobiles réels.
+
+## Améliorations de campagne payées en Éclats (économie préparée)
+L'économie (v1.5) fournit le solde d'Éclats, les achats atomiques et le catalogue. Une future campagne pourrait proposer des améliorations achetées en Éclats ;
+à définir : nature des améliorations (sans toucher aux interdits de conception : pas de statistiques de vaisseau ni d'avantage de survie), rattachement à `BALANCE_VERSION`,
+migration de sauvegarde. **Non implémenté** dans cette version.

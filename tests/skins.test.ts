@@ -3,7 +3,9 @@ import { playerHitRadius } from '../src/config/hitbox';
 import { CLASSIC_SKIN_ID, HAZARD_HUES, MIN_HAZARD_HUE_GAP, SHIP_MODELS, SKINS, hazardHueGap, hueSat } from '../src/config/skins';
 import { VISUAL, shipRadius } from '../src/config/visuals';
 import { ACHIEVEMENTS } from '../src/progression/achievements';
-import { isKnownSkin, isSkinUnlocked, resolveEquipped, skinById, unlockCondition } from '../src/progression/skins';
+import { isKnownSkin, isSkinOwned, resolveEquipped, skinById, unlockCondition } from '../src/progression/skins';
+import { CATALOG, catalogItem } from '../src/config/catalog';
+import { LEGACY_SKIN_ACHIEVEMENTS } from '../src/config/economy';
 import { SHIP_PALETTE, recolorShip } from '../src/render/shipPalette';
 import { defaultSave, loadSave, writeSave, type KeyValueStore } from '../src/save/save';
 
@@ -11,22 +13,29 @@ describe('configuration des apparences', () => {
   it('identifiants stables et uniques ; les apparences d’origine sont conservées', () => {
     const ids = SKINS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme']);
+    expect(ids.slice(0, 7)).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme']);
     expect(CLASSIC_SKIN_ID).toBe('classique');
   });
 
-  it('déblocages d’origine conservés, sur des succès existants', () => {
-    const expected: Record<string, string | null> = { classique: null, aurore: 'first_cycle', menthe: 'first_level', ambre: 'survive_60', glace: 'max_combo', solaire: 'survive_300', prisme: 'all_levels' };
-    for (const s of SKINS) {
-      const id = s.unlock.type === 'achievement' ? s.unlock.id : null;
-      expect(id).toBe(expected[s.id]);
-      if (id) expect(ACHIEVEMENTS.some((a) => a.id === id)).toBe(true);
+  it('chaque apparence a une obtention au catalogue ; exclusivités de succès sur des succès existants', () => {
+    for (const sk of SKINS) {
+      const item = catalogItem(sk.id);
+      expect(item?.kind, sk.id).toBe('ship');
+      if (item?.acquire.type === 'achievement') {
+        const id = item.acquire.id;
+        expect(ACHIEVEMENTS.some((a) => a.id === id)).toBe(true);
+      }
     }
+    // Quelques récompenses restent exclusives aux succès
+    expect(['glace', 'solaire', 'prisme'].every((id) => catalogItem(id)?.acquire.type === 'achievement')).toBe(true);
+    // Anciennes conditions de déblocage conservées pour la migration
+    expect(Object.keys(LEGACY_SKIN_ACHIEVEMENTS).sort()).toEqual(['ambre', 'aurore', 'glace', 'menthe', 'prisme', 'solaire']);
+    expect(CATALOG.filter((i) => i.kind === 'ship').length).toBe(SKINS.length);
   });
 
   it('aucun avantage de jeu : seules des données de présentation, même modèle, même gabarit, même hitbox', () => {
     for (const s of SKINS) {
-      expect(Object.keys(s).sort()).toEqual(['asset', 'colors', 'id', 'name', 'unlock']);
+      expect(Object.keys(s).sort()).toEqual(['asset', 'colors', 'id', 'name']);
       expect(Object.keys(s.colors).sort()).toEqual(['beacon', 'cockpit', 'hull', 'orbit', 'thruster', 'trail', 'wings']);
       expect(s.asset in SHIP_MODELS).toBe(true);
     }
@@ -57,41 +66,46 @@ describe('configuration des apparences', () => {
   });
 });
 
-describe('déblocage et équipement', () => {
+describe('possession et équipement', () => {
+  const own = (achievements: Record<string, number> = {}, owned: string[] = []) => ({ achievements, owned });
+
   it('apparence inconnue → modèle classique', () => {
     expect(skinById('inconnue').id).toBe('classique');
     expect(isKnownSkin('inconnue')).toBe(false);
     expect(isKnownSkin('aurore')).toBe(true);
   });
 
-  it('une apparence verrouillée n’est jamais équipée', () => {
-    expect(resolveEquipped('glace', {}).id).toBe('classique');
-    expect(resolveEquipped('glace', { max_combo: 1 }).id).toBe('glace');
-    expect(resolveEquipped('absente', { max_combo: 1 }).id).toBe('classique');
+  it('une apparence non possédée n’est jamais équipée', () => {
+    expect(resolveEquipped('glace', own()).id).toBe('classique');
+    expect(resolveEquipped('glace', own({ max_combo: 1 })).id).toBe('glace');
+    expect(resolveEquipped('aurore', own()).id).toBe('classique');
+    expect(resolveEquipped('aurore', own({}, ['aurore'])).id).toBe('aurore');
+    expect(resolveEquipped('absente', own({ max_combo: 1 })).id).toBe('classique');
   });
 
-  it('condition de déblocage précise (nom et description du succès)', () => {
+  it('condition de succès précise pour les exclusivités', () => {
     const c = unlockCondition(skinById('glace'))!;
     expect(c.name).toBe('Pleine charge');
     expect(c.description).toContain('multiplicateur');
     expect(unlockCondition(skinById('classique'))).toBeNull();
-    expect(isSkinUnlocked(skinById('glace'), {})).toBe(false);
-    expect(isSkinUnlocked(skinById('classique'), {})).toBe(true);
+    expect(unlockCondition(skinById('aurore'))).toBeNull();
+    expect(isSkinOwned(skinById('glace'), own())).toBe(false);
+    expect(isSkinOwned(skinById('classique'), own())).toBe(true);
   });
 
   it('l’apparence équipée est enregistrée et relue (persistance)', () => {
     const store = new Map<string, string>();
     const kv: KeyValueStore = { get: (k) => store.get(k) ?? null, set: (k, v) => void store.set(k, v), remove: (k) => void store.delete(k) };
     const save = defaultSave();
-    save.achievements = { survive_60: 1 };
+    save.owned = ['ambre'];
     save.skin = 'ambre';
     writeSave(kv, save);
     const back = loadSave(kv).data;
     expect(back.skin).toBe('ambre');
-    expect(resolveEquipped(back.skin, back.achievements).id).toBe('ambre');
+    expect(resolveEquipped(back.skin, back).id).toBe('ambre');
     // Identifiant disparu d'une version ultérieure : retour au classique sans perdre le reste
     back.skin = 'disparue';
-    expect(resolveEquipped(back.skin, back.achievements).id).toBe('classique');
+    expect(resolveEquipped(back.skin, back).id).toBe('classique');
   });
 });
 

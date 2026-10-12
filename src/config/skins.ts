@@ -1,8 +1,9 @@
 /**
  * Apparences du vaisseau — configuration extensible, purement cosmétique.
  *
- * Pour ajouter une apparence : ajouter une entrée à `SKINS` (identifiant stable, nom, modèle, couleurs, condition de déblocage).
+ * Pour ajouter une apparence : ajouter une entrée à `SKINS` (identifiant stable, nom, modèle, couleurs) puis son obtention dans config/catalog.ts.
  * Règles (vérifiées par tests/skins.test.ts) :
+ * - les conditions d'obtention (gratuit, succès, achat) sont dans config/catalog.ts ;
  * - l'identifiant ne change jamais (il est enregistré dans la sauvegarde) ;
  * - aucun paramètre de jeu : la hitbox est celle de config/hitbox.ts pour tous les modèles, et tous partagent le même gabarit visuel (config/visuals.ts) ;
  * - la couleur du réacteur reste distincte des dangers (corail, orange des astéroïdes, magenta des secteurs) : voir `HAZARD_HUES`.
@@ -31,12 +32,6 @@ export interface ThrusterColors {
   glow: number;
 }
 
-export type SkinUnlock =
-  /** Disponible d'emblée. */
-  | { type: 'default' }
-  /** Débloquée par un succès (identifiant dans progression/achievements.ts). */
-  | { type: 'achievement'; id: string };
-
 export interface SkinDef {
   /** Identifiant stable (clé de sauvegarde). */
   id: string;
@@ -49,7 +44,6 @@ export interface SkinDef {
     beacon: number;
     trail: number;
   };
-  unlock: SkinUnlock;
 }
 
 /** Teintes (degrés) des dangers : projectile corail, astéroïde orange, secteur magenta. Aucun réacteur ne s'en approche. */
@@ -63,32 +57,40 @@ export const CLASSIC_SKIN_ID = 'classique';
 
 export const SKINS: SkinDef[] = [
   {
-    id: 'classique', name: 'Classique', asset: 'classic', unlock: { type: 'default' },
+    id: 'classique', name: 'Classique', asset: 'classic',
     colors: { hull: 0xffffff, wings: 0xffffff, cockpit: 0x00e5ff, thruster: { core: 0xeafcff, glow: 0x00e5ff }, orbit: 0x00e5ff, beacon: 0xffd84a, trail: 0x9ff9ff },
   },
   {
-    id: 'aurore', name: 'Aurore', asset: 'classic', unlock: { type: 'achievement', id: 'first_cycle' },
+    id: 'aurore', name: 'Aurore', asset: 'classic',
     colors: { hull: 0xeafff0, wings: 0x5dffa8, cockpit: 0x7dffc0, thruster: { core: 0xeafff4, glow: 0x5dffa8 }, orbit: 0x5dffa8, beacon: 0xffe066, trail: 0xb8ffd6 },
   },
   {
-    id: 'menthe', name: 'Menthe', asset: 'classic', unlock: { type: 'achievement', id: 'first_level' },
+    id: 'menthe', name: 'Menthe', asset: 'classic',
     colors: { hull: 0xffffff, wings: 0x3dffd8, cockpit: 0xfff2a8, thruster: { core: 0xeafffa, glow: 0x3dffd8 }, orbit: 0x3dffd8, beacon: 0xfff2a8, trail: 0xa8fff0 },
   },
   {
-    id: 'ambre', name: 'Ambre', asset: 'classic', unlock: { type: 'achievement', id: 'survive_60' },
+    id: 'ambre', name: 'Ambre', asset: 'classic',
     colors: { hull: 0xfff6e0, wings: 0xffb84d, cockpit: 0xffe08a, thruster: { core: 0xfffbe0, glow: 0xf2f04a }, orbit: 0xffb84d, beacon: 0xf4fbff, trail: 0xffd9a0 },
   },
   {
-    id: 'glace', name: 'Glace', asset: 'classic', unlock: { type: 'achievement', id: 'max_combo' },
+    id: 'glace', name: 'Glace', asset: 'classic',
     colors: { hull: 0xf4faff, wings: 0x8fb8ff, cockpit: 0xb8d4ff, thruster: { core: 0xf0f6ff, glow: 0x8fb8ff }, orbit: 0x8fb8ff, beacon: 0xffe680, trail: 0xc9dcff },
   },
   {
-    id: 'solaire', name: 'Solaire', asset: 'classic', unlock: { type: 'achievement', id: 'survive_300' },
+    id: 'solaire', name: 'Solaire', asset: 'classic',
     colors: { hull: 0xfffbe8, wings: 0xffe14d, cockpit: 0xfff7b0, thruster: { core: 0xffffe8, glow: 0xf2f04a }, orbit: 0xffe14d, beacon: 0xffffff, trail: 0xfff0a0 },
   },
   {
-    id: 'prisme', name: 'Prisme', asset: 'classic', unlock: { type: 'achievement', id: 'all_levels' },
+    id: 'prisme', name: 'Prisme', asset: 'classic',
     colors: { hull: 0x9ff9ff, wings: 0xb79bff, cockpit: 0xf2f6ff, thruster: { core: 0xf2f6ff, glow: 0x7dd0ff }, orbit: 0xf2f6ff, beacon: 0xffd84a, trail: 0xffffff },
+  },
+  {
+    id: 'spectre', name: 'Spectre', asset: 'classic',
+    colors: { hull: 0xe9e1ff, wings: 0x7a4dff, cockpit: 0xc9a8ff, thruster: { core: 0xf3edff, glow: 0x9b6bff }, orbit: 0x9b6bff, beacon: 0xffd84a, trail: 0xc7a8ff },
+  },
+  {
+    id: 'neon', name: 'Néon', asset: 'classic',
+    colors: { hull: 0xffffff, wings: 0xff4fd8, cockpit: 0x00e5ff, thruster: { core: 0xeafcff, glow: 0x00e5ff }, orbit: 0x00e5ff, beacon: 0xfff2a8, trail: 0x7df3ff },
   },
 ];
 

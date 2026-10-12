@@ -50,6 +50,7 @@ npm run check        # typecheck + tests + build
 - `ui/` — `theme.ts` (**source unique** des couleurs, polices, rayons, durées → variables CSS), `components.ts` (boutons, en-têtes, réglages…), `icons.ts` (SVG), `screens.ts` (écrans HTML), `space.ts` (fond spatial des menus), HUD, formatage. `app.ts` orchestre le tout.
 - `styles/` — `index.css`, `base.css`, `components.css`, `screens.css`, `hud.css` : aucune couleur en dur (variables `--c-*`, voir `docs/INTERFACE.md`).
 - `config/skins.ts` — apparences (identifiant stable, nom, modèle, couleurs coque/ailes/cockpit/réacteur, déblocage) : cosmétiques uniquement, hitbox et gabarit identiques, réacteur distinct des dangers (testé) ; `progression/skins.ts` (déblocage, repli sur « classique ») ; `render/{shipPalette,shipTextures,skinSprites}.ts` ; `ui/shipPreview.ts`. Voir `docs/APPARENCES.md`.
+- `config/economy.ts` (éclat sur l'orbite, récompenses de niveau, soldes), `config/catalog.ts` (**source unique** du catalogue et des conditions d'obtention), `config/trails.ts` ; `progression/shop.ts` (possession, achats en Éclats, équipement) ; `sim/shards.ts` (éclat sur l'orbite, générateur dédié) ; `monetization/payments.ts` (interface de paiement future, aucun paiement actif). Voir `docs/ECONOMIE.md`.
 - `config/brand.ts` — `GAME_NAME` (nom affiché, « Polarity ») et `STORAGE_NAMESPACE` (**'polarite', ne jamais changer** : clés de sauvegarde).
 - `monetization/ads.ts` — interface publicitaire facultative, désactivée (aucun SDK).
 
@@ -64,6 +65,7 @@ npm run check        # typecheck + tests + build
 - Tout nouveau paramètre d'équilibrage va dans `config/`.
 - Couleurs, polices et rayons de l'interface : uniquement via `ui/theme.ts` (ou les variables CSS) ; pas de style en ligne ni de couleur hexadécimale dans `styles/` (testé). Les assets de référence (`art/reference/`) ne sont jamais affichés.
 - Les identifiants d'apparence sont enregistrés dans la sauvegarde : ne jamais les changer ni les réutiliser ; une apparence sans effet de jeu (aucune statistique, pas de boutique ni de monnaie).
+- Économie : cosmétiques seulement, aucun avantage de jeu ; achat = vérification du solde + débit + déblocage dans la même modification ; Prismes jamais débités ni crédités localement (paiements non actifs) ; sauvegarde versionnée (format 3) : toute nouvelle donnée de progression passe par `save.ts` (sanitize + migration).
 - Textes utilisateur en français. Pas de bouton factice.
 - Après une modification : `npm run check`, et `npm run build && npm run e2e` si l'interface change.
 - Mettre à jour `PROGRESS.md` et `RESUME.md` à chaque jalon.
