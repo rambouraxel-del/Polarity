@@ -1,0 +1,980 @@
+{
+  "schema_version": 1,
+  "locale": "fr",
+  "levels": [
+    {
+      "id": "level_01",
+      "title": "De quoi rentrer",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu as encore une baisse de pression sur le circuit gauche."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu l’as réparé hier."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "J’ai réparé la fuite. Le circuit, lui, a décidé de vieillir."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Combien de temps il me reste ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Pour aujourd’hui ? Assez. Pour continuer à repousser son remplacement ? Beaucoup moins."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Élias jette un regard à la photographie."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Papa disait qu’elle nous survivrait."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Papa avait aussi installé le chauffage à l’envers."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Il chauffait."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Le compartiment moteur, oui."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Un léger sourire traverse le visage d’Élias."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Écoute. Tu prends de quoi payer le circuit, tu gardes ta réserve pour rentrer et tu reviens. Une journée normale."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Une journée normale."
+        }
+      ],
+      "after": [
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Élias dépose un éclat dans un petit compartiment transparent. Sa lumière se reflète sur ses doigts."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tout ça pour des cailloux."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Des cailloux qui paient ton carburant."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Et ton circuit gauche."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ton circuit gauche. Je tiens à cette distinction."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Une nouvelle concentration apparaît sur le scanner, plus près de la planète."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Il y a mieux un peu plus bas."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu en as déjà assez pour rentrer."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Justement. Maintenant, j’aimerais avoir assez pour repartir."
+        }
+      ],
+      "gameplay_notes": [
+        "Récolte simple d’éclats dans un champ peu dense. Découvrir le travail quotidien d’Élias et les commandes existantes. Pas de lasers ni de tempête électrique à ce stade."
+      ],
+      "illustration_before": "illustrations/01_de_quoi_rentrer.png",
+      "illustration_after": "illustrations/01_de_quoi_rentrer.png"
+    },
+    {
+      "id": "level_02",
+      "title": "Une bonne journée",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Regarde ces relevés."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je les regarde. Vérifie ton scanner."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Déjà fait."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Alors quelqu’un a laissé passer une très bonne journée de travail."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Avec ça, on pourrait remplacer le circuit. Et le chauffage."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Commence par ce qui peut te tuer."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu as une façon très particulière de partager mon enthousiasme."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Nora agrandit les données sur son écran."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Attends… Les fragments se concentrent tous dans la même direction."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Un filon ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Peut-être. Mais ils sont détachés de la roche. Comme si quelque chose les avait arrachés."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Un autre récupérateur ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je ne vois personne sur les relevés."
+        }
+      ],
+      "after": [
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Une vibration traverse le cockpit. La tasse tremble dans son logement."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora, tu as senti—"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tes instruments viennent de décrocher. Qu’est-ce qui se passe ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Les rochers bougent."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ils bougent toujours."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Ceux-là changent de direction."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Une alarme s’allume. Sur le scanner, des dizaines de trajectoires convergent."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Élias. Sors du champ."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je fais demi-tour."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Maintenant."
+        }
+      ],
+      "gameplay_notes": [
+        "Champ plus dense et trajectoires moins prévisibles. La concentration d’éclats attire Élias vers la zone perturbée. Augmenter progressivement la difficulté."
+      ],
+      "illustration_before": "illustrations/02_une_bonne_journee.png",
+      "illustration_after": "illustrations/02_une_bonne_journee.png"
+    },
+    {
+      "id": "level_03",
+      "title": "Tenir",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Le passage derrière moi est fermé."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Prends de l’altitude. Il reste une ouverture au-dessus de toi."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Le moteur gauche ne suit pas."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Réduis le droit. Sinon tu vas tourner sur toi-même."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Un impact secoue le vaisseau."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je perds la liaison."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je suis encore là."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora—"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Regarde devant toi. Pas les alarmes. Devant toi."
+        }
+      ],
+      "after": [
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Le vacarme cesse. Seuls restent le souffle d’Élias et le cliquetis d’une pièce desserrée."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora ?"
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Silence."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "La Traverse à la station. Je suis sorti du champ. Est-ce que quelqu’un me reçoit ?"
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Un grésillement, puis une voix."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "…Élias ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je suis là."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu es blessé ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Non."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ne réponds pas sans vérifier."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Il regarde ses mains, puis les instruments."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je ne suis pas blessé. La coque tient."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Nora expire lentement."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "D’accord. On va te ramener."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Élias redresse la photographie."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu avais dit une journée normale."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Rentre. Tu pourras me le reprocher en face."
+        }
+      ],
+      "gameplay_notes": [
+        "Première tempête d’astéroïdes. Objectif : survivre et sortir de la zone, sans quota de récolte obligatoire. La liaison devient dégradée puis silencieuse. Ne pas ajouter de dialogue au milieu d’une esquive critique."
+      ],
+      "illustration_before": "illustrations/03_tenir.png",
+      "illustration_after": "illustrations/03_tenir.png"
+    },
+    {
+      "id": "level_04",
+      "title": "Ce que la tempête a laissé",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu peux rentrer par la bordure extérieure. Ça prendra plus longtemps, mais tes moteurs tiendront."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Reçu."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Le scanner signale un objet."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Il y a du métal devant moi."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Une pièce de ta coque ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Non. Trop grande."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Il dirige son projecteur vers une plaque portant une partie d’un numéro. Le numéro n’est pas écrit dans l’image source ; inutile de l’incruster."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Ça vient d’un vaisseau."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Envoie-moi l’image."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu peux identifier ça ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Peut-être avec le marquage. Continue doucement."
+        }
+      ],
+      "after": [
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Son projecteur révèle un siège encore attaché à une portion de paroi."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Ce n’est pas du matériel de transport."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Élias…"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Il y avait quelqu’un là-dedans."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ces débris peuvent être très anciens."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Ou dater de la tempête."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Un faible point lumineux clignote au-delà des roches."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je vois quelque chose. Une coque, je crois."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je transmets les coordonnées aux secours."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Combien de temps avant qu’ils arrivent ?"
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Nora ne répond pas immédiatement."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je vais au moins vérifier."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Une vérification extérieure. Tu ne t’amarres pas si la coque est instable."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Compris."
+        }
+      ],
+      "gameplay_notes": [
+        "Traverser les débris, récolter les éclats accessibles, suivre progressivement les fragments d’épave. Le danger reste présent mais le rythme redescend après la tempête."
+      ],
+      "illustration_before": "illustrations/04_ce_que_la_tempete_a_laisse.png",
+      "illustration_after": "illustrations/04_ce_que_la_tempete_a_laisse.png"
+    },
+    {
+      "id": "level_05",
+      "title": "Douze ans de silence",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "C’est une capsule. Six places, peut-être huit."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je viens d’identifier le marquage."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Et ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "La Lisière. Un transport de longue distance."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu connais ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Il a disparu dans ce secteur. Les recherches ont été abandonnées."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Quand ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Il y a douze ans."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Élias observe le voyant orange."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Sa balise fonctionne encore."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Approche assez pour lire son état. Elle envoie peut-être un ancien message en boucle."
+        }
+      ],
+      "after": [
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Le téléchargement s’achève. Une vue intérieure apparaît : sièges vides, sangles ouvertes, aucun occupant visible. Afficher maintenant 05b_capsule_interieur.png."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Il n’y a personne."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu ne peux pas tout voir depuis là."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Le sas est ouvert. Ils ont pu être récupérés."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je ne trouve aucune opération de secours enregistrée."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Élias ouvre le journal de la balise."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Elle n’émettait pas en boucle."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Qu’est-ce que tu lis ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Douze ans en veille. Puis une réactivation… il y a dix-huit minutes."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Pendant la tempête."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Elle a reçu quelque chose."
+        },
+        {
+          "type": "system",
+          "speaker": "system",
+          "portrait": null,
+          "text": "LIAISON AVEC LE VAISSEAU D’ORIGINE RÉTABLIE."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora. Elle a retrouvé la Lisière."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ou quelque chose qui utilise son identifiant."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "La balise transmet des coordonnées, suivies d’un court enregistrement dégradé."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "transmission_inconnue",
+          "display_name": "Voix enregistrée",
+          "portrait": "portraits/transmission_inconnue.png",
+          "text": "…ici la Lisière… quelqu’un… nous recevoir…"
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Le message s’interrompt."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu as entendu ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Oui. Mais on ignore quand cette voix a été enregistrée."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Le signal, lui, vient de partir."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Transmets les coordonnées. On laisse les secours s’en occuper."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Élias regarde sa réserve d’éclats, puis les indicateurs de carburant."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "J’ai de quoi faire le détour."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ce n’est pas une question d’argent."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je sais."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Il laisse passer quelques secondes."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Quand j’ai perdu la radio… j’ai continué à parler. Même quand je pensais que tu ne m’entendais plus."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Nora baisse les yeux sur les coordonnées."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je vais chercher une route. Tu ne pars pas avant que je l’aie vérifiée."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "D’accord."
+        },
+        {
+          "type": "direction",
+          "display_as_dialogue": false,
+          "text": "Sur l’écran, le signal pulse de nouveau. Fin des cinq niveaux livrés."
+        }
+      ],
+      "gameplay_notes": [
+        "Atteindre la capsule à travers les débris, puis rester à proximité assez longtemps pour télécharger les données de la balise. Réutiliser les commandes de Polarity. Adapter la notion de proximité au moteur existant sans imposer un système de déplacement totalement différent."
+      ],
+      "illustration_before": "illustrations/05a_capsule_exterieur.png",
+      "illustration_after": "illustrations/05b_capsule_interieur.png"
+    }
+  ]
+}
