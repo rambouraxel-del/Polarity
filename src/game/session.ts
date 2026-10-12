@@ -1,4 +1,5 @@
 import { SIM, UI } from '../config/balance';
+import { CampaignSimulation, NO_UPGRADES, type CampaignEvent } from '../campaign/simulation';
 import { createSimulation, type RunConfig } from '../modes/run';
 import type { RunSummary } from '../progression/progress';
 import type { SimEvent, Simulation } from '../sim/simulation';
@@ -9,6 +10,8 @@ export interface SessionHooks {
   /** Appelé avant chaque pas de simulation (outil de démonstration). */
   onBeforeStep?(session: GameSession): void;
   onEvent?(e: SimEvent, session: GameSession): void;
+  /** Événements propres à la campagne (objets, bouclier, transmissions). */
+  onCampaignEvent?(e: CampaignEvent, session: GameSession): void;
   onPhase?(phase: Phase, session: GameSession): void;
   /** Appelé une seule fois, à la fin de la partie (mort ou réussite). */
   onEnd?(summary: RunSummary, session: GameSession): void;
@@ -21,6 +24,8 @@ export interface SessionHooks {
  */
 export class GameSession {
   readonly sim: Simulation;
+  /** La même simulation, vue campagne (null hors campagne). */
+  readonly campaign: CampaignSimulation | null;
   phase: Phase = 'running';
   /** Temps réel accumulé non encore simulé (sert aussi à l'interpolation du rendu). */
   acc = 0;
@@ -30,7 +35,14 @@ export class GameSession {
   private ended = false;
 
   constructor(readonly config: RunConfig, private readonly hooks: SessionHooks = {}) {
-    this.sim = createSimulation(config);
+    if (config.mode === 'campaign') {
+      if (!config.mission) throw new Error('Mission manquante');
+      this.campaign = CampaignSimulation.create(config.mission, config.seed, config.upgrades ?? NO_UPGRADES);
+      this.sim = this.campaign;
+    } else {
+      this.campaign = null;
+      this.sim = createSimulation(config);
+    }
   }
 
   /** Avance d'une image de durée réelle `realDt` (secondes). */
@@ -109,9 +121,11 @@ export class GameSession {
       score: s.scoring.score,
       cycles: s.scoring.cycles,
       bestMultiplier: s.scoring.bestMultiplier,
-      outcome: s.state === 'complete' ? 'complete' : 'dead',
+      outcome: this.campaign ? (this.campaign.outcome === 'success' ? 'complete' : 'dead') : s.state === 'complete' ? 'complete' : 'dead',
       shards: s.shards?.income ?? 0,
       events: s.director.eventCount,
+      missionId: this.config.mission?.id,
+      report: this.campaign?.report(),
     };
   }
 
@@ -124,9 +138,15 @@ export class GameSession {
 
   private drain(): void {
     const ev = this.sim.events;
-    if (ev.length === 0) return;
-    for (let i = 0; i < ev.length; i++) this.hooks.onEvent?.(ev[i], this);
-    ev.length = 0;
+    if (ev.length > 0) {
+      for (let i = 0; i < ev.length; i++) this.hooks.onEvent?.(ev[i], this);
+      ev.length = 0;
+    }
+    const cev = this.campaign?.campaignEvents;
+    if (cev && cev.length > 0) {
+      for (let i = 0; i < cev.length; i++) this.hooks.onCampaignEvent?.(cev[i], this);
+      cev.length = 0;
+    }
   }
 
   private setPhase(p: Phase): void {

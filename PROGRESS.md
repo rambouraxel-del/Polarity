@@ -1,5 +1,13 @@
 # Suivi d'avancement
 
+## Campagne v2.0 : chapitre 1 « Le signal impossible » (livré, à valider en jeu réel)
+- [x] `config/campaign.ts` (10 missions typées, récompenses, améliorations) et `config/story.ts` (15 séquences)
+- [x] `CampaignSimulation` (sous-classe, `src/sim/` intact) : objectifs (survivre, balises, objets temporaires, cycles, boîte noire), phases scénarisées, respirations, bouclier, collecteur, stabilisateur, transmissions en partie
+- [x] Sauvegarde format 5 + migration v4 → v5 ; progression (étoiles, récompenses uniques, hangar, journal, Écho) ; catalogue `campaign` (« Campagne requise »)
+- [x] Écrans : Campagne, carte des missions, fiche, hangar, journal, dialogues, bilan, « Défis classiques » ; rendu des objets et du bouclier ; HUD de mission ; pause/reprise
+- [x] Tests : faisabilité des 10 missions par `MissionBot` (12 graines), progression/sauvegarde, écrans ; e2e « Campagne » et migration v5
+- **Reste à valider avec de vrais joueurs** (les bots ne mesurent pas le ressenti) : difficulté de chaque mission (vitesse, fenêtres de motifs), durée de vie des objets (missions 3 et 7), seuils des défis secondaires, prix et effets des améliorations, lisibilité des objets de mission et du bouclier sur mobile
+
 ## Version 1.1 — « Néon premium » et courbe de Survie accélérée (terminée)
 - [x] Sprites : vaisseau blanc/argent à cockpit cyan et 4 astéroïdes rocheux aux fissures orange (fond transparent, sans aucun effet intégré)
 - [x] Effets par code, à l'opposé du déplacement : flamme et étincelles du vaisseau, traînée et braises d'astéroïdes ; inversion instantanée

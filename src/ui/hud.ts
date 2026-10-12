@@ -38,6 +38,28 @@ export class Hud {
     el.textContent = value;
   }
 
+  /** Campagne : temps restant jusqu'à la fin de la mission, avancement de l'objectif et état du bouclier. */
+  updateCampaign(session: GameSession): void {
+    const camp = session.campaign;
+    if (!camp) return;
+    const sim = session.sim;
+    this.set(this.score, 'score', formatScore(sim.scoring.score));
+    this.set(this.mult, 'mult', `×${sim.scoring.multiplier}`);
+    const pct = sim.scoring.multiplier >= SCORE.maxMultiplier ? 100 : (sim.scoring.progress / SCORE.collectsPerLevel) * 100;
+    const w = `${Math.round(pct)}%`;
+    if (this.cache.combo !== w) {
+      this.cache.combo = w;
+      this.combo.style.width = w;
+    }
+    if (this.cache.shardsShown !== '') {
+      this.cache.shardsShown = '';
+      this.shards.classList.add('hidden');
+    }
+    this.set(this.time, 'time', formatTime(camp.remaining(), 0));
+    const shield = camp.invulnerable ? ' · Bouclier actif' : camp.shieldCharges > 0 ? ' · Bouclier prêt' : camp.upgrades.shield ? ' · Bouclier utilisé' : '';
+    this.set(this.sub, 'sub', camp.progressText() + shield);
+  }
+
   /**
    * @param record meilleur temps précédent (Survie/Défi) ; null en mode Niveaux.
    * @returns vrai au moment précis où le record vient d'être dépassé.

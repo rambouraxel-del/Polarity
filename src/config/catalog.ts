@@ -3,7 +3,7 @@
  *
  * - `ship` : identifiant = identifiant d'apparence (config/skins.ts) ; `trail` : identifiant de traînée (config/trails.ts) ;
  *   `pack` : lot d'articles à prix réduit.
- * - Obtention : `default` (d'emblée), `achievement` (exclusivité d'un succès, jamais achetable), `price` (Éclats ou Prismes).
+ * - Obtention : `default` (d'emblée), `achievement` (exclusivité d'un succès, jamais achetable), `campaign` (récompense de fin de chapitre), `price` (Éclats ou Prismes).
  * - Les articles à prix en Prismes sont « premium » : destinés aux futurs achats réels, **non achetables** dans cette version
  *   (« Bientôt disponible »). Le fournisseur de paiement est décrit dans monetization/payments.ts.
  * Prix ajustables ici ; l'ordre est l'ordre d'affichage. Tous les articles sont cosmétiques (aucun effet de jeu).
@@ -13,6 +13,8 @@ export type Currency = 'shards' | 'prisms';
 export type Acquire =
   | { type: 'default' }
   | { type: 'achievement'; id: string }
+  /** Récompense de la campagne (fin du chapitre 1) : jamais achetable. */
+  | { type: 'campaign'; chapter: string }
   | { type: 'price'; currency: Currency; amount: number };
 
 export type ItemKind = 'ship' | 'trail' | 'pack';
@@ -41,6 +43,7 @@ export const CATALOG: CatalogItem[] = [
   { id: 'glace', kind: 'ship', name: 'Glace', blurb: 'Ailes bleu glacier.', acquire: { type: 'achievement', id: 'max_combo' } },
   { id: 'solaire', kind: 'ship', name: 'Solaire', blurb: 'Ailes dorées, cockpit lumineux.', acquire: { type: 'achievement', id: 'survive_300' } },
   { id: 'prisme', kind: 'ship', name: 'Prisme', blurb: 'Coque cristalline, ailes irisées.', acquire: { type: 'achievement', id: 'all_levels' } },
+  { id: 'echo', kind: 'ship', name: 'Écho', blurb: 'Coque blanche, liserés violets : le signal d’Écho-7.', acquire: { type: 'campaign', chapter: 'echo7' } },
   { id: 'neon', kind: 'ship', name: 'Néon', blurb: 'Ailes rose néon, cockpit et réacteur cyan.', acquire: prisms(150) },
   // Traînées
   { id: 'auto', kind: 'trail', name: 'Assortie', blurb: 'Suit la couleur du vaisseau équipé.', acquire: { type: 'default' } },

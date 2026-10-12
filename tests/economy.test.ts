@@ -10,7 +10,7 @@ import { NullPaymentProvider, getPaymentProvider, premiumAvailable, setPaymentPr
 import { applyRun, type RunSummary } from '../src/progression/progress';
 import { creditShards, equip, isOwned, itemState, purchase } from '../src/progression/shop';
 import { ACHIEVEMENTS, achievementById, achievementCosmetics, achievementProgress, metricValue, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
-import { BALANCE_BACKUP_PREFIX, BACKUP_PREFIX, MemoryStore, SAVE_KEY, defaultSave, loadSave, writeSave, type SaveData } from '../src/save/save';
+import { BALANCE_BACKUP_PREFIX, BACKUP_PREFIX, MemoryStore, SAVE_KEY, SAVE_VERSION, defaultSave, loadSave, writeSave, type SaveData } from '../src/save/save';
 import { angleDiff, TAU } from '../src/core/math';
 import { Simulation } from '../src/sim/simulation';
 import { ShardSpawner, shardHalfArc, shardReachable, type ShardEvent, type ShardWorld } from '../src/sim/shards';
@@ -310,7 +310,7 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     const res = loadSave(store);
     expect(res.status).toBe('migrated');
     const s = res.data;
-    expect(s.version).toBe(4);
+    expect(s.version).toBe(SAVE_VERSION);
     // Succès déjà obtenus (first_cycle 10 + survive_60 25 + max_combo 40) : récompensés une seule fois à la migration
     expect(s.wallet).toEqual({ shards: 75, prisms: 0 });
     expect([...s.rewarded].sort()).toEqual(['first_cycle', 'max_combo', 'survive_60']);
@@ -344,7 +344,7 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     delete old.balance;
     store.set(SAVE_KEY, JSON.stringify(old));
     const s = loadSave(store).data;
-    expect(s.version).toBe(4);
+    expect(s.version).toBe(SAVE_VERSION);
     expect(s.wallet.shards).toBe(75);
     expect(s.owned).toContain('aurore');
   });

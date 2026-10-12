@@ -26,6 +26,7 @@ export const ICONS = {
   podium: svg('<path d="M4 20h16M5 20v-6h4v6M10 20V8h4v12M15 20v-9h4v9"/><path d="M12 3.2l.8 1.7 1.8.3-1.3 1.2.3 1.8-1.6-.9-1.6.9.3-1.8-1.3-1.2 1.8-.3z" fill="currentColor" stroke="none"/>'),
   home: svg('<path d="M4 11l8-7 8 7M6 10v10h12V10"/>'),
   replay: svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.6-5.7M4.5 4.5v4h4"/>'),
+  signal: svg('<circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2"/>'),
   /** Étoile pleine (progression, record). */
   star: '<svg class="icon icon--star" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2 6.3 20.3l1.2-6.4L2.8 9.5l6.4-.8z" fill="currentColor"/></svg>',
 } as const;

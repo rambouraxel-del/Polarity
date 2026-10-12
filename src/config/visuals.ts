@@ -54,6 +54,10 @@ export const FX = {
   asteroidEmbers: { rate: 14, life: 0.4, speed: 22 },
   /** Éclat sur l'orbite : taille et effets (purement visuels ; la zone de collecte est dans config/economy.ts). */
   shard: { radius: 28, spriteGrow: 1.3, diskGrow: 1.35, ringGrow: 1.5, haloGrow: 2.1, spawnIn: 0.25, pulseHz: 1.2, warnHz: 3, urgentHz: 6 },
+  /** Objets de mission (campagne) : taille, halo et clignotement final (purement visuels ; la zone de collecte est dans config/campaign.ts). */
+  missionObject: { radius: 24, haloGrow: 2, ringGrow: 1.45, spin: 0.9, pulseHz: 1.4, urgentHz: 5, warnAt: 2 },
+  /** Bouclier de secours : anneau autour du vaisseau, clignotement du vaisseau pendant l'invulnérabilité. */
+  shield: { ringGrow: 1.5, alpha: 0.5, blinkHz: 9, blinkAlpha: 0.45 },
   /** Impact : durée de l'onde de choc (s) et rayon final. */
   impact: { ringLife: 0.32, ringRadius: 46, flareLife: 0.16 },
   /** Nombre maximal de particules simultanées (plafond mobile). */

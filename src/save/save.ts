@@ -5,6 +5,7 @@
  */
 
 import { ACHIEVEMENT_CONFIG } from '../config/achievements';
+import { MISSIONS, UPGRADES } from '../config/campaign';
 import { LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
@@ -21,8 +22,10 @@ import { BALANCE_VERSION } from '../config/version';
  *  4 — v1.6 : succès récompensés (registre `rewarded`, notification `rewardNotice`) et statistiques cumulées (Éclats collectés,
  *      événements traversés, meilleur score, meilleur multiplicateur). Migration : les succès déjà obtenus sont récompensés une
  *      seule fois (Éclats ajoutés au solde, notification à l'accueil).
+ *  5 — v2.0 : campagne (étoiles et récompenses des missions, transmissions lues, améliorations du hangar, fin du chapitre).
+ *      Migration : champ `campaign` vide ; tout le reste (records, monnaies, succès, cosmétiques, identité du classement) est inchangé.
  */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -71,6 +74,35 @@ export interface LevelPayout {
   stars: number;
 }
 
+/** Progression d'une mission de campagne. Les trois étoiles ne se perdent jamais ; chaque passage à vrai est rémunéré une seule fois. */
+export interface MissionRecord {
+  /** Objectif principal atteint au moins une fois (1re étoile, mission suivante débloquée). */
+  main: boolean;
+  /** Défi propre à la mission réussi. */
+  challenge: boolean;
+  /** Réussi sans déclencher le bouclier. */
+  noShield: boolean;
+  /** Réussites au total. */
+  clears: number;
+  /** Meilleur temps de réussite (s), 0 si aucune. */
+  bestTime: number;
+}
+
+/** Données de la campagne (hors cosmétiques et monnaies, qui restent dans les champs communs). */
+export interface CampaignSave {
+  missions: Record<string, MissionRecord>;
+  /** Séquences narratives déjà vues (config/story.ts) : ne se rejouent pas, restent consultables au journal. */
+  seen: string[];
+  /** Améliorations achetées, et celles activées (campagne uniquement). */
+  upgrades: { owned: string[]; enabled: string[] };
+  /** Chapitre 1 terminé : débloque l'apparence « Écho ». */
+  chapterComplete: boolean;
+}
+
+export function defaultCampaign(): CampaignSave {
+  return { missions: {}, seen: [], upgrades: { owned: [], enabled: [] }, chapterComplete: false };
+}
+
 export interface SaveData {
   version: number;
   /** Version d'équilibrage à laquelle appartiennent `survival` et `daily`. */
@@ -102,6 +134,8 @@ export interface SaveData {
   rewarded: string[];
   /** Récompenses de succès à notifier à l'accueil (rattrapage de migration, nouveaux objectifs déjà atteints) ; null une fois lue. */
   rewardNotice: { shards: number; count: number } | null;
+  /** Campagne. */
+  campaign: CampaignSave;
 }
 
 /** Statistiques cumulées (servent aux objectifs des succès). */
@@ -142,6 +176,7 @@ export function defaultSave(): SaveData {
     stats: { totalCycles: 0, totalRuns: 0, totalShards: 0, totalEvents: 0, bestScore: 0, bestMultiplier: 0 },
     rewarded: [],
     rewardNotice: null,
+    campaign: defaultCampaign(),
   };
 }
 
@@ -296,6 +331,38 @@ export function sanitize(raw: unknown): SaveData {
     const count = Math.floor(num(raw.rewardNotice.count, 0, 0, 999));
     out.rewardNotice = shards > 0 || count > 0 ? { shards, count } : null;
   }
+  if (isObj(raw.campaign)) out.campaign = sanitizeCampaign(raw.campaign);
+  return out;
+}
+
+function sanitizeCampaign(raw: Record<string, unknown>): CampaignSave {
+  const out = defaultCampaign();
+  if (isObj(raw.missions)) {
+    const known = new Set(MISSIONS.map((m) => String(m.id)));
+    for (const [k, v] of Object.entries(raw.missions)) {
+      if (!known.has(k) || !isObj(v)) continue;
+      const main = bool(v.main, false);
+      out.missions[k] = {
+        main,
+        // Les étoiles secondaires n'ont de sens qu'avec l'objectif principal
+        challenge: main && bool(v.challenge, false),
+        noShield: main && bool(v.noShield, false),
+        clears: Math.floor(num(v.clears, main ? 1 : 0, 0, 1e6)),
+        bestTime: num(v.bestTime, 0, 0, 1e4),
+      };
+    }
+  }
+  if (Array.isArray(raw.seen)) {
+    out.seen = [...new Set(raw.seen.filter((s): s is string => typeof s === 'string' && s.length > 0 && s.length < 40))].slice(0, 100);
+  }
+  if (isObj(raw.upgrades)) {
+    const ids = new Set<string>(UPGRADES.map((u) => u.id));
+    const pick = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.filter((s): s is string => typeof s === 'string' && ids.has(s)))] : []);
+    out.upgrades.owned = pick(raw.upgrades.owned);
+    // On ne peut activer qu'une amélioration possédée
+    out.upgrades.enabled = pick(raw.upgrades.enabled).filter((id) => out.upgrades.owned.includes(id));
+  }
+  out.chapterComplete = bool(raw.chapterComplete, false);
   return out;
 }
 
@@ -399,7 +466,7 @@ export function writeSave(store: KeyValueStore, data: SaveData): void {
 
 /** Effacement explicite et confirmé : supprime aussi les copies de sauvegarde conservées lors des migrations. */
 export function eraseAll(store: KeyValueStore): void {
-  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}3`, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
+  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}4`, `${BACKUP_PREFIX}3`, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
   for (let b = 1; b <= 20; b++) keys.push(`${BALANCE_BACKUP_PREFIX}${b}`);
   for (const key of keys) store.remove(key);
 }

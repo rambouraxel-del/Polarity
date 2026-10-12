@@ -3,6 +3,7 @@ import { ARENA, BEACONS } from '../config/balance';
 import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
 import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import { TAU } from '../core/math';
+import type { CampaignSimulation } from '../campaign/simulation';
 import type { GameSession } from '../game/session';
 import { SHARDS } from '../config/economy';
 import { trailById } from '../config/trails';
@@ -21,7 +22,12 @@ export const COLORS = {
   danger: 0xffffff,
   gold: hexNum(THEME.color.gold),
   shard: hexNum(THEME.color.shard),
+  signal: hexNum(THEME.color.signal),
+  shield: hexNum(THEME.color.shield),
 };
+
+/** Rotation lente (rad) d'un objet de mission. */
+const clockSpin = (t: number, speed: number): number => t * speed * TAU * 0.5;
 
 const R = ARENA.orbitRadius;
 const TRAIL_LEN = 10;
@@ -303,6 +309,8 @@ export class ArenaRenderer {
     this.drawOrbit(skin);
     this.drawBeacons(sim ? sim.beacons.active : null, sim ? sim.beacons.angles : null, skin, clock);
     this.drawShard(sim ? sim.shards?.active ?? null : null, t);
+    const camp = session.campaign;
+    this.drawMissionObjects(camp, t);
 
     let asteroids = 0;
     if (sim) {
@@ -327,6 +335,7 @@ export class ArenaRenderer {
     if (alive) {
       this.drawTrail(skin);
       this.drawShip(angle, dir, skin, clock, emitting);
+      if (camp) this.drawShield(camp, angle, t, clock);
     } else {
       this.shipSprite.setVisible(false);
       this.shipGlow.setVisible(false);
@@ -407,6 +416,100 @@ export class ArenaRenderer {
     this.shipG.fillCircle(x, y, r * 0.5);
   }
 
+  /** Objets de mission : forme selon leur nature (triangle, losange, hexagone), halo, anneau du temps restant. Pas de sprite, pas de couleur d'Éclat, de balise ou de danger. */
+  private drawMissionObjects(camp: CampaignSimulation | null, t: number): void {
+    if (!camp || camp.objects.length === 0) return;
+    const V = FX.missionObject;
+    const g = this.g;
+    const s = this.scale;
+    const calm = this.reducedEffects;
+    for (const o of camp.objects) {
+      const rem = o.expiresAt === null ? Infinity : Math.max(0, o.expiresAt - t);
+      const age = Math.max(0, t - o.spawnedAt);
+      const hz = rem > V.warnAt ? V.pulseHz : V.urgentHz;
+      const pulse = calm ? 0 : Math.sin(TAU * hz * t);
+      const grow = calm ? 1 : 0.35 + 0.65 * Math.min(1, age / 0.25);
+      const x = this.sx(R * Math.cos(o.angle));
+      const y = this.sy(R * Math.sin(o.angle));
+      const r = V.radius * s * grow * (1 + 0.06 * pulse);
+      g.fillStyle(COLORS.background, 0.85);
+      g.fillCircle(x, y, r * 1.35);
+      const ringR = r * V.ringGrow;
+      if (o.expiresAt !== null) {
+        const total = Math.max(0.1, o.expiresAt - o.spawnedAt);
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0x0f2a2a, 0.9);
+        g.strokeCircle(x, y, ringR);
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), COLORS.signal, 0.95);
+        g.beginPath();
+        g.arc(x, y, ringR, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, rem / total), false);
+        g.strokePath();
+      } else {
+        // Persistant (boîte noire) : anneau complet pulsé
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), COLORS.signal, 0.6 + 0.3 * (0.5 + 0.5 * pulse));
+        g.strokeCircle(x, y, ringR);
+      }
+      const halo = this.trailG;
+      halo.fillStyle(COLORS.signal, 0.1);
+      halo.fillCircle(x, y, r * V.haloGrow);
+      halo.fillStyle(COLORS.signal, 0.08);
+      halo.fillCircle(x, y, r * V.haloGrow * 0.7);
+      // Forme pleine, en rotation lente
+      const sides = o.kind === 'fragment' ? 3 : o.kind === 'data' ? 4 : 6;
+      const rot = calm ? -Math.PI / 2 : -Math.PI / 2 + clockSpin(t, V.spin);
+      const alpha = rem > 1 || calm ? 1 : 0.6 + 0.4 * (0.5 + 0.5 * pulse);
+      g.fillStyle(COLORS.signal, alpha);
+      g.beginPath();
+      for (let i = 0; i < sides; i++) {
+        const a = rot + (i * TAU) / sides;
+        const px = x + Math.cos(a) * r * 0.85;
+        const py = y + Math.sin(a) * r * 0.85;
+        if (i === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.closePath();
+      g.fillPath();
+      this.shipG.fillStyle(0xffffff, 0.5 + 0.15 * pulse);
+      this.shipG.fillCircle(x, y, r * 0.28);
+    }
+  }
+
+  /** Bouclier de secours : anneau discret tant qu'il est chargé ; anneau vif et vaisseau clignotant pendant l'invulnérabilité. */
+  private drawShield(camp: CampaignSimulation, angle: number, t: number, clock: number): void {
+    const V = FX.shield;
+    const charged = camp.shieldCharges > 0;
+    const invulnerable = camp.invulnerable;
+    if (!charged && !invulnerable) return;
+    const x = this.sx(R * Math.cos(angle));
+    const y = this.sy(R * Math.sin(angle));
+    const r = shipRadius() * V.ringGrow * this.scale;
+    const calm = this.reducedEffects;
+    const g = this.shipG;
+    if (invulnerable) {
+      const left = Math.max(0, camp.invulnUntil - t);
+      g.lineStyle(Math.max(2 * this.dpr, 3 * this.scale), COLORS.shield, 0.35 + 0.65 * Math.min(1, left));
+      g.strokeCircle(x, y, r * 1.12);
+      if (!calm) {
+        const on = Math.sin(TAU * V.blinkHz * clock) > 0;
+        this.shipSprite.setAlpha(on ? 1 : V.blinkAlpha);
+      } else {
+        this.shipSprite.setAlpha(0.7);
+      }
+    } else {
+      this.shipSprite.setAlpha(1);
+      const pulse = calm ? 1 : 0.8 + 0.2 * Math.sin(clock * 3);
+      g.lineStyle(Math.max(1.5 * this.dpr, 2 * this.scale), COLORS.shield, V.alpha * pulse);
+      g.strokeCircle(x, y, r);
+    }
+  }
+
+  /** Absorption d'une collision par le bouclier : onde bleue et éclats, sans secousse. */
+  shieldBurst(x: number, y: number): void {
+    this.rings.push({ x, y, t: 0, life: 0.4, radius: 70, color: COLORS.shield });
+    if (this.rings.length > MAX_RINGS) this.rings.splice(0, this.rings.length - MAX_RINGS);
+    this.burst(x, y, COLORS.shield, 14, 190, 0.5);
+    this.burst(x, y, 0xffffff, 6, 130, 0.35);
+  }
+
   private drawBeacons(active: readonly boolean[] | null, angles: readonly number[] | null, skin: Skin, clock: number): void {
     const g = this.g;
     const s = this.scale;
@@ -448,7 +551,7 @@ export class ArenaRenderer {
       this.shipGlow.setTexture(key);
       this.shipRim.setTexture(key);
     }
-    sprite.setVisible(true);
+    sprite.setVisible(true).setAlpha(1);
     sprite.setPosition(this.sx(px), this.sy(py));
     // La texture pointe vers le haut : rotation instantanée, sans interpolation
     sprite.setRotation(spriteRotation(tx, ty));

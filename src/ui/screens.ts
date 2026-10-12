@@ -2,7 +2,9 @@ import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
 import { ACHIEVEMENT_CATEGORIES, type MetricKey } from '../config/achievements';
 import { catalogItem, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
+import { CHAPTER, MISSIONS } from '../config/campaign';
 import { LEVELS } from '../config/levels';
+import { maxStars, missionsCleared, nextMission, totalStars } from '../campaign/progress';
 import { trailById } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
@@ -55,8 +57,12 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
   const rewardNotice = save.rewardNotice
     ? `<div role="status" class="notice">Récompenses de succès : <strong>+${formatScore(save.rewardNotice.shards)} Éclats</strong> pour ${save.rewardNotice.count} succès. ${button({ action: 'dismiss-reward-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
     : '';
-  const done = LEVELS.filter((l) => save.levels[String(l.id)]?.completed).length;
-  const stars = LEVELS.reduce((s, l) => s + (save.levels[String(l.id)]?.stars ?? 0), 0);
+  const cleared = missionsCleared(save);
+  const campaignSub = save.campaign.chapterComplete
+    ? `${CHAPTER.place} terminé · ${totalStars(save)}/${maxStars()} étoiles`
+    : cleared > 0
+      ? `${CHAPTER.place} · mission ${nextMission(save)} sur ${MISSIONS.length}`
+      : `${CHAPTER.place} · le signal impossible`;
   const daily = save.daily[today];
   const dailyHint = daily ? `Aujourd’hui : ${formatTime(daily.bestTime)} · ${formatDateFr(today)}` : `Défi du ${formatDateFr(today)}`;
   const achCount = ACHIEVEMENTS.filter((a) => save.achievements[a.id] !== undefined).length;
@@ -71,7 +77,7 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
       ${rewardNotice}
       ${walletBar(save.wallet)}
       ${button({ action: 'survival', label: 'Survie', sub: surv, icon: 'play', variant: 'primary', size: 'hero' })}
-      ${button({ action: 'levels', label: 'Niveaux', sub: `${done}/${LEVELS.length} terminés · ${stars}/${LEVELS.length * 3} étoiles`, icon: 'levels', variant: 'secondary', size: 'row', chevron: true })}
+      ${button({ action: 'campaign', label: 'Campagne', sub: campaignSub, icon: 'levels', variant: 'secondary', size: 'row', chevron: true })}
       ${button({ action: 'daily', label: 'Défi quotidien', sub: dailyHint, icon: 'calendar', variant: 'secondary', size: 'row', chevron: true })}
       <div class="btn-row">
         ${button({ action: 'cosmetics', label: 'Cosmétiques', icon: 'shop', variant: 'secondary', size: 'compact' })}
@@ -105,7 +111,7 @@ export function levelsScreen(save: SaveData): string {
     return `<button class="${cls.join(' ')}" data-action="play-level" data-level="${l.id}" ${unlocked ? '' : 'disabled'}
       aria-label="Niveau ${l.id}, ${escapeHtml(l.name)}${state}">${body}</button>`;
   }).join('');
-  return `<div class="panel panel--wide">${screenHead('Niveaux')}
+  return `<div class="panel panel--wide">${screenHead('Défis classiques', 'campaign')}
     <p class="sub" style="margin-bottom:14px">${LEVEL_DURATION} secondes par niveau. Survivez jusqu’au bout pour débloquer le suivant ; le score donne les étoiles.</p>
     <div class="levels">${cards}</div>
   </div>`;
@@ -199,6 +205,7 @@ function itemBadge(state: ItemState, item: CatalogItem): string {
     case 'equipped': return `<span class="chip chip--equipped">${ICONS.check}Équipé</span>`;
     case 'owned': return '<span class="chip chip--owned">Possédé</span>';
     case 'achievement': return `<span class="chip chip--locked">${ICONS.lock}Succès requis</span>`;
+    case 'campaign': return `<span class="chip chip--locked">${ICONS.lock}Campagne requise</span>`;
     case 'soon': return `<span class="chip chip--soon">Bientôt disponible</span>${p ? price(p.currency, p.amount) : ''}`;
     default: return p ? price(p.currency, p.amount) : '';
   }
@@ -207,7 +214,7 @@ function itemBadge(state: ItemState, item: CatalogItem): string {
 function itemCard(save: SaveData, item: CatalogItem, selected: boolean): string {
   const st = itemState(save, item);
   return `<button class="skin item item--${st}${selected ? ' skin--selected' : ''}" data-action="select-item" data-item="${item.id}" aria-pressed="${selected}" aria-label="${escapeHtml(item.name)}">
-    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'achievement' || st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'achievement' || st === 'campaign' || st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
     <span class="skin__name">${escapeHtml(item.name)}</span>
     <span class="item__badge">${itemBadge(st, item)}</span>
   </button>`;
@@ -233,6 +240,11 @@ function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: s
         button: button({ action: 'buy', label: 'Succès requis', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
       };
     }
+    case 'campaign':
+      return {
+        note: 'Récompense de la campagne : terminez le chapitre 1, « Le signal impossible » (Écho-7).',
+        button: button({ action: 'buy', label: 'Campagne requise', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
+      };
     case 'soon':
       return {
         note: 'Article premium (Prismes), destiné aux futurs achats. Aucun paiement n’est actif dans cette version.',
@@ -292,7 +304,7 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
   const packNote = ownedParts > 0 && st !== 'owned' ? `<p class="shop-note">Contient ${ownedParts} article${ownedParts > 1 ? 's' : ''} que vous possédez déjà.</p>` : '';
   return `<div class="panel panel--wide">${head}
     <div class="skin-stage">
-      <div class="skin-preview${st === 'achievement' || st === 'soon' ? ' skin-preview--locked' : ''}">
+      <div class="skin-preview${st === 'achievement' || st === 'campaign' || st === 'soon' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
       </div>
       <div class="skin-info">
@@ -522,14 +534,14 @@ export function confirmResetScreen(): string {
 
 // ————————————————————————————————————————————— Pause
 
-export function pauseScreen(modeLabel: string): string {
+export function pauseScreen(modeLabel: string, campaign = false): string {
   return `<div class="panel panel--pause">
     <h2 class="title">Pause</h2>
     <p class="sub" style="margin:4px 0 16px">${escapeHtml(modeLabel)}</p>
     <div class="btn-stack">
       ${button({ action: 'resume', label: 'Reprendre', icon: 'play', variant: 'primary', attrs: 'data-autofocus' })}
       ${button({ action: 'restart', label: 'Recommencer', icon: 'replay', variant: 'secondary' })}
-      ${button({ action: 'quit', label: 'Accueil', icon: 'home', variant: 'ghost' })}
+      ${campaign ? button({ action: 'quit', label: 'Carte des missions', icon: 'levels', variant: 'ghost' }) : button({ action: 'quit', label: 'Accueil', icon: 'home', variant: 'ghost' })}
     </div>
     <p class="small" style="margin-top:14px">La reprise commence par un bref compte à rebours. Le temps en pause ne compte pas.</p>
   </div>`;
@@ -597,7 +609,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean, lb: RunLb
         <div class="btn-stack result__actions">
           ${replayButton()}
           ${nextBtn}
-          ${button({ action: 'levels', label: 'Niveaux', icon: 'levels', variant: 'ghost' })}
+          ${button({ action: 'levels', label: 'Défis classiques', icon: 'levels', variant: 'ghost' })}
         </div>
       </div>`;
     }
@@ -608,7 +620,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean, lb: RunLb
       <p class="result__score">tenu sur ${formatTime(LEVEL_DURATION, 0)} · score<strong>${formatScore(r.score)}</strong></p>
       <p class="sub" style="margin-bottom:6px">Survivez jusqu’à la fin du chrono pour débloquer la suite.</p>
       ${achievementsNotice(report)}
-      <div class="btn-stack result__actions">${replayButton()}${button({ action: 'levels', label: 'Niveaux', icon: 'levels', variant: 'ghost' })}</div>
+      <div class="btn-stack result__actions">${replayButton()}${button({ action: 'levels', label: 'Défis classiques', icon: 'levels', variant: 'ghost' })}</div>
     </div>`;
   }
 

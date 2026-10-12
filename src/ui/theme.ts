@@ -30,6 +30,9 @@ export const THEME = {
     /** Texte sur fond clair (boutons principaux). */
     ink: '#031322',
     /** Décor spatial des menus : nébuleuse et planète lointaine (très discrètes). */
+    /** Campagne : objets de mission (vert menthe, distinct des Éclats, balises et dangers) et bouclier de secours (bleu clair). */
+    signal: '#7DFFC4',
+    shield: '#9CD0FF',
     /** Éclats (violet) et Prismes (rose) : monnaies. */
     shard: '#B78BFF',
     prism: '#FF4FD8',

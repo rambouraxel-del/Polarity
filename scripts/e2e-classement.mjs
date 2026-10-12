@@ -84,7 +84,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error' && !/GL Driver|swiftshader|Failed to load resource/i.test(m.text())) errors.push(m.text()); });
 const GAME = `http://127.0.0.1:${FRONT}/`;
 await page.goto(GAME);
-await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
 await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; a.save.rewardNotice = null; });
 const go = async (id) => { await page.evaluate((a) => window.__polarite.showScreen(a), id); await page.waitForTimeout(300); };
 // Ouverture du menu comme un joueur : depuis l'accueil (charge le classement)
@@ -187,7 +187,7 @@ check(after.time === before.time && after.score === before.score, 'Résultat fal
 // — Parties de démonstration : exclues du classement
 const demo = await context.newPage();
 await demo.goto(`${GAME}?demo`);
-await demo.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+await demo.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
 await demo.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; a.showScreen('home'); });
 await demo.click('[data-action="survival"]');
 await demo.waitForTimeout(400);

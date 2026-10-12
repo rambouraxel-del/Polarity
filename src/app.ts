@@ -2,6 +2,10 @@ import Phaser from 'phaser';
 import { Sfx } from './audio/sfx';
 import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
+import { MISSIONS, missionById, type MissionDef } from './config/campaign';
+import { storyById, type StorySequence } from './config/story';
+import { activeUpgrades, applyMission, buyUpgrade, isMissionUnlocked, markSeen, toggleUpgrade, type MissionResult } from './campaign/progress';
+import type { CampaignEvent } from './campaign/simulation';
 import { eventDef } from './config/events';
 import { BALANCE_VERSION } from './config/version';
 import { randomSeed } from './core/rng';
@@ -27,8 +31,27 @@ import { bannerHelp, isTouchPrimary } from './ui/controls';
 import { ShipPreview } from './ui/shipPreview';
 import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
+import * as C from './ui/campaignScreens';
 
-type ScreenId = 'home' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'hangar' | 'journal' | 'dialogue' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
+
+/** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
+const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
+  campaign: 'home',
+  chapter: 'campaign',
+  mission: 'chapter',
+  hangar: 'campaign',
+  journal: 'campaign',
+  levels: 'campaign',
+};
+
+/** Séquence en cours d'affichage (dialogue) : réplique courante et suite à donner. */
+interface DialogueState {
+  seq: StorySequence;
+  index: number;
+  finish: string;
+  then: () => void;
+}
 
 /**
  * Chef d'orchestre : écrans, partie en cours, sauvegarde, son et rendu.
@@ -70,6 +93,9 @@ export class App {
   private cosmeticsFilter: S.CosmeticsFilter = 'all';
   private selectedItem: string | null = null;
   private pendingPurchase: string | null = null;
+  private selectedMission = 1;
+  private pendingUpgrade: string | null = null;
+  private dialogue: DialogueState | null = null;
   /** Éclats déjà crédités pendant la partie en cours (chaque éclat n'est crédité qu'une fois). */
   private creditedShards = new Set<number>();
   private eventKey = '';
@@ -218,10 +244,10 @@ export class App {
 
   private updateInGameUi(session: GameSession): void {
     const cfg = session.config;
-    let label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : 'Survie';
+    let label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : cfg.mode === 'campaign' ? `Mission ${cfg.mission?.id}` : 'Survie';
     // Événements (Survie / défi) : annonce 2 s avant, libellé et compte à rebours pendant l'événement
     let eventActive = false;
-    if (cfg.mode !== 'level') {
+    if (cfg.mode === 'survival' || cfg.mode === 'daily') {
       const st = session.sim.director.status(session.sim.time);
       const def = st.kind ? eventDef(st.kind) : null;
       const secs = Math.ceil(st.remaining - 1e-6);
@@ -240,7 +266,9 @@ export class App {
         }
       }
     }
-    if (this.hud.update(session, label, cfg.mode === 'level' ? null : this.bestAtStart, !eventActive)) {
+    if (cfg.mode === 'campaign') {
+      this.hud.updateCampaign(session);
+    } else if (this.hud.update(session, label, cfg.mode === 'level' ? null : this.bestAtStart, !eventActive)) {
       this.sfx.play('record');
       this.renderer?.ring(COLORS.gold);
     }
@@ -283,6 +311,7 @@ export class App {
     const session = new GameSession(cfg, {
       onBeforeStep: demo ? () => this.demoBot?.tick() : undefined,
       onEvent: (e, s) => this.onSimEvent(e, s),
+      onCampaignEvent: (e, s) => this.onCampaignEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
     });
     this.session = session;
@@ -294,6 +323,8 @@ export class App {
       this.banner(bannerHelp(isTouchPrimary()), 6);
       this.save.options.tutorialSeen = true;
       this.persist();
+    } else if (cfg.mode === 'campaign' && cfg.mission) {
+      this.banner(`<strong>Mission ${cfg.mission.id} — ${escapeHtml(cfg.mission.title)}</strong><br>${escapeHtml(cfg.mission.objectiveText)}`, 3.5);
     } else if (cfg.mode === 'level' && cfg.level) {
       // Niveau 1 : l'aide aux contrôles dépend de l'appareil
       const hint = cfg.level.id === 1 ? bannerHelp(isTouchPrimary()) : escapeHtml(cfg.level.hint);
@@ -341,7 +372,16 @@ export class App {
       this.showScreen('cosmetics');
       return;
     }
-    if (this.screen && this.screen !== 'home' && this.screen !== 'result') this.showScreen('home');
+    if (this.screen === 'dialogue') {
+      this.finishDialogue();
+      return;
+    }
+    if (this.screen === 'hangar' && this.pendingUpgrade) {
+      this.pendingUpgrade = null;
+      this.showScreen('hangar', false);
+      return;
+    }
+    if (this.screen && this.screen !== 'home' && this.screen !== 'result' && this.screen !== 'campaign-result') this.showScreen(PARENT[this.screen] ?? 'home');
   }
 
   pause(): void {
@@ -385,7 +425,7 @@ export class App {
         this.sfx.play('warn');
         // Introduction brève d'une nouvelle famille de menaces : marquée « vue » seulement quand elle a été affichée
         if (
-          s.config.mode !== 'level' &&
+          (s.config.mode === 'survival' || s.config.mode === 'daily') &&
           !this.save.seenIntros.includes(e.family) &&
           (!this.tutorialActive || this.bannerTimer <= 0) &&
           this.bannerKind !== 'event'
@@ -445,6 +485,10 @@ export class App {
   /** Fin de partie : résultat appliqué une seule fois (la session garantit l'unicité de l'appel). */
   private onRunEnd(summary: RunSummary, s: GameSession): void {
     if (s !== this.session) return;
+    if (summary.mode === 'campaign') {
+      this.onMissionEnd(summary, s);
+      return;
+    }
     const report = applyRun(this.save, summary);
     this.persist();
     if (summary.mode === 'survival') this.afterSurvivalRun(summary, s);
@@ -464,6 +508,150 @@ export class App {
     this.resultLock = UI.resultInputLock;
   }
 
+  // ————————————————————————————————————————————— campagne
+
+  /** Lance une mission déverrouillée ; sa séquence d'introduction ne s'affiche qu'à la première fois (passable, relisible au journal). */
+  private launchMission(id: number): void {
+    const m = missionById(id);
+    if (!m || !isMissionUnlocked(this.save, id)) return;
+    if (m.before && markSeen(this.save, m.before)) {
+      this.persist();
+      this.openDialogue(m.before, () => this.startMission(m), 'Lancer la mission');
+    } else {
+      this.startMission(m);
+    }
+  }
+
+  private startMission(m: MissionDef): void {
+    this.selectedMission = m.id;
+    this.startRun({ mode: 'campaign', seed: randomSeed(), mission: m, upgrades: activeUpgrades(this.save) });
+  }
+
+  /** Affiche une séquence (une réplique à la fois). `then` est appelé à la fin ou si le joueur passe. */
+  private openDialogue(id: string, then: () => void, finish: string): void {
+    const seq = storyById(id);
+    if (!seq) {
+      then();
+      return;
+    }
+    this.dialogue = { seq, index: 0, finish, then };
+    this.renderDialogue();
+  }
+
+  private renderDialogue(): void {
+    const d = this.dialogue;
+    if (!d) return;
+    this.screen = 'dialogue';
+    this.screenEl.classList.remove('hidden');
+    // Après une mission, l'arène reste visible derrière ; depuis un menu, fond normal
+    this.screenEl.classList.toggle('dim', this.session !== null);
+    this.screenEl.classList.add('no-anim');
+    this.screenEl.innerHTML = C.dialogueScreen(d.seq, d.index, d.finish);
+    this.screenEl.scrollTop = 0;
+    this.screenEl.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true });
+  }
+
+  private nextDialogueLine(): void {
+    const d = this.dialogue;
+    if (!d) return;
+    if (d.index >= d.seq.lines.length - 1) {
+      this.finishDialogue();
+      return;
+    }
+    d.index++;
+    this.renderDialogue();
+  }
+
+  private finishDialogue(): void {
+    const d = this.dialogue;
+    if (!d) return;
+    this.dialogue = null;
+    d.then();
+  }
+
+  /** Fin d'une mission : résultat appliqué une seule fois (étoiles, récompenses, déblocages), puis transmission de fin (1re fois). */
+  private onMissionEnd(summary: RunSummary, s: GameSession): void {
+    const rep = summary.report;
+    if (!rep) return;
+    const res = applyMission(this.save, rep);
+    this.persist();
+    this.hud.show(false);
+    this.hideBanner();
+    const after = rep.outcome === 'success' ? s.config.mission?.after : undefined;
+    if (after && markSeen(this.save, after)) {
+      this.persist();
+      this.openDialogue(after, () => this.showMissionResult(res), 'Voir le bilan');
+    } else {
+      this.showMissionResult(res);
+    }
+  }
+
+  private showMissionResult(res: MissionResult): void {
+    const id = res.report.missionId;
+    const nextId = MISSIONS.find((m) => m.id === id + 1)?.id;
+    const canNext = res.report.outcome === 'success' && nextId !== undefined && isMissionUnlocked(this.save, nextId);
+    this.screen = 'campaign-result';
+    this.screenEl.innerHTML = C.campaignResultScreen(this.save, res, canNext);
+    this.screenEl.classList.remove('hidden', 'no-anim');
+    this.screenEl.classList.add('dim');
+    this.screenEl.scrollTop = 0;
+    this.resultLock = UI.resultInputLock;
+  }
+
+  /** Événements propres à la campagne : objets de mission, bouclier, verrous, transmissions en partie. */
+  private onCampaignEvent(e: CampaignEvent, s: GameSession): void {
+    const r = this.renderer;
+    const at = (angle: number): [number, number] => [ARENA.orbitRadius * Math.cos(angle), ARENA.orbitRadius * Math.sin(angle)];
+    switch (e.type) {
+      case 'object-spawn': {
+        this.sfx.play('objectSpawn');
+        const [x, y] = at(e.angle);
+        r?.burst(x, y, COLORS.signal, 6, 70, 0.4);
+        break;
+      }
+      case 'object-collect': {
+        this.sfx.play('shard');
+        const [x, y] = at(e.angle);
+        r?.burst(x, y, COLORS.signal, 12, 170, 0.5);
+        r?.burst(x, y, 0xffffff, 6, 120, 0.35);
+        const o = s.config.mission?.objective;
+        r?.popup(x, y, e.kind === 'blackbox' ? 'Boîte noire !' : o && o.type === 'objects' ? `${e.count}/${o.count}` : '+1', '#7dffc4');
+        break;
+      }
+      case 'object-miss': {
+        const [x, y] = at(e.angle);
+        r?.burst(x, y, COLORS.signal, 5, 50, 0.4);
+        r?.popup(x, y, 'Perdu… il revient', '#9db1d6');
+        break;
+      }
+      case 'shield':
+        this.sfx.play('shield');
+        r?.shieldBurst(e.x, e.y);
+        r?.popup(e.x, e.y, 'Bouclier !', '#9cd0ff');
+        break;
+      case 'lock':
+        r?.ring(COLORS.signal);
+        r?.popup(0, 80 / 0.82, `Verrou ${e.done}/${e.total}`, '#7dffc4');
+        break;
+      case 'sequence':
+        r?.ring(COLORS.signal);
+        break;
+      case 'line': {
+        // Transmission en partie : uniquement aux moments sûrs prévus par le scénario (respirations)
+        const m = /^([A-ZÉ]+) : (.*)$/.exec(e.text);
+        this.banner(m ? `<strong>${escapeHtml(m[1])}</strong><br>${escapeHtml(m[2])}` : escapeHtml(e.text), 4);
+        break;
+      }
+      case 'announce':
+        this.sfx.play('warn');
+        this.banner(`<strong>${escapeHtml(e.text)}</strong>`, 2.6);
+        break;
+      default:
+        break;
+    }
+  }
+
+
   // ————————————————————————————————————————————— écrans
 
   showScreen(id: ScreenId, animate = true): void {
@@ -482,6 +670,11 @@ export class App {
     let html = '';
     switch (id) {
       case 'home': html = S.homeScreen(this.save, today, isTouchPrimary()); break;
+      case 'campaign': html = C.campaignScreen(this.save); break;
+      case 'chapter': html = C.chapterScreen(this.save); break;
+      case 'mission': html = C.missionScreen(this.save, this.selectedMission); break;
+      case 'hangar': html = C.hangarScreen(this.save, this.pendingUpgrade); break;
+      case 'journal': html = C.journalScreen(this.save); break;
       case 'levels': html = S.levelsScreen(this.save); break;
       case 'daily': html = S.dailyScreen(this.save, today); break;
       case 'cosmetics': html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined); break;
@@ -490,7 +683,7 @@ export class App {
       case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? ''); break;
       case 'options': html = S.optionsScreen(this.save); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
-      case 'pause': html = S.pauseScreen(this.modeLabel()); break;
+      case 'pause': html = S.pauseScreen(this.modeLabel(), this.session?.config.mode === 'campaign'); break;
       default: break;
     }
     // Transition d'entrée (fondu + glissement) ; pas rejouée quand seul un réglage ou un onglet change
@@ -516,6 +709,7 @@ export class App {
     const c = this.session?.config;
     if (!c) return '';
     if (c.mode === 'level') return `Niveau ${c.level?.id} — ${c.level?.name}`;
+    if (c.mode === 'campaign') return `Mission ${c.mission?.id} — ${c.mission?.title}`;
     return c.mode === 'daily' ? 'Défi quotidien' : 'Survie';
   }
 
@@ -527,6 +721,44 @@ export class App {
     if (action !== 'replay' && action !== 'resume') this.sfx.play('ui');
     switch (action) {
       case 'home': this.showScreen('home'); break;
+      case 'campaign': this.showScreen('campaign'); break;
+      case 'chapter': this.showScreen('chapter'); break;
+      case 'hangar': this.pendingUpgrade = null; this.showScreen('hangar'); break;
+      case 'journal': this.showScreen('journal'); break;
+      case 'open-mission': {
+        const id = Number(target.dataset.mission);
+        if (isMissionUnlocked(this.save, id)) {
+          this.selectedMission = id;
+          this.showScreen('mission');
+        }
+        break;
+      }
+      case 'play-mission': this.launchMission(Number(target.dataset.mission)); break;
+      case 'next-mission': this.launchMission((this.lastConfig?.mission?.id ?? 0) + 1); break;
+      case 'read-seq': {
+        const seq = storyById(target.dataset.seq ?? '');
+        if (seq && this.save.campaign.seen.includes(seq.id)) this.openDialogue(seq.id, () => this.showScreen('journal'), 'Fermer');
+        break;
+      }
+      case 'dialogue-next': this.nextDialogueLine(); break;
+      case 'dialogue-skip': this.finishDialogue(); break;
+      case 'buy-upgrade': this.pendingUpgrade = target.dataset.upgrade ?? null; this.showScreen('hangar', false); break;
+      case 'cancel-upgrade': this.pendingUpgrade = null; this.showScreen('hangar', false); break;
+      case 'confirm-upgrade': {
+        // Solde vérifié, débit et possession dans la même modification, puis une seule écriture
+        const res = buyUpgrade(this.save, target.dataset.upgrade ?? '');
+        if (res.ok) {
+          this.persist();
+          this.sfx.play('success');
+        }
+        this.pendingUpgrade = null;
+        this.showScreen('hangar', false);
+        break;
+      }
+      case 'toggle-upgrade':
+        if (toggleUpgrade(this.save, target.dataset.upgrade ?? '') !== null) this.persist();
+        this.showScreen('hangar', false);
+        break;
       case 'levels': this.showScreen('levels'); break;
       case 'daily': this.showScreen('daily'); break;
       case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); break;
@@ -567,7 +799,7 @@ export class App {
         if (this.lastConfig) this.startRun(this.freshConfig(this.lastConfig));
         break;
       case 'resume': this.resume(); break;
-      case 'quit': this.showScreen('home'); break;
+      case 'quit': this.showScreen(this.lastConfig?.mode === 'campaign' && this.session ? 'chapter' : 'home'); break;
       case 'cat-ships':
       case 'cat-trails':
       case 'cat-packs':
@@ -782,6 +1014,8 @@ export class App {
 
   private freshConfig(cfg: RunConfig): RunConfig {
     if (cfg.mode === 'daily') return { ...cfg, date: utcDateString() };
+    // Campagne : nouvelle graine (trajectoires variées) et améliorations relues (activées entre deux tentatives)
+    if (cfg.mode === 'campaign') return { ...cfg, seed: randomSeed(), upgrades: activeUpgrades(this.save) };
     return { ...cfg, seed: cfg.mode === 'survival' ? this.survivalSeed() : randomSeed() };
   }
 

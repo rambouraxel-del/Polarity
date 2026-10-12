@@ -1,9 +1,11 @@
+import type { MissionReport } from '../campaign/simulation';
 import { LEVEL_REWARDS } from '../config/economy';
 import { LEVELS, levelById, type LevelDef } from '../config/levels';
 import { pruneDaily, type SaveData } from '../save/save';
 import { unlockAchievements, type AchievementDef } from './achievements';
 
-export type RunMode = 'level' | 'survival' | 'daily';
+/** `campaign` : missions de la campagne (progression propre, voir campaign/progress.ts ; jamais envoyées au classement). */
+export type RunMode = 'level' | 'survival' | 'daily' | 'campaign';
 
 export interface RunSummary {
   mode: RunMode;
@@ -20,6 +22,9 @@ export interface RunSummary {
   shards?: number;
   /** Événements (pluie de météores, tempête électrique) traversés pendant la partie. */
   events?: number;
+  /** Campagne : mission jouée et bilan détaillé (voir campaign/progress.ts). */
+  missionId?: number;
+  report?: MissionReport;
 }
 
 /** Récompenses d'un niveau réussi (Éclats). */

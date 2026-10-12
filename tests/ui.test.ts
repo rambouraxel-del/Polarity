@@ -73,9 +73,9 @@ describe('thème centralisé', () => {
 describe('écrans : données réelles', () => {
   const save = defaultSave();
 
-  it('accueil : Survie en tête, puis Niveaux et Défi quotidien, puis Apparences, Succès, Options', () => {
+  it('accueil : Survie en tête, puis Campagne et Défi quotidien, puis Apparences, Succès, Options', () => {
     const html = S.homeScreen(save, '2026-10-12');
-    const order = ['data-action="survival"', 'data-action="levels"', 'data-action="daily"', 'data-action="cosmetics"', 'data-action="achievements"', 'data-action="leaderboard"', 'data-action="options"'];
+    const order = ['data-action="survival"', 'data-action="campaign"', 'data-action="daily"', 'data-action="cosmetics"', 'data-action="achievements"', 'data-action="leaderboard"', 'data-action="options"'];
     const idx = order.map((s) => html.indexOf(s));
     expect(idx.every((i) => i >= 0)).toBe(true);
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);

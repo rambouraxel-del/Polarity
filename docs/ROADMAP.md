@@ -17,7 +17,10 @@ avec `npm run sim`, tests de non-régression de la sauvegarde.
 - Vitesse du vaisseau au-delà de 100 % de la référence (plafonnée à 100 % pour cette version).
 - Mesure GPU sur appareils mobiles réels.
 
-## Améliorations de campagne payées en Éclats (économie préparée)
+## Campagne : suite (chapitre 2)
+Le chapitre 1 est livré (`docs/CAMPAGNE.md`). Le chapitre 2 est annoncé « À venir » : ajouter des missions et des séquences dans `config/campaign.ts` et `config/story.ts` (structure extensible), puis une entrée dans la carte des chapitres.
+
+## (Fait en v2.0) Améliorations de campagne payées en Éclats
 L'économie (v1.5) fournit le solde d'Éclats, les achats atomiques et le catalogue. Une future campagne pourrait proposer des améliorations achetées en Éclats ;
 à définir : nature des améliorations (sans toucher aux interdits de conception : pas de statistiques de vaisseau ni d'avantage de survie), rattachement à `BALANCE_VERSION`,
 migration de sauvegarde. **Non implémenté** dans cette version.

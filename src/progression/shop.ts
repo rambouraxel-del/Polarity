@@ -9,7 +9,7 @@ import type { SaveData } from '../save/save';
  * (un seul appel d'écriture ensuite) ; l'état « possédé » empêche tout second débit.
  * Les Prismes ne sont jamais débités ni crédités ici : aucun paiement n'est actif dans cette version.
  */
-export type Ownership = Pick<SaveData, 'achievements' | 'owned'>;
+export type Ownership = Pick<SaveData, 'achievements' | 'owned'> & { campaign?: Pick<SaveData['campaign'], 'chapterComplete'> };
 
 export function isOwned(own: Ownership, id: string): boolean {
   const item = catalogItem(id);
@@ -18,6 +18,7 @@ export function isOwned(own: Ownership, id: string): boolean {
   const a = item.acquire;
   if (a.type === 'default') return true;
   if (a.type === 'achievement' && own.achievements[a.id] !== undefined) return true;
+  if (a.type === 'campaign' && own.campaign?.chapterComplete === true) return true;
   return own.owned.includes(id);
 }
 
@@ -31,9 +32,9 @@ export const balanceOf = (save: Pick<SaveData, 'wallet'>, currency: Currency): n
  * Situation d'un article :
  * - owned : possédé, non équipé ; equipped : possédé et équipé ;
  * - buy : achetable avec le solde actuel ; insufficient : solde insuffisant ;
- * - achievement : exclusivité d'un succès non obtenu ; soon : article premium (Prismes), « Bientôt disponible ».
+ * - achievement : exclusivité d'un succès non obtenu ; campaign : récompense de campagne non obtenue ; soon : article premium (Prismes), « Bientôt disponible ».
  */
-export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'achievement' | 'soon';
+export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'achievement' | 'campaign' | 'soon';
 
 export function itemState(save: SaveData, item: CatalogItem): ItemState {
   if (isOwned(save, item.id)) {
@@ -43,6 +44,7 @@ export function itemState(save: SaveData, item: CatalogItem): ItemState {
   }
   const a = item.acquire;
   if (a.type === 'achievement') return 'achievement';
+  if (a.type === 'campaign') return 'campaign';
   if (a.type === 'price') {
     if (a.currency === 'prisms' && !premiumAvailable()) return 'soon';
     return balanceOf(save, a.currency) >= a.amount ? 'buy' : 'insufficient';
@@ -50,7 +52,7 @@ export function itemState(save: SaveData, item: CatalogItem): ItemState {
   return 'owned';
 }
 
-export type PurchaseFailure = 'unknown' | 'owned' | 'achievement' | 'unavailable' | 'insufficient';
+export type PurchaseFailure = 'unknown' | 'owned' | 'achievement' | 'campaign' | 'unavailable' | 'insufficient';
 
 export type PurchaseResult =
   | { ok: true; item: CatalogItem; spent: number; granted: string[]; balance: number }
@@ -63,6 +65,7 @@ export function purchase(save: SaveData, id: string): PurchaseResult {
   if (isOwned(save, id)) return { ok: false, reason: 'owned' };
   const a = item.acquire;
   if (a.type === 'achievement') return { ok: false, reason: 'achievement' };
+  if (a.type === 'campaign') return { ok: false, reason: 'campaign' };
   if (a.type !== 'price') return { ok: false, reason: 'owned' };
   // Prismes : aucun paiement actif, jamais de débit local
   if (a.currency !== 'shards') return { ok: false, reason: 'unavailable' };

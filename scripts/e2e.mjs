@@ -79,7 +79,7 @@ async function newPage(viewport, opts = {}) {
     if (r.status() >= 400) errors.push(`HTTP ${r.status()} : ${r.url()}`);
   });
   await page.goto(URL);
-  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   return { page, context, errors };
 }
 
@@ -97,7 +97,8 @@ const state = (page) =>
   const { page, context, errors } = await newPage({ width: 1280, height: 800 });
   await page.screenshot({ path: 'screenshots/01-accueil-bureau.png' });
 
-  // Niveaux
+  // Niveaux (« Défis classiques », sous-menu de la Campagne)
+  await page.click('[data-action="campaign"]');
   await page.click('[data-action="levels"]');
   await page.screenshot({ path: 'screenshots/02-niveaux.png' });
   check((await page.locator('.level-card:disabled').count()) === 11, 'Seul le niveau 1 est débloqué au départ');
@@ -271,7 +272,7 @@ const state = (page) =>
   // Sauvegarde corrompue
   await page.evaluate(() => localStorage.setItem('polarite.save', '{corrompu'));
   await page.reload();
-  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   check(true, 'Démarrage malgré une sauvegarde corrompue');
 
   check(errors.length === 0, `Aucune erreur console ni requête manquante (bureau)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
@@ -462,7 +463,7 @@ const state = (page) =>
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript((save) => { if (!localStorage.getItem('polarite.save')) localStorage.setItem('polarite.save', JSON.stringify(save)); }, v1);
   await page.goto(URL);
-  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   const home = await page.locator('#screen').innerText();
   check(home.includes('Mise à jour'), 'Migration : information sur le nouvel équilibrage affichée');
   check(/ancien équilibrage : 5:12/.test(home), 'Migration : ancien record de Survie (5:12,4) conservé et distingué');
@@ -482,7 +483,7 @@ const state = (page) =>
   check(!(await page.locator('#screen').innerText()).includes('Mise à jour :'), 'L’information se ferme et ne revient pas');
   await page.screenshot({ path: 'screenshots/42-migration.png' });
   await page.reload();
-  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   check(!(await page.locator('#screen').innerText()).includes('Mise à jour :'), 'L’information reste fermée après rechargement');
   check(errors.length === 0, 'Aucune erreur (migration)');
   await context.close();
@@ -528,11 +529,14 @@ const state = (page) =>
   check((await page.locator('.item--equipped[data-item="aurore"]').count()) === 1, 'La carte équipée est signalée');
   await page.screenshot({ path: 'screenshots/62-cosmetique-equipe.png' });
   // Appliquée dans tous les modes
-  for (const [mode, sel] of [['Survie', '[data-action="survival"]'], ['défi quotidien', '[data-action="daily"]'], ['Niveaux', '[data-action="levels"]']]) {
+  for (const [mode, sel] of [['Survie', '[data-action="survival"]'], ['défi quotidien', '[data-action="daily"]'], ['Niveaux', '[data-action="campaign"]']]) {
     await go('home');
     await page.click(sel);
     if (mode === 'défi quotidien') await page.click('[data-action="play-daily"]');
-    if (mode === 'Niveaux') await page.click('[data-action="play-level"][data-level="1"]');
+    if (mode === 'Niveaux') {
+      await page.click('[data-action="levels"]');
+      await page.click('[data-action="play-level"][data-level="1"]');
+    }
     await page.waitForTimeout(500);
     const key = await page.evaluate(() => window.__polarite.renderer.shipSprite.texture.key);
     const w = await page.evaluate(() => window.__polarite.renderer.shipSprite.displayWidth);
@@ -541,7 +545,7 @@ const state = (page) =>
   await page.screenshot({ path: 'screenshots/63-partie-apparence.png' });
   // Persistance après rechargement
   await page.reload();
-  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   check((await page.evaluate(() => window.__polarite.save.skin)) === 'aurore', 'Persistance : l’apparence équipée survit au rechargement');
   await page.evaluate(() => window.__polarite.showScreen('cosmetics'));
   await page.waitForTimeout(300);
@@ -567,7 +571,7 @@ const state = (page) =>
       }
     }, skin);
     await p.goto(URL);
-    await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+    await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
     check((await p.evaluate(() => window.__polarite.save.skin)) === 'classique', `Repli sur le modèle classique (${label})`);
     await p.click('[data-action="survival"]');
     await p.waitForTimeout(400);
@@ -704,7 +708,7 @@ const state = (page) =>
   await page.screenshot({ path: 'screenshots/77-boutique-packs.png' });
   // Persistance après rechargement
   await page.reload();
-  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   const after = await sim(() => ({ w: window.__polarite.save.wallet, skin: window.__polarite.save.skin, owned: window.__polarite.save.owned }));
   check(after.w.shards === 50 && after.w.prisms === 0 && after.skin === 'aurore' && after.owned.includes('aurore'), 'Rechargement : soldes, achat et apparence équipée conservés');
   check(errors.filter((e) => !/willReadFrequently/.test(e)).length === 0, `Aucune erreur console (économie)${errors.length ? ' : ' + errors.join(' | ').slice(0, 300) : ''}`);
@@ -743,7 +747,7 @@ const state = (page) =>
   check(w1 >= 10 && ach1.r.includes('first_survival') && ach1.a.length === ach1.r.length, `Récompense créditée au déblocage (solde ${w1})`);
   check((await page.evaluate(() => JSON.parse(localStorage.getItem('polarite.save')).wallet.shards)) === w1, 'Récompense sauvegardée immédiatement');
   await page.reload();
-  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   check((await w()) === w1, 'Rechargement : aucune seconde récompense');
   await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; a.showScreen('home'); });
   await page.click('[data-action="survival"]');
@@ -769,13 +773,13 @@ const state = (page) =>
     }
   });
   await p.goto(URL);
-  await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   const home = await p.locator('#screen').innerText();
   check(/Récompenses de succès/.test(home) && /\+110/.test(home), 'Migration : notification des récompenses de succès déjà obtenus (+110 Éclats)');
   check((await p.evaluate(() => window.__polarite.save.wallet.shards)) === 150, 'Migration : 40 + 10 + 100 Éclats, une seule fois');
   await p.click('[data-action="dismiss-reward-notice"]');
   await p.reload();
-  await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   check(!/Récompenses de succès/.test(await p.locator('#screen').innerText()) && (await p.evaluate(() => window.__polarite.save.wallet.shards)) === 150, 'Migration : notification lue, aucun second versement après rechargement');
   await ctx.close();
 }
@@ -792,13 +796,13 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
     check(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Orbitron') || getComputedStyle(document.querySelector('.btn')).fontFamily.includes('Orbitron')), 'Police Orbitron appliquée aux boutons');
     check(await page.evaluate(() => !document.querySelector('#space').classList.contains('hidden')), 'Fond spatial visible dans les menus');
     const order = await page.evaluate(() => [...document.querySelectorAll('#screen .home__menu [data-action]')].map((b) => b.dataset.action));
-    check(order.join() === 'survival,levels,daily,cosmetics,achievements,leaderboard,options', `Accueil : ordre des boutons (${order.join(', ')})`);
+    check(order.join() === 'survival,campaign,daily,cosmetics,achievements,leaderboard,options', `Accueil : ordre des boutons (${order.join(', ')})`);
   }
   await go('home');
   const help = await page.locator('.home__help').innerText();
   if (touch) check(/Touchez/.test(help) && !/Espace|Échap/.test(help), `Aide aux contrôles : toucher, sans clavier (${label})`);
   else check(/Cliquez/.test(help) && /Espace/.test(help) && /Échap/.test(help), `Aide aux contrôles : clic, Espace et Échap (${label})`);
-  for (const id of ['home', 'levels', 'daily', 'cosmetics', 'achievements', 'leaderboard', 'options']) {
+  for (const id of ['home', 'campaign', 'chapter', 'mission', 'hangar', 'journal', 'levels', 'daily', 'cosmetics', 'achievements', 'leaderboard', 'options']) {
     await go(id);
     check(await noOverflow(), `Écran ${id} sans débordement horizontal (${label})`);
     const ok = await page.evaluate(() => {
@@ -860,9 +864,193 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check(st.phase === 'paused' && st.flips === f0 + 1, 'Pause tactile sans inversion');
   await page.screenshot({ path: 'screenshots/22-pause-mobile.png' });
   await page.tap('[data-action="quit"]');
+  await page.tap('[data-action="campaign"]');
   await page.tap('[data-action="levels"]');
   await page.screenshot({ path: 'screenshots/23-niveaux-mobile.png' });
   check(errors.length === 0, `Aucune erreur console (mobile)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
+  await context.close();
+}
+
+// ————————————————————————————————————————————— Campagne : « Le signal impossible » (Écho-7)
+{
+  const { page, context, errors } = await newPage({ width: 1280, height: 800 });
+  const app = (fn, arg) => page.evaluate(fn, arg);
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('polarite.save')));
+  const go = async (id) => { await page.evaluate((a) => window.__polarite.showScreen(a), id); await page.waitForTimeout(250); };
+  const finish = (maxSeconds) =>
+    page.evaluate((max) => {
+      const s = window.__polarite.session.sim;
+      for (let i = 0; i < 120 * max && s.state === 'running'; i++) { s.hazards.length = 0; s.step(); }
+    }, maxSeconds);
+  const waitEnabled = (sel) => page.waitForFunction((q) => { const b = document.querySelector(q); return b && !b.disabled; }, sel, { timeout: 8000 });
+
+  // Menus
+  await page.click('[data-action="campaign"]');
+  check((await page.locator('.chapter-card--open').count()) === 1 && /À venir/.test(await page.locator('.chapter-card--soon').innerText()), 'Campagne : chapitre Écho-7 ouvert, suite « À venir »');
+  check((await page.locator('.chapter-card--soon button').count()) === 0, 'Campagne : le chapitre « À venir » n’a aucun bouton factice');
+  await page.screenshot({ path: 'screenshots/80-campagne.png' });
+  await page.click('[data-action="chapter"]');
+  check((await page.locator('.mission-node').count()) === 10 && (await page.locator('.mission-node:disabled').count()) === 9, 'Carte des missions : 10 missions, une seule ouverte');
+  await page.screenshot({ path: 'screenshots/81-carte-missions.png' });
+  await page.click('[data-action="open-mission"][data-mission="1"]');
+  check(/Réussir sans déclencher le bouclier/.test(await page.locator('#screen').innerText()) && /30 Éclats/.test(await page.locator('#screen').innerText()), 'Fiche de mission : défis secondaires et récompenses');
+  await page.screenshot({ path: 'screenshots/82-fiche-mission.png' });
+
+  // Mission 1 : transmission d'introduction (passable), partie, transmission de fin, bilan
+  await page.click('[data-action="play-mission"]');
+  check((await page.locator('.panel--dialogue').count()) === 1, 'Mission 1 : transmission d’introduction affichée');
+  await page.screenshot({ path: 'screenshots/83-dialogue.png' });
+  await page.click('[data-action="dialogue-next"]');
+  await page.click('[data-action="dialogue-skip"]');
+  await page.waitForTimeout(400);
+  check((await app(() => window.__polarite.session?.config.mode)) === 'campaign', 'La mission démarre après la transmission (passée)');
+  check((await app(() => window.__polarite.save.campaign.seen.includes('m1-before'))), 'Transmission d’introduction enregistrée comme vue');
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: 'screenshots/84-mission-en-jeu.png' });
+  check(/Survivre|Mission 1/.test(await page.locator('#hud-sub').innerText()), 'HUD de mission affiché');
+  // Pause et reprise
+  await page.click('#btn-pause');
+  const t0 = await app(() => window.__polarite.session.sim.time);
+  await page.waitForTimeout(500);
+  check((await app(() => window.__polarite.session.sim.time)) === t0 && /Carte des missions/.test(await page.locator('#screen').innerText()), 'Pause de mission : temps figé, retour à la carte proposé');
+  await page.click('[data-action="resume"]');
+  await page.waitForFunction(() => window.__polarite.session.phase === 'running', null, { timeout: 8000 });
+  check(true, 'Reprise de mission après le compte à rebours');
+  await finish(50);
+  await page.waitForSelector('.panel--dialogue', { timeout: 8000 });
+  check(/Écho-7/.test(await page.locator('.dialogue__text').innerText()) || (await page.locator('.dialogue__text').count()) === 1, 'Transmission de fin affichée après la réussite');
+  await page.click('[data-action="dialogue-skip"]');
+  await page.waitForSelector('.title--cyan', { timeout: 5000 });
+  const res1 = await page.locator('#screen').innerText();
+  check(/Mission accomplie/.test(res1) && /Première réussite/.test(res1), 'Bilan : mission accomplie, première réussite');
+  await page.screenshot({ path: 'screenshots/85-bilan-mission.png' });
+  const c1 = await stored();
+  check(c1.campaign.missions['1']?.main === true && c1.wallet.shards >= 40 && c1.version === 5, `Progression sauvegardée (mission 1 réussie, solde ${c1.wallet.shards})`);
+  const bal1 = c1.wallet.shards;
+  check((await page.locator('[data-action="next-mission"]').count()) === 1, 'Mission suivante proposée');
+  // Rejouer : récompenses uniques jamais recréditées, pas de nouvelle transmission
+  await waitEnabled('[data-replay]');
+  await page.click('[data-replay]');
+  await page.waitForTimeout(300);
+  check((await app(() => window.__polarite.session?.config.mode)) === 'campaign' && (await page.locator('.panel--dialogue').count()) === 0, 'Rejouer : aucune transmission répétée');
+  await finish(50);
+  await page.waitForSelector('.title--cyan', { timeout: 8000 });
+  const res2 = await page.locator('#screen').innerText();
+  const bal2 = (await stored()).wallet.shards;
+  check(!/Première réussite/.test(res2) && /Réussite répétée/.test(res2) && bal2 === bal1 + 5, `Réussite répétée : +5 seulement (solde ${bal1} → ${bal2})`);
+  // Mission suivante débloquée
+  await go('chapter');
+  check((await page.locator('.mission-node:disabled').count()) === 8, 'Mission 2 débloquée par la réussite de la mission 1');
+
+  // Échec : aucune récompense, rien retiré (un secteur électrique actif posé sur le vaisseau)
+  await app(() => { const a = window.__polarite; a.save.wallet.shards = 500; a.persist(); a.launchMission(2); });
+  await page.waitForTimeout(300);
+  await app(() => {
+    const s = window.__polarite.session.sim;
+    s.hazards.push({ kind: 'sector', id: 99999, pattern: 'test', warnStart: s.time, activeStart: s.time, end: s.time + 5, threatEnd: s.time + 5, center: s.angle, half: 1, warned: true, activated: true });
+  });
+  await page.waitForSelector('.title--coral', { timeout: 8000 });
+  const failText = await page.locator('#screen').innerText();
+  const afterFail = await stored();
+  check(/Collision|Temps écoulé/.test(failText) && !/Éclats gagnés/.test(failText) && afterFail.wallet.shards === 500 && !afterFail.campaign.missions['2']?.main, 'Échec : aucun gain, progression inchangée');
+  await page.screenshot({ path: 'screenshots/86-echec-mission.png' });
+
+  // Hangar : achat du bouclier (présenté après la mission 3), activation, absorption d'une collision
+  await go('hangar');
+  check(!/Bouclier de secours/.test(await page.locator('#screen').innerText()), 'Hangar : le bouclier n’est pas présenté avant la mission 3');
+  await app(() => { const a = window.__polarite; for (const id of ['1', '2', '3']) a.save.campaign.missions[id] = { main: true, challenge: false, noShield: false, clears: 1, bestTime: 30 }; a.save.wallet.shards = 130; a.persist(); a.showScreen('hangar'); });
+  await page.waitForTimeout(250);
+  check(/Bouclier de secours/.test(await page.locator('#screen').innerText()) && !/Collecteur amélioré/.test(await page.locator('#screen').innerText()), 'Hangar : bouclier présenté après la mission 3 (collecteur plus tard)');
+  await page.screenshot({ path: 'screenshots/87-hangar.png' });
+  await page.click('[data-action="buy-upgrade"][data-upgrade="shield"]');
+  check((await app(() => window.__polarite.save.wallet.shards)) === 130, 'Hangar : confirmation demandée, rien n’est débité');
+  await page.evaluate(() => { const b = document.querySelector('[data-action="confirm-upgrade"]'); b.click(); b.click(); });
+  await page.waitForTimeout(250);
+  const hs = await stored();
+  check(hs.wallet.shards === 30 && hs.campaign.upgrades.owned.join() === 'shield' && hs.campaign.upgrades.enabled.join() === 'shield', `Hangar : 100 Éclats débités une seule fois, bouclier possédé et activé (solde ${hs.wallet.shards})`);
+  await page.click('[data-action="toggle-upgrade"]');
+  check((await app(() => window.__polarite.save.campaign.upgrades.enabled.length)) === 0, 'Hangar : désactivation du bouclier');
+  await page.click('[data-action="toggle-upgrade"]');
+  await go('chapter');
+  await app(() => window.__polarite.launchMission(4));
+  await page.waitForTimeout(700);
+  check((await app(() => window.__polarite.session.campaign.shieldCharges)) === 1 && /Bouclier prêt/.test(await page.locator('#hud-sub').innerText()), 'Mission avec bouclier : charge disponible et indiquée au HUD');
+  await page.screenshot({ path: 'screenshots/88-bouclier-pret.png' });
+  const absorbed = await app(() => {
+    const c = window.__polarite.session.campaign;
+    for (let i = 0; i < 120 * 60 && c.state === 'running' && !c.shieldUsed; i++) c.step();
+    return { used: c.shieldUsed, state: c.state, invulnerable: c.invulnerable, charges: c.shieldCharges };
+  });
+  check(absorbed.used && absorbed.state === 'running' && absorbed.invulnerable && absorbed.charges === 0, 'Bouclier : la collision est absorbée, la partie continue (invulnérabilité brève)');
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: 'screenshots/89-bouclier-actif.png' });
+  check(/Bouclier actif/.test(await page.locator('#hud-sub').innerText()), 'HUD : bouclier actif');
+  // Les autres modes ignorent les améliorations
+  for (const [name, sel, extra] of [['Survie', '[data-action="survival"]', null], ['défi quotidien', '[data-action="daily"]', '[data-action="play-daily"]']]) {
+    await go('home');
+    await page.click(sel);
+    if (extra) await page.click(extra);
+    await page.waitForTimeout(300);
+    check((await app(() => !window.__polarite.session.campaign && window.__polarite.session.sim.shieldCharges === undefined)), `Améliorations sans effet en ${name}`);
+  }
+  await go('home');
+  await page.click('[data-action="campaign"]');
+  await page.click('[data-action="levels"]');
+  await page.click('[data-action="play-level"][data-level="1"]');
+  await page.waitForTimeout(300);
+  check((await app(() => !window.__polarite.session.campaign && window.__polarite.session.sim.shieldCharges === undefined)), 'Améliorations sans effet aux défis classiques');
+  // Aucune partie de campagne dans le classement mondial
+  check((await app(() => window.__polarite.lb.pending().length)) === 0, 'Aucun résultat de campagne en attente d’envoi au classement');
+
+  // Cosmétique Écho : verrouillé jusqu'à la fin du chapitre
+  await go('cosmetics');
+  await page.click('[data-item="echo"]');
+  check(/Campagne requise/.test(await page.locator('.skin-info').innerText()) && (await page.locator('.skin-info [data-action="buy"]').isDisabled()), 'Écho : « Campagne requise » avant la fin du chapitre');
+  await page.screenshot({ path: 'screenshots/90-echo-verrouille.png' });
+  await app(() => { const a = window.__polarite; for (let i = 1; i <= 9; i++) a.save.campaign.missions[String(i)] = { main: true, challenge: false, noShield: false, clears: 1, bestTime: 30 }; a.persist(); a.launchMission(10); });
+  await page.waitForTimeout(400);
+  await page.click('[data-action="dialogue-skip"]').catch(() => undefined);
+  await page.waitForTimeout(300);
+  await finish(95);
+  await page.waitForSelector('.panel--dialogue', { timeout: 8000 });
+  for (let i = 0; i < 6 && (await page.locator('[data-action="dialogue-next"]').count()) > 0; i++) await page.click('[data-action="dialogue-next"]');
+  await page.waitForSelector('.title--cyan', { timeout: 5000 });
+  const endText = await page.locator('#screen').innerText();
+  check(/Chapitre terminé/.test(endText) && /à venir/.test(endText), 'Fin du chapitre : « Chapitre terminé », suite « à venir »');
+  await page.screenshot({ path: 'screenshots/91-fin-chapitre.png' });
+  const endSave = await stored();
+  check(endSave.campaign.chapterComplete === true && endSave.campaign.missions['10'].main, 'Fin du chapitre sauvegardée');
+  await go('cosmetics');
+  await page.click('[data-item="echo"]');
+  check((await page.locator('.skin-info [data-action="equip-item"]').count()) === 1, 'Écho débloquée dans les cosmétiques');
+  await page.screenshot({ path: 'screenshots/92-echo.png' });
+  // Journal
+  await go('journal');
+  check((await page.locator('.journal__entry').count()) >= 2, 'Journal : transmissions découvertes listées');
+  await page.click('.journal__entry');
+  check((await page.locator('.panel--dialogue').count()) === 1, 'Journal : relecture d’une transmission');
+  await page.screenshot({ path: 'screenshots/93-journal.png' });
+  check(errors.length === 0, `Aucune erreur console (campagne)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
+  await context.close();
+}
+
+// ————————————————————————————————————————————— Campagne : migration d'une sauvegarde v4
+{
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => {
+    if (localStorage.getItem('polarite.save')) return;
+    localStorage.setItem('polarite.save', JSON.stringify({ version: 4, balance: 3, levels: { '1': { completed: true, bestScore: 5000, stars: 2 } }, survival: { bestTime: 200, bestScore: 9000, runs: 4 }, daily: {}, archive: {}, balanceNoticeSeen: 3, achievements: { first_cycle: 1 }, skin: 'aurore', trail: 'auto', wallet: { shards: 777, prisms: 3 }, owned: ['aurore'], paid: { '1': { first: true, stars: 2 } }, options: { muted: true, volume: 0.5, reducedEffects: false, tutorialSeen: true }, seenIntros: [], stats: { totalCycles: 12, totalRuns: 4, totalShards: 9, totalEvents: 1, bestScore: 9000, bestMultiplier: 3 }, rewarded: ['first_cycle'], rewardNotice: null }));
+  });
+  await page.goto(URL);
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
+  const m = await page.evaluate(() => ({ save: JSON.parse(localStorage.getItem('polarite.save')), backup: localStorage.getItem('polarite.save.avant-v4') }));
+  check(m.save.version === 5 && m.save.wallet.shards === 777 && m.save.wallet.prisms === 3 && m.save.survival.bestTime === 200 && m.save.skin === 'aurore' && m.save.levels['1'].stars === 2, 'Migration v4 → v5 : monnaies, records, niveaux et apparence conservés');
+  check(m.save.campaign && m.save.campaign.chapterComplete === false && Object.keys(m.save.campaign.missions).length === 0, 'Migration v4 → v5 : campagne vide, prête');
+  check(!!m.backup && JSON.parse(m.backup).version === 4, 'Migration v4 → v5 : copie de la sauvegarde d’origine conservée');
+  check(errors.length === 0, `Aucune erreur (migration v5)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
   await context.close();
 }
 

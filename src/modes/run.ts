@@ -1,6 +1,8 @@
 import { LEVEL_DURATION } from '../config/balance';
 import { SHARDS } from '../config/economy';
+import type { MissionDef } from '../config/campaign';
 import type { LevelDef } from '../config/levels';
+import type { ActiveUpgrades } from '../campaign/simulation';
 import type { RunMode } from '../progression/progress';
 import { Simulation } from '../sim/simulation';
 import { dailySeed } from './daily';
@@ -12,10 +14,15 @@ export interface RunConfig {
   level?: LevelDef;
   /** Date UTC du défi quotidien. */
   date?: string;
+  /** Campagne : mission et améliorations actives (jamais utilisées par les autres modes). */
+  mission?: MissionDef;
+  upgrades?: ActiveUpgrades;
 }
 
 /** Les trois modes partagent exactement la même simulation ; seuls la courbe et la durée changent. */
 export function createSimulation(cfg: RunConfig): Simulation {
+  // La campagne a sa propre simulation (campaign/simulation.ts) : cette fabrique sert aussi au rejeu du serveur et reste inchangée
+  if (cfg.mode === 'campaign') throw new Error('Mission de campagne : utiliser CampaignSimulation');
   if (cfg.mode === 'level') {
     if (!cfg.level) throw new Error('Niveau manquant');
     return new Simulation({ seed: cfg.seed, profile: levelProfile(cfg.level), timeLimit: LEVEL_DURATION });
