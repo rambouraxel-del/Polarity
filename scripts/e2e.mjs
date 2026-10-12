@@ -1127,7 +1127,7 @@ for (const [w, h, name, touch] of [[320, 568, 'petit écran', true], [844, 390, 
 // Bureau : clavier (Entrée / Espace = révéler puis avancer ; Échap = passer)
 {
   const { page, context } = await newPage({ width: 1280, height: 800 });
-  await page.evaluate(() => { window.__polarite.save.options.tutorialSeen = true; window.__polarite.launchMission(1); });
+  await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.storyCharsPerSecond = 4; a.launchMission(1); });
   await page.waitForSelector('.story');
   await page.waitForTimeout(500);
   await page.keyboard.press('Enter');
