@@ -48,7 +48,7 @@ npm run check        # typecheck + tests + build
 - `game/` — `session.ts` (horloge, pause, compte à rebours, fin unique), `input.ts` (Pointer Events + Espace).
 - `progression/` — progression/records (`progress.ts`), succès, apparences.
 - `save/save.ts` — sauvegarde localStorage versionnée, validation champ par champ, repli si corrompue.
-- `audio/sfx.ts` — sons Web Audio procéduraux.
+- `audio/sfx.ts` — sons Web Audio procéduraux (et contexte audio, volume, sourdine partagés) ; `audio/music.ts` + `config/music.ts` + `data/polarity-audio.json` — musique de partie (intro → boucle → outro, raccords sur l'horloge audio, jamais de `setTimeout`/`ended` pour relancer ; voir `docs/MUSIQUE.md`).
 - `render/` — `ArenaRenderer.ts` (sprites vaisseau/astéroïdes + effets par code), `geometry.ts` (sens du déplacement et du réacteur, testé),
   `GameScene.ts` (chargement des textures).
 - `ui/` — `theme.ts` (**source unique** des couleurs, polices, rayons, durées → variables CSS), `components.ts` (boutons, en-têtes, réglages…), `icons.ts` (SVG), `screens.ts` (écrans HTML), `space.ts` (fond spatial des menus), HUD, formatage. `app.ts` orchestre le tout.
@@ -76,6 +76,7 @@ npm run check        # typecheck + tests + build
 - Économie : cosmétiques seulement, aucun avantage de jeu ; achat = vérification du solde + débit + déblocage dans la même modification ; Prismes jamais débités ni crédités localement (paiements non actifs) ; sauvegarde versionnée (format 6) : toute nouvelle donnée de progression passe par `save.ts` (sanitize + migration).
 - Classement : le serveur ne croit jamais le client (rejeu graine + entrées) ; aucune clé secrète ni route d'administration dans le jeu ; toute modification des règles de simulation exige `BALANCE_VERSION` + redéploiement du serveur ; le serveur doit rester déterministe-identique au client (même code `src/`). Succès : objectifs sans dépense, récompenses versées une seule fois.
 - Campagne : ne jamais modifier `src/sim/*` pour elle (Survie et rejeu serveur identiques, `BALANCE_VERSION` inchangée) ; `createSimulation` refuse le mode `campaign` ; aucune partie de campagne n'est envoyée au classement ; les gains vont dans la **réserve de campagne** (`save.campaign.reserve`), jamais dans le portefeuille de la Survie, et la campagne ne touche ni aux succès ni aux statistiques ni aux cosmétiques (le vaisseau de campagne est `CAMPAIGN_SKIN`) ; étoile et récompense passent de faux à vrai dans la même modification de sauvegarde (jamais de double crédit) ; sauvegarde format 6 (champ `campaign`). Récit : une réplique à la fois, premier toucher = révéler, suivant = avancer, jamais de transmission pendant une esquive, scènes jouées une seule fois puis relisibles ; niveaux 1 à 5 : astéroïdes seulement.
+- Musique : repères du JSON utilisés exactement (boucle `loopStart`/`loopEnd`, jamais le MP3 entier) ; raccords programmés sur l'horloge Web Audio ; un seul ensemble de buffers, jamais rechargé ; fin de partie = fondu vers l'outro (jamais d'attente du tour de boucle) ; réutiliser le contexte, le volume et la sourdine de `Sfx`.
 - Textes utilisateur en français. Pas de bouton factice.
 - Après une modification : `npm run check`, et `npm run build && npm run e2e` si l'interface change.
 - Mettre à jour `PROGRESS.md` et `RESUME.md` à chaque jalon.

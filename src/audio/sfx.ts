@@ -1,5 +1,5 @@
 /**
- * Sons procéduraux (Web Audio) : aucun fichier audio.
+ * Sons procéduraux (Web Audio) : aucun fichier audio (la musique de partie est dans audio/music.ts et partage ce contexte).
  * Le contexte audio n'est créé qu'après une interaction utilisateur.
  * Les sons complètent l'image ; aucune information n'est transmise uniquement par le son.
  */
@@ -12,6 +12,15 @@ export class Sfx {
   private volume = 0.7;
   private muted = false;
   private lastPlayed: Partial<Record<SoundName, number>> = {};
+
+  /** Contexte audio et sortie principale (volume et sourdine du joueur) : la musique s'y branche (audio/music.ts). */
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+
+  get output(): GainNode | null {
+    return this.master;
+  }
 
   /** À appeler depuis un gestionnaire d'événement utilisateur. */
   unlock(): void {

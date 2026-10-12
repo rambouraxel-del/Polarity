@@ -1,5 +1,10 @@
 # Suivi d'avancement
 
+## Musique de partie (livrée sur `main`)
+- [x] Intro une fois → boucle native (`loopStart`/`loopEnd` du JSON) → outro en fondu 1,2 s à la fin de partie, annulation de la boucle programmée, relance rapide sans superposition, pause/reprise, arrière-plan, volume/sourdine existants, buffers décodés une seule fois
+- [x] Tests unitaires (faux contexte) + e2e réel (MP3, rendus hors ligne des raccords)
+- [ ] **Écoute sur Safari iPhone à effectuer** (décodage MP3, raccords, déverrouillage)
+
 ## Campagne « Douze ans de silence », niveaux 1 à 5 (branche `campagne-douze-ans`, livré, à valider en jeu réel)
 - [x] Pack narratif intégré : 6 illustrations + 3 portraits (WebP optimisés, masters dans `art/campagne/`), dialogues JSON non altérés (`src/data/`), mapping des portraits
 - [x] Écran de récit mobile (illustration au-dessus, boîte de dialogue, portrait, texte progressif, révéler/avancer, passer, relecture, journal, clavier)
