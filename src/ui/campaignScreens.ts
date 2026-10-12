@@ -148,6 +148,7 @@ export function storyScreen(seq: StorySequence, index: number, finish: string): 
   const portrait = storyAsset(SPEAKERS[line.who].portrait);
   const img = storyAsset(seq.illustration);
   return `<div class="story" role="dialog" aria-label="Scène : ${escapeHtml(seq.title)}">
+    ${img ? `<img class="story__bg" src="${img}" alt="" aria-hidden="true" decoding="async" />` : ''}
     <div class="story__scene" data-action="story-advance">${img ? `<img class="story__img" src="${img}" alt="" decoding="async" />` : ''}</div>
     <div class="story__box story__box--${line.who}${line.system ? ' story__box--system' : ''}" data-action="story-advance">
       <div class="story__row">

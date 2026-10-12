@@ -353,6 +353,8 @@
 }
 
 .story {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -370,12 +372,29 @@
   }
 }
 
+/* Fond discret : la même illustration, floutée et assombrie (comble les marges autour de l'image entière) */
+.story__bg {
+  position: absolute;
+  inset: -24px;
+  width: calc(100% + 48px);
+  height: calc(100% + 48px);
+  object-fit: cover;
+  filter: blur(26px) brightness(0.32) saturate(1.15);
+  pointer-events: none;
+}
+
+.story__scene,
+.story__box {
+  position: relative;
+  z-index: 1;
+}
+
 /* Illustration fixe : toute l'image est visible (contain), jamais étirée ni recadrée */
 .story__scene {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: calc(var(--sat) + 8px) calc(var(--sar) + 8px) 6px calc(var(--sal) + 8px);
   cursor: pointer;
@@ -385,7 +404,9 @@
   display: block;
   width: 100%;
   height: 100%;
+  max-height: 100%;
   object-fit: contain;
+  object-position: top center;
   border-radius: var(--r-md);
   pointer-events: none;
 }
