@@ -5,6 +5,7 @@
 - [x] `CampaignSimulation` (sous-classe, `src/sim/` intact) : objectifs (survivre, balises, objets temporaires, cycles, boîte noire), phases scénarisées, respirations, bouclier, collecteur, stabilisateur, transmissions en partie
 - [x] Sauvegarde format 5 + migration v4 → v5 ; progression (étoiles, récompenses uniques, hangar, journal, Écho) ; catalogue `campaign` (« Campagne requise »)
 - [x] Écrans : Campagne, carte des missions, fiche, hangar, journal, dialogues, bilan, « Défis classiques » ; rendu des objets et du bouclier ; HUD de mission ; pause/reprise
+- [x] Vérifications : 294 tests, build, e2e complet (335 contrôles) et e2e classement verts
 - [x] Tests : faisabilité des 10 missions par `MissionBot` (12 graines), progression/sauvegarde, écrans ; e2e « Campagne » et migration v5
 - **Reste à valider avec de vrais joueurs** (les bots ne mesurent pas le ressenti) : difficulté de chaque mission (vitesse, fenêtres de motifs), durée de vie des objets (missions 3 et 7), seuils des défis secondaires, prix et effets des améliorations, lisibilité des objets de mission et du bouclier sur mobile
 
