@@ -1185,13 +1185,15 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
     const r4 = await render(40, [{ t: 0, op: 'startGame' }, { t: 0.9, op: 'endGame' }, { t: 1.0, op: 'startGame' }, { t: 1.2, op: 'startGame' }, { t: 1.4, op: 'startGame' }, { t: 5, op: 'endGame' }]);
     const r4ref = await render(40, [{ t: 1.4, op: 'startGame' }, { t: 5, op: 'endGame' }]);
     // La dernière intro démarre `restartFade + 20 ms` après la relance (fondu court de l'ancienne musique) au lieu de 60 ms : décalage 0,11 s
+    // (à un échantillon près : le démarrage d'un nœud est sub-échantillon). Pendant l'intro : écart relatif ; après l'outro : identité stricte.
     const shift = Math.round(0.11 * SR);
-    let diff = 0;
+    let dsum = 0, rsum = 0, n = 0, diff = 0;
     for (let c = 0; c < 2; c++) {
-      for (let i = Math.floor(2 * SR); i < Math.floor(4.9 * SR); i++) diff = Math.max(diff, Math.abs(r4[c][i] - r4ref[c][i - shift]));
+      for (let i = Math.floor(2 * SR); i < Math.floor(4.9 * SR); i++) { const d = r4[c][i] - r4ref[c][i - shift]; dsum += d * d; rsum += r4ref[c][i - shift] ** 2; n++; }
       for (let i = Math.floor(7.5 * SR); i < Math.floor(30 * SR); i++) diff = Math.max(diff, Math.abs(r4[c][i] - r4ref[c][i]));
     }
     out.rapidRestartMaxDiff = diff;
+    out.rapidRestartRelIntro = Math.sqrt(dsum / n) / Math.sqrt(rsum / n);
     // 5. pause / reprise : la musique reprend exactement là où elle s'était arrêtée
     const r5 = await render(40, [{ t: 0, op: 'startGame' }, { t: 5, op: 'pause' }, { t: 8, op: 'resume' }]);
     const seg = (o, a, n) => o[0].subarray(Math.floor(a * SR), Math.floor(a * SR) + n);
@@ -1211,7 +1213,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check(R.rmsAroundJoin[0] > 0.002 && R.rmsAroundJoin[1] > 0.002, `Raccord : musique présente de part et d’autre (rms ${R.rmsAroundJoin.map((x) => x.toFixed(3)).join(' / ')})`);
   check(R.introDeath.outro > 0.003 && R.introDeath.afterOutro < 1e-5 && R.introDeath.aroundT < 0.2, `Défaite pendant l’intro (rendu réel) : l’outro seule, puis silence — la boucle ne démarre jamais (${R.introDeath.afterOutro.toExponential(1)})`);
   check(R.loopDeath.before > 0.002 && R.loopDeath.outro > 0.003 && R.loopDeath.afterOutro < 1e-5, 'Défaite pendant la boucle (rendu réel) : fondu vers l’outro, puis silence');
-  check(R.rapidRestartMaxDiff < 1e-4, `Relances rapides (rendu réel) : résultat identique à une seule partie, aucune superposition (écart max ${R.rapidRestartMaxDiff.toExponential(1)})`);
+  check(R.rapidRestartMaxDiff < 1e-4 && R.rapidRestartRelIntro < 0.08, `Relances rapides (rendu réel) : équivalent à une seule partie, aucune superposition (écart relatif ${R.rapidRestartRelIntro.toFixed(3)} pendant l’intro, ${R.rapidRestartMaxDiff.toExponential(1)} après l’outro)`);
   check(R.resume.corr > 0.98 && Math.abs(R.resume.lagMs) < 6 && R.resume.silentDuringPause < 1e-5, `Pause / reprise (rendu réel) : même position musicale (corrélation ${R.resume.corr.toFixed(3)}, décalage ${R.resume.lagMs.toFixed(1)} ms), silence pendant la pause`);
 
   // Retour de boucle (≈ 177,5 s) : rendu long en une passe
