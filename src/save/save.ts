@@ -18,6 +18,8 @@ export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
 export const BACKUP_PREFIX = 'polarite.save.avant-v';
+/** Copie avant changement d'équilibrage (clé : préfixe + version d'équilibrage d'origine). */
+export const BALANCE_BACKUP_PREFIX = 'polarite.save.avant-eq';
 /** Nombre de dates conservées pour le défi quotidien. */
 export const DAILY_KEEP = 30;
 
@@ -262,6 +264,13 @@ export function loadSave(store: KeyValueStore): LoadResult {
     if (store.get(backupKey) === null) store.set(backupKey, text);
     return { data: sanitize(migrate(parsed)), status: 'migrated' };
   }
+  // Même format, mais records d'un ancien équilibrage : copie de sécurité avant de les ranger à part
+  const balance = typeof parsed.balance === 'number' ? Math.floor(parsed.balance) : BALANCE_VERSION;
+  if (balance < BALANCE_VERSION) {
+    const backupKey = `${BALANCE_BACKUP_PREFIX}${balance}`;
+    if (store.get(backupKey) === null) store.set(backupKey, text);
+    return { data: sanitize(migrate(parsed)), status: 'migrated' };
+  }
   return { data: sanitize(migrate(parsed)), status: 'ok' };
 }
 
@@ -275,5 +284,7 @@ export function writeSave(store: KeyValueStore, data: SaveData): void {
 
 /** Effacement explicite et confirmé : supprime aussi les copies de sauvegarde conservées lors des migrations. */
 export function eraseAll(store: KeyValueStore): void {
-  for (const key of [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`]) store.remove(key);
+  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
+  for (let b = 1; b <= 20; b++) keys.push(`${BALANCE_BACKUP_PREFIX}${b}`);
+  for (const key of keys) store.remove(key);
 }

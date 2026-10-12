@@ -46,7 +46,7 @@ describe('Courbe de Survie accélérée', () => {
 
 describe('Plafonds et contraintes conservés', () => {
   it('les plafonds absolus sont ceux de la v1.0', () => {
-    expect(CAPS).toEqual({ maxProjectileSpeed: 580, minProjectileWarn: 0.55, minSectorWarn: 0.65, minWaveInterval: 0.85, maxActiveHazards: 8 });
+    expect(CAPS).toEqual({ maxProjectileSpeed: 580, minProjectileWarn: 0.55, minSectorWarn: 0.65, minLaserWarn: 0.9, minWaveInterval: 0.85, maxActiveHazards: 8 });
     expect(SECTOR.maxSimultaneous).toBe(2);
     expect(SECTOR.maxCoverage).toBe(0.36);
     expect(DIFFICULTY_RANGE.projectileSpeed).toEqual({ easy: 320, hard: 560 });
@@ -165,7 +165,8 @@ describe('Intensification après 3 minutes', () => {
       after += waves.filter((w) => w.t >= 240 && w.t < 300).length;
     }
     expect(after).toBeGreaterThan(before);
-    // Les respirations restent brèves : jamais plus de 5 s sans vague
-    expect(maxGapAfter).toBeLessThan(5);
+    // Les respirations restent brèves : jamais plus de 8 s sans vague (l'annonce de 2 s + la respiration de 3 s
+    // d'un événement s'ajoutent aux respirations habituelles)
+    expect(maxGapAfter).toBeLessThan(8);
   });
 });

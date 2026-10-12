@@ -29,7 +29,8 @@ export function homeScreen(save: SaveData, today: string): string {
         : 'Tenez le plus longtemps possible';
   const notice =
     hasLegacyRecords(save) && save.balanceNoticeSeen < BALANCE_VERSION
-      ? `<div class="notice cyan" role="status">Équilibrage mis à jour : la Survie et le défi montent plus vite en difficulté, le vaisseau et les astéroïdes sont plus grands et les hitboxes légèrement ajustées.
+      ? `<div class="notice cyan" role="status">Mise à jour : trois nouveaux dangers (astéroïde fragmenté, convoi, laser balayeur), des événements en Survie et au défi,
+         et un vaisseau lent au départ qui accélère peu à peu.
          Vos records précédents sont conservés à part (« ancien équilibrage ») et ne sont pas comparés aux nouveaux.
          <button class="btn" data-action="dismiss-notice">Compris</button></div>`
       : '';

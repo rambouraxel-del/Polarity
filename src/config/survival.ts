@@ -36,6 +36,12 @@ export const SURVIVAL = {
     combo: { from: 60, span: 35 } as Ramp,
     /** Motifs avancés : rafale, tenaille. */
     advanced: { from: 90, span: 30 } as Ramp,
+    /** Convoi d'astéroïdes (aussi présent dans la pluie de météores). */
+    convoy: { from: 38, span: 22 } as Ramp,
+    /** Astéroïde fragmenté. */
+    fragment: { from: 75, span: 25 } as Ramp,
+    /** Laser balayeur. */
+    laser: { from: 110, span: 30 } as Ramp,
   },
   /** « Davantage de combinaisons » : poids supplémentaire des combinaisons à partir d'une minute. */
   comboBoost: { ramp: { from: 75, span: 60 } as Ramp, extra: 0.5 },

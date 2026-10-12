@@ -81,12 +81,12 @@ describe('Validateur d’évitement', () => {
       makeSector('arc', 0, 0.3, 2, a - Math.PI / 2 - 0.2, Math.PI / 2),
       makeSector('arc', 0, 0.6, 1, a, 0.4),
     ];
-    expect(hasEscapePath(hz, { angle: a, dir: 1, time: 0, forcedSteps: 0, forcedDir: 1 })).toBe(false);
+    expect(hasEscapePath(hz, { angle: a, dir: 1, time: 0, forcedTime: 0, forcedDir: 1, speed: () => 1 })).toBe(false);
   });
 
   it('accepte une situation évitable', () => {
     const hz = [makeSector('arc', 0, 1.2, 1, 0, 0.4)];
-    expect(hasEscapePath(hz, { angle: 0, dir: 1, time: 0, forcedSteps: 2, forcedDir: 1 })).toBe(true);
+    expect(hasEscapePath(hz, { angle: 0, dir: 1, time: 0, forcedTime: 0.25, forcedDir: 1, speed: () => 1 })).toBe(true);
   });
 
   it('dangers des deux côtés avec un passage : trouve le trajet', () => {
@@ -94,7 +94,7 @@ describe('Validateur d’évitement', () => {
       makeSector('arc', 0, 1.0, 1, 1.2, 0.4),
       makeSector('arc', 0, 1.0, 1, -1.2, 0.4),
     ];
-    expect(hasEscapePath(hz, { angle: 0, dir: 1, time: 0, forcedSteps: 2, forcedDir: 1 })).toBe(true);
+    expect(hasEscapePath(hz, { angle: 0, dir: 1, time: 0, forcedTime: 0.25, forcedDir: 1, speed: () => 1 })).toBe(true);
   });
 });
 

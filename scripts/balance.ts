@@ -6,6 +6,7 @@
  * Les bots ont des réflexes surhumains : ces chiffres aident à placer les seuils, ils ne remplacent pas des essais.
  */
 import { LEVEL_DURATION } from '../src/config/balance';
+import { Bot } from '../src/sim/bot';
 import { LEVELS } from '../src/config/levels';
 import { levelProfile, survivalProfile } from '../src/modes/profiles';
 import { playWithBot } from '../src/sim/bot';
@@ -77,4 +78,48 @@ for (const [a, b] of windows) {
   for (const log of waves) for (const w of log) if (w.t >= a && w.t < b) { n++; if (DOUBLES.includes(w.id)) dbl++; if (COMBOS.includes(w.id)) cmb++; }
   const perMin = (n / seeds) / ((b - a) / 60);
   console.log(`  ${String(a).padStart(3)}–${String(b).padEnd(3)} s : ${perMin.toFixed(1)} vagues/min | doubles ${(100 * dbl / Math.max(1, n)).toFixed(0)} % | projectile+secteur ${(100 * cmb / Math.max(1, n)).toFixed(0)} %`);
+}
+
+// ————— v1.2 : vitesse du vaisseau, événements, nouveaux dangers
+import { survivalSpeedFactor } from '../src/config/playerSpeed';
+
+console.log('\nVitesse du vaisseau en Survie (part de la référence 2,0 rad/s)');
+console.log('  ' + [0, 29, 30, 60, 120, 180, 300, 360, 600].map((t) => `${t} s : ${(survivalSpeedFactor(t) * 100).toFixed(0)} %`).join(' | '));
+
+console.log('\nÉvénements et nouveaux dangers (joueur automatique, 4 graines, 8 minutes)');
+for (let seed = 1; seed <= 4; seed++) {
+  const sim = new Simulation({ seed: seed * 977, profile: survivalProfile(), timeLimit: null });
+  const bot = new Bot(sim);
+  const counts: Record<string, number> = {};
+  const first: Record<string, number> = {};
+  sim.director.onWave = (t, id, phase) => {
+    const key = phase === 'event' ? `${id}*` : id; // * = lancé pendant un événement
+    counts[key] = (counts[key] ?? 0) + 1;
+    if (first[id] === undefined) first[id] = t;
+  };
+  const marks: string[] = [];
+  for (let i = 0; i < 8 * 60 * 120 && sim.state === 'running'; i++) {
+    bot.tick();
+    sim.step();
+    for (const e of sim.events) if (e.type === 'event' && e.stage === 'start') marks.push(`${e.kind === 'meteor' ? 'pluie' : 'tempête'}@${(sim.time).toFixed(0)}s`);
+    sim.events.length = 0;
+  }
+  const nw = (id: string) => (counts[id] ?? 0) + (counts[`${id}*`] ?? 0);
+  console.log(`  graine ${seed} : ${sim.state} | événements ${marks.join(' ')}`);
+  console.log(`    convois ${nw('convoy')} (premier ${first.convoy?.toFixed(0)} s) · fragmentés ${nw('fragment')} (${first.fragment?.toFixed(0)} s) · lasers ${nw('laser')} (${first.laser?.toFixed(0)} s) · vagues reportées ${sim.director.deferred}`);
+}
+
+console.log('\nRobots moins vifs (décision 0,2 s, réaction 0,3 s) : parties de 5 minutes, 12 graines');
+{
+  let dead = 0;
+  const when: number[] = [];
+  for (let seed = 1; seed <= 12; seed++) {
+    const sim = new Simulation({ seed: seed * 4241, profile: survivalProfile(), timeLimit: null });
+    playWithBot(sim, 300, true, new Bot(sim, true, 6, 0.2, 0.3));
+    if (sim.state === 'dead') {
+      dead++;
+      when.push(Math.round(sim.time));
+    }
+  }
+  console.log(`  morts ${dead}/12 ${when.length ? `(à ${when.join(', ')} s)` : ''} — référence v1.1 : 7/12, première mort à 176 s`);
 }

@@ -10,9 +10,21 @@ import type { Simulation } from './simulation';
  */
 export class Bot {
   private stepsUntilDecision = 0;
-  private readonly decisionSteps = Math.round(SAFETY.decisionStep / SIM.dt);
+  private readonly decisionSteps: number;
 
-  constructor(private readonly sim: Simulation, private readonly greed = true, private readonly margin = 6) {}
+  /**
+   * @param decisionTime intervalle entre deux décisions (s) : plus grand = joueur moins vif
+   * @param reaction durée (s) pendant laquelle la direction n'est pas révisée après une décision (temps de réaction)
+   */
+  constructor(
+    private readonly sim: Simulation,
+    private readonly greed = true,
+    private readonly margin = 6,
+    decisionTime: number = SAFETY.decisionStep,
+    private readonly reaction = 1e-6,
+  ) {
+    this.decisionSteps = Math.max(1, Math.round(decisionTime / SIM.dt));
+  }
 
   /** À appeler avant chaque pas de simulation. */
   tick(): void {
@@ -22,7 +34,7 @@ export class Bot {
     }
     this.stepsUntilDecision = this.decisionSteps - 1;
     const sim = this.sim;
-    const base = { angle: sim.angle, time: sim.time, forcedSteps: 1, margin: this.margin };
+    const base = { angle: sim.angle, time: sim.time, forcedTime: this.reaction, speed: sim.speedFn, margin: this.margin };
     const keepOk = hasEscapePath(sim.hazards, { ...base, dir: sim.dir, forcedDir: sim.dir });
     let flipOk: boolean | null = null;
     const flipSafe = (): boolean => {
@@ -56,8 +68,7 @@ export class Bot {
 }
 
 /** Joue une partie complète avec le bot. Renvoie la simulation terminée (ou arrêtée à maxTime). */
-export function playWithBot(sim: Simulation, maxTime: number, greed = true): Simulation {
-  const bot = new Bot(sim, greed);
+export function playWithBot(sim: Simulation, maxTime: number, greed = true, bot: Bot = new Bot(sim, greed)): Simulation {
   const maxSteps = Math.round(maxTime / SIM.dt);
   for (let i = 0; i < maxSteps && sim.state === 'running'; i++) {
     bot.tick();

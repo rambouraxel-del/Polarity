@@ -1,12 +1,12 @@
 # Reprise
 
-**Dernière étape vérifiée :** v1.1 complète (sprites « Néon premium », effets codés, Survie accélérée, hitboxes séparées, sauvegarde v2)
-+ lisibilité (vaisseau ×1,45, astéroïdes ×1,35, contours orange, flammes plus épaisses ; hitboxes inchangées, à réévaluer séparément).
-`npm run check` (99 tests) et `npm run e2e` verts. Branche de sauvegarde de la v1.0 : `sauvegarde-v1.0.0`.
+**Dernière étape vérifiée :** v1.2 complète (vitesse progressive du vaisseau, astéroïde fragmenté, convoi, laser balayeur, événements, équilibrage adapté à la vitesse,
+version d'équilibrage 3). `npm run check` (150 tests) et `npm run e2e` verts. Branches de sauvegarde : `sauvegarde-v1.0.0`, `sauvegarde-v1.1.1`.
 
-**Fichiers clés :** `src/render/ArenaRenderer.ts`, `src/render/geometry.ts`, `src/config/{survival,hitbox,visuals,version}.ts`,
-`src/modes/profiles.ts`, `src/sim/director.ts`, `src/save/save.ts`, `tests/{hitbox,survival-tuning,progress}.test.ts`, `docs/ASSETS.md`.
+**Fichiers clés :** `src/config/{playerSpeed,hazards,events,survival,version}.ts`, `src/sim/{director,safety,speed,hazards,collision,patterns}.ts`,
+`src/render/ArenaRenderer.ts` (fragments, laser), `src/app.ts` (bandeau d'événement), `src/save/save.ts` (archive des records),
+`tests/{speed,hazards-new,events,progress}.test.ts`, `docs/EQUILIBRAGE.md`, `docs/ROADMAP.md`.
 
-**Prochaine action :** recueillir les retours de joueurs sur la nouvelle courbe (trop rapide ? trop lente ?) et sur la lisibilité mobile,
-ajuster `src/config/survival.ts` / `hitbox.ts` (incrémenter `BALANCE_VERSION` si les règles changent), puis
-`npm run check && npm run build && npm run e2e`.
+**Prochaine action :** essais avec de vrais joueurs (début de partie à 40 % de vitesse, montée jusqu'à 100 % à 6 min, lisibilité des lasers/fragments sur mobile),
+ajuster `src/config/playerSpeed.ts` (courbe, `PACE`), `hazards.ts`, `events.ts` ; incrémenter `BALANCE_VERSION` si les règles changent ; puis
+`npm run check && npm run build && npm run e2e`. Idées reportées (ne pas implémenter sans demande) : balise bonus temporaire, secteurs thématiques des niveaux.

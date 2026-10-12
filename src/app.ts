@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Sfx } from './audio/sfx';
 import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
+import { eventDef } from './config/events';
 import { BALANCE_VERSION } from './config/version';
 import { randomSeed } from './core/rng';
 import { InputController } from './game/input';
@@ -40,6 +41,8 @@ export class App {
   private readonly gameEl = document.getElementById('game')!;
   private readonly arenaBox = document.getElementById('arena-box')!;
   private bannerTimer = 0;
+  private bannerKind: 'event' | 'info' | null = null;
+  private eventKey = '';
   private resultLock = 0;
   private clock = 0;
   private lastFrame = 0;
@@ -131,7 +134,8 @@ export class App {
       session.frame(realDt);
       if (this.session === session) this.updateInGameUi(session);
     }
-    if (this.bannerTimer > 0) {
+    // Le bandeau est un chronomètre comme les autres : la pause l'arrête
+    if (this.bannerTimer > 0 && (!session || session.phase === 'running')) {
       this.bannerTimer -= realDt;
       if (this.bannerTimer <= 0.3) this.bannerEl.classList.add('fade');
       if (this.bannerTimer <= 0) this.bannerEl.classList.add('hidden');
@@ -151,8 +155,29 @@ export class App {
 
   private updateInGameUi(session: GameSession): void {
     const cfg = session.config;
-    const label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : 'Survie';
-    if (this.hud.update(session, label, cfg.mode === 'level' ? null : this.bestAtStart)) {
+    let label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : 'Survie';
+    // Événements (Survie / défi) : annonce 2 s avant, libellé et compte à rebours pendant l'événement
+    let eventActive = false;
+    if (cfg.mode !== 'level') {
+      const st = session.sim.director.status(session.sim.time);
+      const def = st.kind ? eventDef(st.kind) : null;
+      const secs = Math.ceil(st.remaining - 1e-6);
+      if (st.phase === 'event' && def) {
+        label = `${def.name} · ${secs} s`;
+        eventActive = true;
+      }
+      const key = st.phase === 'announce' || st.phase === 'event' ? `${st.phase}${st.kind}${secs}` : st.phase;
+      if (key !== this.eventKey) {
+        this.eventKey = key;
+        if (st.phase === 'announce' && def) {
+          this.banner(`<strong>${escapeHtml(def.announce)}</strong><br>dans ${Math.max(1, secs)} s`, 5);
+          this.bannerKind = 'event';
+        } else if (this.bannerKind === 'event') {
+          this.hideBanner();
+        }
+      }
+    }
+    if (this.hud.update(session, label, cfg.mode === 'level' ? null : this.bestAtStart, !eventActive)) {
       this.sfx.play('record');
       this.renderer?.ring(COLORS.gold);
     }
@@ -180,6 +205,7 @@ export class App {
     this.showScreen(null);
     this.renderer?.clearEffects();
     this.hud.reset();
+    this.eventKey = '';
     this.hud.show(true);
     if (cfg.mode === 'survival') this.bestAtStart = this.save.survival.bestTime;
     else if (cfg.mode === 'daily') this.bestAtStart = this.save.daily[cfg.date ?? '']?.bestTime ?? 0;
@@ -284,10 +310,16 @@ export class App {
         break;
       case 'warn':
         this.sfx.play('warn');
-        if (s.config.mode !== 'level' && !this.save.seenIntros.includes(e.family)) {
+        // Introduction brève d'une nouvelle famille de menaces : marquée « vue » seulement quand elle a été affichée
+        if (
+          s.config.mode !== 'level' &&
+          !this.save.seenIntros.includes(e.family) &&
+          (!this.tutorialActive || this.bannerTimer <= 0) &&
+          this.bannerKind !== 'event'
+        ) {
           this.save.seenIntros.push(e.family);
           this.persist();
-          if (!this.tutorialActive || this.bannerTimer <= 0) this.banner(escapeHtml(FAMILY_INTRO[e.family]), 3.5);
+          this.banner(escapeHtml(FAMILY_INTRO[e.family]), 3.5);
         }
         break;
       case 'activate':
@@ -296,6 +328,13 @@ export class App {
       case 'death':
         this.sfx.play('hit');
         r?.impact(e.hitX, e.hitY, e.x, e.y, e.by);
+        break;
+      case 'event':
+        if (e.stage === 'announce') this.sfx.play('warn');
+        if (e.stage === 'start') {
+          this.sfx.play('activate');
+          r?.ring(0xff3df0);
+        }
         break;
       case 'flip':
         // Inversion immédiate : l'ancienne traînée (désormais devant le vaisseau) disparaît
@@ -479,6 +518,7 @@ export class App {
   }
 
   private banner(html: string, seconds: number): void {
+    this.bannerKind = 'info';
     this.bannerEl.innerHTML = html;
     this.bannerEl.classList.remove('hidden', 'fade');
     this.bannerTimer = seconds;
@@ -486,6 +526,7 @@ export class App {
 
   private hideBanner(): void {
     this.bannerTimer = 0;
+    this.bannerKind = null;
     this.bannerEl.classList.add('hidden');
   }
 

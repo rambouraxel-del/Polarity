@@ -6,6 +6,7 @@ export const emptyProfile: DifficultyProfile = {
   difficulty: () => 0,
   weights: () => ({}),
   intervalScale: () => 1,
+  speed: () => 1,
   firstWaveDelay: 1e9,
   spawnUntil: null,
   respite: true,

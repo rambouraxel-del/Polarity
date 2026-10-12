@@ -1,4 +1,5 @@
 import { CAPS, DIFFICULTY_RANGE, lerp } from '../config/balance';
+import { PACE, paceFactor } from '../config/playerSpeed';
 import { clamp } from '../core/math';
 
 /** Paramètres concrets d'une vague, dérivés d'un niveau de difficulté d ∈ [0, 1]. */
@@ -12,6 +13,9 @@ export interface DifficultyParams {
   sectorHalfWidth: number;
   comboStagger: number;
   maxHazards: number;
+  laserWarn: number;
+  laserRate: number;
+  laserSpan: number;
 }
 
 type RangeKey = keyof typeof DIFFICULTY_RANGE;
@@ -21,21 +25,36 @@ function at(key: RangeKey, d: number): number {
   return lerp(r.easy, r.hard, d);
 }
 
+export interface ParamOptions {
+  /** Réduction des annonces (1 = inchangé). Les planchers de CAPS s'appliquent toujours. */
+  warnScale?: number;
+  /** Facteur de vitesse du vaisseau (1 = référence) : allonge annonces, décalages et intervalles quand le vaisseau est lent. */
+  speed?: number;
+}
+
 /**
- * @param warnScale réduction des annonces (1 = inchangé) ; les planchers de CAPS s'appliquent toujours.
+ * Paramètres concrets d'une vague pour la difficulté `dRaw`, adaptés à la vitesse réelle du joueur.
+ * Un nombre en 3e argument est interprété comme `warnScale` (compatibilité).
  */
-export function paramsFor(dRaw: number, out?: DifficultyParams, warnScale = 1): DifficultyParams {
+export function paramsFor(dRaw: number, out?: DifficultyParams, opts: ParamOptions | number = {}): DifficultyParams {
+  const o: ParamOptions = typeof opts === 'number' ? { warnScale: opts } : opts;
+  const warnScale = o.warnScale ?? 1;
+  const m = o.speed ?? 1;
+  const warnK = warnScale * paceFactor(m, PACE.warn);
   const d = clamp(dRaw, 0, 1);
   const p = out ?? ({} as DifficultyParams);
   p.d = d;
-  p.waveInterval = Math.max(CAPS.minWaveInterval, at('waveInterval', d));
-  p.projectileWarn = Math.max(CAPS.minProjectileWarn, at('projectileWarn', d) * warnScale);
-  p.sectorWarn = Math.max(CAPS.minSectorWarn, at('sectorWarn', d) * warnScale);
+  p.waveInterval = Math.max(CAPS.minWaveInterval, at('waveInterval', d) * paceFactor(m, PACE.interval));
+  p.projectileWarn = Math.max(CAPS.minProjectileWarn, at('projectileWarn', d) * warnK);
+  p.sectorWarn = Math.max(CAPS.minSectorWarn, at('sectorWarn', d) * warnK);
+  p.laserWarn = Math.max(CAPS.minLaserWarn, at('laserWarn', d) * warnK);
   p.projectileSpeed = Math.min(CAPS.maxProjectileSpeed, at('projectileSpeed', d));
   p.sectorActive = at('sectorActive', d);
-  p.sectorHalfWidth = at('sectorHalfWidth', d);
-  p.comboStagger = at('comboStagger', d);
+  p.sectorHalfWidth = at('sectorHalfWidth', d) / paceFactor(m, PACE.width);
+  p.comboStagger = at('comboStagger', d) * paceFactor(m, PACE.stagger);
   p.maxHazards = Math.min(CAPS.maxActiveHazards, Math.round(at('maxHazards', d)));
+  p.laserRate = at('laserRate', d) / paceFactor(m, PACE.beam);
+  p.laserSpan = at('laserSpan', d);
   return p;
 }
 

@@ -15,7 +15,8 @@
     "e2e": "node scripts/e2e.mjs",
     "check": "npm run typecheck && npm run test && npm run build",
     "perf": "node scripts/perf.mjs",
-    "sprites": "python3 scripts/process-sprites.py"
+    "sprites": "python3 scripts/process-sprites.py",
+    "cost": "vite-node scripts/cost.ts"
   },
   "dependencies": {
     "phaser": "3.90.0"

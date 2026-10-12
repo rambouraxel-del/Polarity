@@ -1,5 +1,6 @@
 import { LEVEL_DURATION } from '../config/balance';
 import type { LevelDef } from '../config/levels';
+import { survivalSpeedFactor } from '../config/playerSpeed';
 import { SURVIVAL, type Ramp } from '../config/survival';
 import { clamp } from '../core/math';
 import { smoothstep } from '../sim/difficulty';
@@ -46,6 +47,10 @@ export function survivalWeights(t: number): PatternWeights {
     shotArc: 0.8 * combo * boost * complex,
     burst: 0.6 * adv * complex,
     pincer: 0.6 * adv * boost * complex,
+    // Nouveaux dangers : introduits progressivement (convoi → astéroïde fragmenté → laser balayeur)
+    convoy: 0.7 * ramp(t, u.convoy) * complex,
+    fragment: 0.7 * ramp(t, u.fragment) * complex,
+    laser: 1.0 * ramp(t, u.laser) * complex,
   };
   for (const id of SIMPLE) w[id] = (w[id] ?? 0) * (1 - 0.25 * intense);
   return w;
@@ -69,8 +74,10 @@ export function survivalProfile(): DifficultyProfile {
     difficulty: survivalDifficulty,
     weights: survivalWeights,
     intervalScale: survivalIntervalScale,
+    speed: survivalSpeedFactor,
     breath: survivalBreath,
     warnScale: SURVIVAL.warnScale,
+    events: true,
     firstWaveDelay: SURVIVAL.firstWaveDelay,
     spawnUntil: null,
     respite: true,
@@ -107,6 +114,7 @@ export function levelProfile(level: LevelDef): DifficultyProfile {
       if (pacing === 'crescendo') return 1.15 - 0.25 * clamp(t / LEVEL_DURATION, 0, 1);
       return 1;
     },
+    speed: () => level.speed,
     firstWaveDelay: 1.8,
     // Plus de nouvelle vague dans la dernière seconde : elles n'auraient pas le temps d'arriver.
     spawnUntil: LEVEL_DURATION - 1,

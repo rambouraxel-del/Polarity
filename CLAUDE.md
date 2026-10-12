@@ -21,6 +21,7 @@ npm run typecheck    # TypeScript seul
 npm test             # tests unitaires (Vitest)
 npm run sim          # outil d'équilibrage (bot) : npm run sim -- 5   (minutes de Survie)
 npm run e2e          # test navigateur (Chromium/Playwright) après npm run build ; captures dans screenshots/
+npm run cost         # coût du directeur de vagues (validateur d'évitement inclus)
 npm run perf         # coût CPU en émulation mobile (--dist <dossier> pour comparer deux builds)
 npm run sprites      # textures 128 px depuis art/source/ (Pillow)
 npm run check        # typecheck + tests + build
@@ -31,12 +32,14 @@ npm run check        # typecheck + tests + build
 - `config/survival.ts` — difficulté de la Survie/défi (courbe τ, calendrier des motifs, intensification, annonces réduites).
 - `config/hitbox.ts` — hitboxes (+6,5 %, `setHitboxGrowth` pour tester) ; `config/visuals.ts` — tailles des visuels (+15 %) et effets (`FX`).
   Ces trois réglages sont **indépendants** : les modifier séparément.
+- `config/playerSpeed.ts` — vitesse du vaisseau (courbe de Survie 40 %→100 %, vitesse par niveau) et adaptation de l'équilibrage à la vitesse (`PACE`).
+- `config/hazards.ts` — fragmenté, convoi, laser ; `config/events.ts` — pluie de météores, tempête électrique, calendrier.
 - `config/version.ts` — `BALANCE_VERSION` : à incrémenter quand les règles qui influencent les performances changent (les records sont rattachés à cette version).
 - `config/levels.ts` — les 12 niveaux (données : difficulté début/fin, rythme, poids des motifs, seuils d'étoiles).
 - `core/` — RNG à graine (mulberry32), maths d'angles et de collision continue.
 - `sim/` — simulation pure, sans rendu : `simulation.ts` (pas fixe 1/120 s), `beacons.ts`, `scoring.ts`, `hazards.ts`
-  (menaces = fonctions pures du temps), `collision.ts` (détection continue), `patterns.ts` (11 motifs, 3 familles),
-  `director.ts` (vagues, plafonds, répit), `safety.ts` (validateur d'évitement), `difficulty.ts`, `bot.ts` (joueur auto pour tests).
+  (menaces = fonctions pures du temps), `collision.ts` (détection continue), `patterns.ts` (14 motifs),
+  `director.ts` (UN directeur : phases normal/annonce/événement/respiration, plafonds, répit), `speed.ts` (intégration de la vitesse), `safety.ts` (validateur d'évitement), `difficulty.ts`, `bot.ts` (joueur auto pour tests).
 - `modes/` — profils de difficulté (Survie / Niveau), défi quotidien, fabrique de simulation.
 - `game/` — `session.ts` (horloge, pause, compte à rebours, fin unique), `input.ts` (Pointer Events + Espace).
 - `progression/` — progression/records (`progress.ts`), succès, apparences.
@@ -52,6 +55,9 @@ npm run check        # typecheck + tests + build
 - Les sprites ne contiennent aucun effet : réacteur, traînées, particules et impact sont codés, **à l'opposé du déplacement**, purement décoratifs.
 - Changer la difficulté ou les hitboxes : incrémenter `BALANCE_VERSION` et vérifier la migration de sauvegarde (`tests/progress.test.ts`).
 - Ne jamais mettre de logique de gameplay dans le rendu ou l'UI. Les trois modes partagent la même `Simulation`.
+- La vitesse du vaisseau et tous les chronomètres (événements, annonces, respiration) dépendent du temps actif : la pause les arrête. Le validateur d'évitement doit suivre la vitesse réelle (`speed` dans `EscapeQuery`).
+- Un seul directeur de vagues à la fois ; le calendrier des événements utilise un générateur dédié dérivé de la graine (reproductible).
+- Idées reportées (ne pas implémenter sans demande) : balise bonus temporaire, secteurs thématiques des niveaux (voir `docs/ROADMAP.md`).
 - Tout nouveau paramètre d'équilibrage va dans `config/`.
 - Textes utilisateur en français. Pas de bouton factice.
 - Après une modification : `npm run check`, et `npm run build && npm run e2e` si l'interface change.

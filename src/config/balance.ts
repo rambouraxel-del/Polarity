@@ -99,6 +99,10 @@ export const DIFFICULTY_RANGE = {
   /** Décalage entre les deux menaces d'une attaque combinée. */
   comboStagger: { easy: 0.75, hard: 0.4 },
   maxHazards: { easy: 2, hard: 6 },
+  /** Laser balayeur : annonce, vitesse de balayage (rad/s) et étendue (rad). */
+  laserWarn: { easy: 1.7, hard: 1.15 },
+  laserRate: { easy: 0.9, hard: 1.5 },
+  laserSpan: { easy: 1.2, hard: 2.0 },
 } as const;
 
 /** Limites absolues (filet de sécurité, en plus de d ≤ 1). */
@@ -106,6 +110,7 @@ export const CAPS = {
   maxProjectileSpeed: 580,
   minProjectileWarn: 0.55,
   minSectorWarn: 0.65,
+  minLaserWarn: 0.9,
   minWaveInterval: 0.85,
   maxActiveHazards: 8,
 } as const;

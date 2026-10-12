@@ -4,7 +4,7 @@ import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
 import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import { TAU } from '../core/math';
 import type { GameSession } from '../game/session';
-import type { ProjectileHazard, SectorHazard } from '../sim/hazards';
+import { laserAngle, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
 import type { Skin } from '../progression/skins';
 import { heading, spriteRotation } from './geometry';
 
@@ -49,6 +49,8 @@ interface AsteroidSlot {
   /** Contour lumineux : copie teintée de la silhouette, légèrement plus grande, derrière le sprite. */
   glow: Phaser.GameObjects.Image;
   tex: string;
+  /** Taille relative appliquée (1 = astéroïde normal, 0,7 = fragment). */
+  sc: number;
 }
 
 interface Ring {
@@ -79,6 +81,8 @@ export class ArenaRenderer {
   private readonly scene: Phaser.Scene;
   private readonly rings: Ring[] = [];
   private emitAcc = 0;
+  /** Divisions d'astéroïdes déjà animées (décoratif, jamais lu par la simulation). */
+  private readonly splitDone = new Set<number>();
   /** Affiche les hitboxes et silhouettes (URL ?debug). */
   debug = false;
   private cx = 0;
@@ -147,8 +151,8 @@ export class ArenaRenderer {
     this.shipSprite.setDisplaySize(shipPx, shipPx);
     const astPx = (2 * asteroidRadius() * this.scale) / CONTENT;
     for (const a of this.asteroidPool) {
-      a.img.setDisplaySize(astPx, astPx);
-      a.glow.setDisplaySize(astPx * FX.asteroidGlow.grow, astPx * FX.asteroidGlow.grow);
+      a.img.setDisplaySize(astPx * a.sc, astPx * a.sc);
+      a.glow.setDisplaySize(astPx * a.sc * FX.asteroidGlow.grow, astPx * a.sc * FX.asteroidGlow.grow);
     }
   }
 
@@ -161,7 +165,7 @@ export class ArenaRenderer {
       const px = (2 * asteroidRadius() * this.scale) / CONTENT;
       img.setDisplaySize(px, px);
       glow.setDisplaySize(px * g.grow, px * g.grow);
-      slot = { img, glow, tex: ASTEROID_TEXTURES[0] };
+      slot = { img, glow, tex: ASTEROID_TEXTURES[0], sc: 1 };
       this.asteroidPool[i] = slot;
     }
     return slot;
@@ -220,7 +224,7 @@ export class ArenaRenderer {
     if (sim && session) {
       const extra = session.phase === 'running' ? session.acc : 0;
       dir = sim.dir;
-      angle = sim.angle + (sim.state === 'running' ? dir * PLAYER.angularSpeed * extra : 0);
+      angle = sim.angle + (sim.state === 'running' ? dir * sim.omega * extra : 0);
       t = sim.time + extra;
     } else {
       // Menu : le vaisseau tourne tranquillement
@@ -238,10 +242,14 @@ export class ArenaRenderer {
 
     let asteroids = 0;
     if (sim) {
-      for (const h of sim.hazards) if (h.kind === 'sector') this.drawSector(h, t, clock);
+      for (const h of sim.hazards) {
+        if (h.kind === 'sector') this.drawSector(h, t, clock);
+        else if (h.kind === 'laser') this.drawLaser(h, t, clock);
+      }
       for (const h of sim.hazards) {
         if (h.kind !== 'projectile') continue;
         this.drawProjectileWarning(h, t, clock);
+        if (h.split && t >= h.split.t && !this.splitDone.has(h.id)) this.splitBurst(h.id, h.split.x, h.split.y);
         if (t >= h.launch && t <= h.end) this.drawAsteroid(h, t, asteroids++, emitting, realDt);
       }
     }
@@ -436,7 +444,8 @@ export class ArenaRenderer {
       g.lineStyle(Math.max(2 * this.dpr, 3.5 * s), color, pulse);
       this.dashedLine(ax, ay, bx, by, 14 * s, 12 * s);
       // Jauge : un trait plein avance du point d'entrée vers l'orbite
-      const firstAlong = ARENA.spawnRadius - Math.sqrt(Math.max(0, R * R - this.footDist2(h)));
+      // Distance jusqu'au premier passage sur l'orbite (valable aussi pour un fragment qui part de l'intérieur)
+      const firstAlong = Math.max(1, (Math.min(h.crossTime1, h.crossTime2) - h.launch) * Math.hypot(h.vx, h.vy));
       g.lineStyle(Math.max(2 * this.dpr, 4 * s), color, 0.9);
       g.lineBetween(ax, ay, ax + (bx - ax) * (firstAlong / L) * k, ay + (by - ay) * (firstAlong / L) * k);
       // Chevrons
@@ -454,6 +463,20 @@ export class ArenaRenderer {
       // Trajectoire restante, très atténuée
       g.lineStyle(Math.max(1 * this.dpr, 2 * s), color, 0.22);
       this.dashedLine(ax, ay, bx, by, 14 * s, 12 * s);
+    }
+
+    // Astéroïde fragmenté : repère de division (étoile) à l'endroit où il se scindera
+    if (h.split && t < h.split.t) {
+      const sp = h.split;
+      const c = Math.max(2 * this.dpr, 3 * s);
+      g.lineStyle(Math.max(2 * this.dpr, 3 * s), color, 0.95);
+      for (let i = 0; i < 3; i++) {
+        const a = (i * Math.PI) / 3 + 0.3;
+        const dx = Math.cos(a) * 12;
+        const dy = Math.sin(a) * 12;
+        g.lineBetween(this.sx(sp.x - dx), this.sy(sp.y - dy), this.sx(sp.x + dx), this.sy(sp.y + dy));
+      }
+      g.strokeCircle(this.sx(sp.x), this.sy(sp.y), 16 * s + c * 0.3);
     }
 
     // Croix aux points où la trajectoire coupe l'orbite (tant qu'ils ne sont pas passés)
@@ -477,18 +500,25 @@ export class ArenaRenderer {
       slot.glow.setTexture(tex);
       slot.tex = tex;
     }
+    const sc = h.scale ?? 1;
+    if (slot.sc !== sc) {
+      const px = (2 * asteroidRadius() * this.scale * sc) / CONTENT;
+      slot.img.setDisplaySize(px, px);
+      slot.glow.setDisplaySize(px * FX.asteroidGlow.grow, px * FX.asteroidGlow.grow);
+      slot.sc = sc;
+    }
     const spin = (hash01(h.id, 2) - 0.5) * 2.6;
     const rot = hash01(h.id, 3) * TAU + spin * (t - h.launch);
     slot.img.setVisible(true).setPosition(this.sx(x), this.sy(y)).setRotation(rot);
     // Contour lumineux orange : silhouette teintée, légèrement agrandie, juste derrière la roche
     slot.glow.setVisible(true).setPosition(this.sx(x), this.sy(y)).setRotation(rot);
 
-    const r = asteroidRadius();
+    const r = asteroidRadius() * sc;
     const s = this.scale;
     const tr = FX.asteroidTrail;
     const g = this.trailG;
     // Traînée : triangles effilés vers l'arrière (ADD), courte et discrète
-    const len = this.reducedEffects ? tr.length * 0.6 : tr.length;
+    const len = (this.reducedEffects ? tr.length * 0.6 : tr.length) * (sc < 1 ? 0.8 : 1);
     const tailX = x - ux * len;
     const tailY = y - uy * len;
     const nx = -uy;
@@ -525,17 +555,6 @@ export class ArenaRenderer {
         );
       }
     }
-  }
-
-  private footDist2(h: ProjectileHazard): number {
-    // Distance² du centre à la trajectoire
-    const len = Math.hypot(h.vx, h.vy);
-    const ux = h.vx / len;
-    const uy = h.vy / len;
-    const along = -(h.x0 * ux + h.y0 * uy);
-    const fx = h.x0 + ux * along;
-    const fy = h.y0 + uy * along;
-    return fx * fx + fy * fy;
   }
 
   private arcPath(radius: number, a0: number, a1: number): void {
@@ -597,6 +616,87 @@ export class ArenaRenderer {
     this.radial(a1, 24);
   }
 
+  /**
+   * Laser balayeur : annonce = ligne pointillée du centre à l'angle de départ + arc pointillé du secteur balayé
+   * (avec chevrons de sens et jauge) ; actif = rayon plein (halo additif) qui pivote ; la zone balayée garde une rémanence.
+   */
+  private drawLaser(h: LaserHazard, t: number, clock: number): void {
+    if (t < h.warnStart) return;
+    const g = this.g;
+    const s = this.scale;
+    const color = COLORS.sector;
+    const sign = h.rate >= 0 ? 1 : -1;
+    const a0 = h.startAngle;
+    const a1 = h.startAngle + sign * h.span;
+    const lo = Math.min(a0, a1);
+    const hi = Math.max(a0, a1);
+    const reach = R + 56;
+    const cx0 = this.sx(0);
+    const cy0 = this.sy(0);
+    const tip = (a: number, r: number): [number, number] => [this.sx(r * Math.cos(a)), this.sy(r * Math.sin(a))];
+    if (t < h.activeStart) {
+      const k = (t - h.warnStart) / Math.max(0.001, h.activeStart - h.warnStart);
+      const pulse = this.reducedEffects ? 0.8 : 0.65 + 0.25 * Math.sin(clock * 11);
+      g.lineStyle(Math.max(2 * this.dpr, 3.5 * s), color, pulse);
+      // Rayon de départ (pointillé) et rayon d'arrivée (plus discret)
+      const [sx1, sy1] = tip(a0, reach);
+      this.dashedLine(cx0, cy0, sx1, sy1, 12 * s, 10 * s);
+      g.lineStyle(Math.max(1.5 * this.dpr, 2.5 * s), color, 0.4);
+      const [ex1, ey1] = tip(a1, reach);
+      this.dashedLine(cx0, cy0, ex1, ey1, 8 * s, 14 * s);
+      // Arc du secteur balayé, pointillé, de part et d'autre de l'orbite
+      g.lineStyle(Math.max(2 * this.dpr, 3.5 * s), color, pulse);
+      const n = Math.max(4, Math.round(h.span / 0.07));
+      for (let i = 0; i < n; i += 2) {
+        const b0 = lo + ((hi - lo) * i) / n;
+        const b1 = lo + ((hi - lo) * (i + 1)) / n;
+        this.arcPath(R + 30, b0, b1);
+        this.arcPath(R - 30, b0, b1);
+      }
+      // Chevrons de sens de balayage
+      for (let i = 1; i <= 3; i++) {
+        const a = a0 + (sign * h.span * i) / 4;
+        const [px, py] = tip(a, R);
+        const tx = -Math.sin(a) * sign;
+        const ty = Math.cos(a) * sign;
+        const nx = Math.cos(a);
+        const ny = Math.sin(a);
+        const c = 9 * s;
+        g.lineBetween(px - tx * c + nx * c, py - ty * c + ny * c, px + tx * c * 0.4, py + ty * c * 0.4);
+        g.lineBetween(px - tx * c - nx * c, py - ty * c - ny * c, px + tx * c * 0.4, py + ty * c * 0.4);
+      }
+      // Jauge : l'arc se remplit jusqu'à l'activation
+      g.lineStyle(Math.max(2.5 * this.dpr, 5 * s), color, 0.9);
+      this.arcPath(R + 40, lo, lo + (hi - lo) * k);
+      // Émetteur au centre
+      g.strokeCircle(cx0, cy0, (10 + 4 * k) * s);
+      return;
+    }
+    const ang = laserAngle(h, t);
+    const f = this.trailG;
+    const wHalf = h.half * R * s;
+    // Rémanence : la zone déjà balayée garde une trace sur l'orbite
+    const sweptLo = Math.min(a0, ang);
+    const sweptHi = Math.max(a0, ang);
+    g.lineStyle(Math.max(2 * this.dpr, 5 * s), color, 0.28);
+    this.arcPath(R, sweptLo, sweptHi);
+    g.lineStyle(Math.max(1.5 * this.dpr, 2.5 * s), color, 0.5);
+    this.arcPath(R + 30, lo, hi);
+    this.arcPath(R - 30, lo, hi);
+    const [tx2, ty2] = tip(ang, reach);
+    // Rayon : halo, corps, cœur blanc (additif) ; largeur = hitbox du rayon
+    f.lineStyle(wHalf * 4.4, color, 0.14);
+    f.lineBetween(cx0, cy0, tx2, ty2);
+    f.lineStyle(wHalf * 2.2, color, 0.38);
+    f.lineBetween(cx0, cy0, tx2, ty2);
+    f.lineStyle(Math.max(1.5 * this.dpr, wHalf * 0.9), 0xffffff, 0.95);
+    f.lineBetween(cx0, cy0, tx2, ty2);
+    f.fillStyle(color, 0.5);
+    f.fillCircle(cx0, cy0, 11 * s);
+    f.fillStyle(0xffffff, 0.9);
+    f.fillCircle(cx0, cy0, 5 * s);
+  }
+
   private radial(a: number, half: number): void {
     const c = Math.cos(a);
     const s = Math.sin(a);
@@ -604,6 +704,16 @@ export class ArenaRenderer {
   }
 
   // ————————————————————————————————————————————— effets
+
+  /** Éclat bref à l'endroit où un astéroïde se divise en deux fragments. */
+  private splitBurst(id: number, x: number, y: number): void {
+    if (this.splitDone.size > 64) this.splitDone.clear();
+    this.splitDone.add(id);
+    this.rings.push({ x, y, t: 0, life: 0.3, radius: 26, color: 0xffb347 });
+    if (this.rings.length > MAX_RINGS) this.rings.splice(0, this.rings.length - MAX_RINGS);
+    this.burst(x, y, 0xffffff, 8, 150, 0.4);
+    this.burst(x, y, 0xff8a3d, 10, 130, 0.45);
+  }
 
   /** Ajoute une particule décorative (tampon circulaire : aucune allocation, plafond FX.maxParticles). */
   private spawn(x: number, y: number, vx: number, vy: number, life: number, color: number, kind: 0 | 1, size: number): void {
@@ -700,6 +810,7 @@ export class ArenaRenderer {
       p.text.setVisible(false);
     }
     this.rings.length = 0;
+    this.splitDone.clear();
     this.ringT = -1;
     this.shake = 0;
     this.flashAlpha = 0;
@@ -716,7 +827,7 @@ export class ArenaRenderer {
    * Impact bref à l'endroit de la collision : éclair, onde de choc, éclats. Le vaisseau disparaît (géré par draw).
    * Les éclats blancs/cyan viennent du vaisseau, les éclats orange de la roche.
    */
-  impact(hitX: number, hitY: number, shipX: number, shipY: number, by: 'projectile' | 'sector'): void {
+  impact(hitX: number, hitY: number, shipX: number, shipY: number, by: Hazard['kind']): void {
     const i = FX.impact;
     this.rings.push({ x: hitX, y: hitY, t: 0, life: i.ringLife, radius: i.ringRadius, color: by === 'projectile' ? 0xffb347 : 0xff3df0 });
     this.rings.push({ x: hitX, y: hitY, t: -0.05, life: i.ringLife * 0.8, radius: i.ringRadius * 0.6, color: 0xffffff });

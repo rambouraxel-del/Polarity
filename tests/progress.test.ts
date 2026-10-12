@@ -5,7 +5,7 @@ import { createSimulation } from '../src/modes/run';
 import { applyRun, beatsRecord, isLevelUnlocked, starsFor } from '../src/progression/progress';
 import { BALANCE_VERSION } from '../src/config/version';
 import { hasLegacyRecords, legacyDailyList, legacySurvivalBest } from '../src/progression/progress';
-import { BACKUP_PREFIX, CORRUPT_KEY, defaultSave, eraseAll, loadSave, MemoryStore, SAVE_KEY, SAVE_VERSION, writeSave } from '../src/save/save';
+import { BACKUP_PREFIX, BALANCE_BACKUP_PREFIX, CORRUPT_KEY, defaultSave, eraseAll, loadSave, MemoryStore, SAVE_KEY, SAVE_VERSION, writeSave } from '../src/save/save';
 
 const levelRun = (id: number, outcome: 'dead' | 'complete', score = 1000) =>
   ({ mode: 'level', levelId: id, time: outcome === 'complete' ? 90 : 30, score, cycles: 2, bestMultiplier: 2, outcome }) as const;
@@ -257,5 +257,95 @@ describe('Migration de la sauvegarde v1.0 → v1.1', () => {
     expect(res.data.levels['1'].stars).toBe(3);
     expect(res.data.skin).toBe('aurore');
     expect(res.data.survival.bestTime).toBe(0);
+  });
+});
+
+/** Sauvegarde telle que l'écrivait la v1.1 (format 2, équilibrage 2) : avec des records archivés de la v1.0. */
+const V2_SAVE = {
+  version: 2,
+  balance: 2,
+  levels: { '1': { completed: true, bestScore: 60000, stars: 3 }, '2': { completed: true, bestScore: 50000, stars: 2 }, '3': { completed: true, bestScore: 1, stars: 0 } },
+  survival: { bestTime: 188.2, bestScore: 64000, runs: 9 },
+  daily: { '2026-10-11': { bestTime: 77.7, bestScore: 15000, runs: 2 } },
+  archive: { '1': { survival: { bestTime: 312.4, bestScore: 88000, runs: 14 }, daily: { '2026-10-10': { bestTime: 140.2, bestScore: 31000, runs: 2 } } } },
+  balanceNoticeSeen: 2,
+  achievements: { first_cycle: 1, first_level: 2, survive_60: 3, max_combo: 4 },
+  skin: 'glace',
+  options: { muted: false, volume: 0.9, reducedEffects: true, tutorialSeen: true },
+  seenIntros: ['projectile', 'sector', 'combo'],
+  stats: { totalCycles: 77, totalRuns: 51 },
+};
+
+describe('Migration de la sauvegarde v1.1 → v1.2 (équilibrage 3)', () => {
+  const load = () => {
+    const store = new MemoryStore();
+    store.set(SAVE_KEY, JSON.stringify(V2_SAVE));
+    return { store, res: loadSave(store) };
+  };
+
+  it('préserve la progression : niveaux, étoiles, succès, apparence, options, introductions déjà vues', () => {
+    const { res } = load();
+    expect(res.status).toBe('migrated');
+    expect(res.data.levels).toEqual(V2_SAVE.levels);
+    expect(res.data.achievements).toEqual(V2_SAVE.achievements);
+    expect(res.data.skin).toBe('glace');
+    expect(res.data.options).toEqual(V2_SAVE.options);
+    expect(res.data.seenIntros).toEqual(V2_SAVE.seenIntros);
+    expect(res.data.stats).toEqual(V2_SAVE.stats);
+    expect(isLevelUnlocked(res.data, 4)).toBe(true);
+  });
+
+  it('distingue la nouvelle version d’équilibrage : records de la v1.1 archivés, ceux de la v1.0 intacts', () => {
+    const { res } = load();
+    expect(res.data.balance).toBe(BALANCE_VERSION);
+    expect(BALANCE_VERSION).toBe(3);
+    expect(res.data.survival).toEqual({ bestTime: 0, bestScore: 0, runs: 0 });
+    expect(res.data.daily).toEqual({});
+    expect(res.data.archive['2'].survival).toEqual(V2_SAVE.survival);
+    expect(res.data.archive['2'].daily).toEqual(V2_SAVE.daily);
+    expect(res.data.archive['1']).toEqual(V2_SAVE.archive['1']);
+    // Meilleur ancien record (indicatif) : celui de la v1.0 ; défis : triés par date, toutes versions confondues
+    expect(legacySurvivalBest(res.data)?.time).toBeCloseTo(312.4);
+    expect(legacyDailyList(res.data).map((d) => d.date)).toEqual(['2026-10-11', '2026-10-10']);
+    expect(res.data.balanceNoticeSeen).toBeLessThan(BALANCE_VERSION);
+  });
+
+  it('copie de l’ancienne sauvegarde conservée, sans écrasement', () => {
+    const { store } = load();
+    expect(JSON.parse(store.get(`${BALANCE_BACKUP_PREFIX}2`) as string)).toEqual(V2_SAVE);
+    const res = loadSave(store);
+    writeSave(store, res.data);
+    loadSave(store);
+    expect(JSON.parse(store.get(`${BALANCE_BACKUP_PREFIX}2`) as string)).toEqual(V2_SAVE);
+  });
+
+  it('un nouveau record n’est pas comparé aux anciens ; la sauvegarde migrée se relit à l’identique', () => {
+    const { store, res } = load();
+    const rep = applyRun(res.data, { mode: 'survival', time: 15, score: 900, cycles: 0, bestMultiplier: 1, outcome: 'dead' });
+    expect(rep.newRecord).toBe(true);
+    expect(rep.previousBestTime).toBe(0);
+    expect(res.data.archive['2'].survival.bestTime).toBe(188.2);
+    writeSave(store, res.data);
+    const again = loadSave(store);
+    expect(again.status).toBe('ok');
+    expect(again.data).toEqual(res.data);
+  });
+
+  it('une sauvegarde déjà à l’équilibrage actuel n’est pas modifiée', () => {
+    const store = new MemoryStore();
+    const save = defaultSave();
+    save.survival.bestTime = 42;
+    writeSave(store, save);
+    const res = loadSave(store);
+    expect(res.status).toBe('ok');
+    expect(res.data.survival.bestTime).toBe(42);
+    expect(Object.keys(res.data.archive)).toHaveLength(0);
+  });
+
+  it('l’effacement explicite supprime aussi ces copies', () => {
+    const { store } = load();
+    eraseAll(store);
+    expect(store.get(`${BALANCE_BACKUP_PREFIX}2`)).toBeNull();
+    expect(store.get(SAVE_KEY)).toBeNull();
   });
 });

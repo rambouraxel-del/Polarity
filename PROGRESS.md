@@ -9,6 +9,14 @@
 - [x] Sauvegarde v2 : progression préservée, anciens records rangés à part, copie de l'ancienne sauvegarde, information unique à l'écran d'accueil
 - [x] Tests (97), e2e (≈ 55 contrôles), mesure de performance, documentation (README, ASSETS, EQUILIBRAGE)
 
+## Version 1.2 — vitesse progressive, nouveaux dangers, événements (terminée)
+- [x] Vitesse du vaisseau en Survie/défi : 40 % de la référence au départ, +5 points toutes les 30 s (45 % à 30 s … 100 % à 6 min), lissage de 2 s qui se termine au palier, plafond 100 % ; inversion instantanée sans changement de vitesse ; vitesse par niveau configurable (1,0 pour les 12 niveaux)
+- [x] Trois nouveaux dangers : astéroïde fragmenté (annonce des fragments, délai de réaction ≥ 0,45 s), convoi (2–3 astéroïdes, même trajectoire), laser balayeur (secteur limité, zone de refuge ≥ 2,4 rad) ; introduits à ≈ 38 s / 75 s / 110 s ; rendu par code, sprites d'astéroïdes réutilisés (fragments à 70 %)
+- [x] Événements : pluie de météores (12 s) et tempête électrique (10 s) ; premier entre 45 et 60 s, puis 40–60 s après la fin ; annonce 2 s avant, respiration 3 s ; un seul directeur (machine d'états) ; menaces restantes jamais effacées ; calendrier reproductible (graine dédiée) ; pause = tous les chronomètres arrêtés
+- [x] Équilibrage adapté à la vitesse réelle : annonces, décalages, intervalles, largeur des secteurs, vitesse des lasers (`PACE`) ; validateur d'évitement qui suit la vitesse (réseau d'angles, testé contre une exploration exhaustive) ; plafonds et difficulté d(t) inchangés
+- [x] Version d'équilibrage 3 : records v1.1 archivés à part (v1.0 intacts), copie `polarite.save.avant-eq2`, information unique à l'accueil ; progression préservée
+- [x] 150 tests, e2e étendu (paliers de vitesse, pause à l'annonce, événements, nouveaux motifs), mesure de performance, documentation (`docs/EQUILIBRAGE.md`, `docs/ROADMAP.md`)
+
 ## Lisibilité des éléments (terminée)
 - [x] Vaisseau ×1,45 et astéroïdes ×1,35 (par rapport à la v1.1) ; contour lumineux orange des astéroïdes renforcé (silhouette orange additive)
 - [x] Flamme (largeur 5 → 6,5) et traînées d'astéroïdes plus épaisses, longueurs inchangées (14 et 52) ; effets toujours codés, sans collision
@@ -19,6 +27,7 @@
 Jeu complet : 12 niveaux, Survie, défi quotidien, succès, apparences, sauvegarde, sons, interface mobile, GitHub Pages.
 
 ## Restant / pistes
+- **Évolutions futures notées, non implémentées** : balise bonus temporaire, secteurs thématiques des niveaux (`docs/ROADMAP.md`)
 - Essais avec de vrais joueurs : équilibrage de la courbe v1.1, seuils d'étoiles (à réexaminer avec les hitboxes agrandies)
 - Tests sur appareils réels (Safari iOS, Firefox, Android) et mesure GPU mobile
 - Classement en ligne : évolution future (non prévu)
@@ -26,8 +35,10 @@ Jeu complet : 12 niveaux, Survie, défi quotidien, succès, apparences, sauvegar
 ## Vérifications exécutées (v1.1)
 | Commande | Résultat |
 |---|---|
-| `npm run check` (typecheck + tests + build) | OK — 99 tests |
+| `npm run check` (typecheck + tests + build) | OK — 150 tests |
 | `npm run e2e` (Chromium headless) | tous les contrôles OK : sprites chargés, inversion immédiate, impact, migration v1→v2, menus, 3 modes, pause, tactile, relances, 5 tailles d'écran, aucune erreur console |
+| `npm run perf` v1.2 (×4 ralenti, 390×844, charge identique) | app.frame 2,4 ms (avant 2,4–2,6 ms), p95 6,1–6,8 ms ; tas JS stable (≈ 10–11 Mo) |
+| `npm run cost` (directeur + validateur, 8 min de Survie) | médiane 0,25 ms, p99 1,6 ms, max 5 ms (démarrage à froid) |
 | `npm run sim -- 6` | bots : 12/12 niveaux réussis, Survie 6 min tenue ; d(120 s) = 0,771 ; ≈ 27 → 33 vagues/min après 3 min |
 | `npm run perf` (×4 ralenti, 390×844) | app.frame 1,9 → 2,3 ms (moyenne), p95 5,5 → 6,5 ms ; tas JS stable (≈ 9–10 Mo) ; GPU non mesurable (rendu logiciel) |
 

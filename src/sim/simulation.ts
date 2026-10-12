@@ -4,10 +4,12 @@ import { wrapAngle } from '../core/math';
 import { Rng } from '../core/rng';
 import { BeaconRing } from './beacons';
 import { hazardHits } from './collision';
-import { Director, type DifficultyProfile } from './director';
+import type { EventKind } from '../config/events';
+import { Director, type DifficultyProfile, type DirectorEvent } from './director';
 import { projectileX, projectileY, type Hazard } from './hazards';
-import { PATTERNS, type Family } from './patterns';
+import { PATTERNS, type Family, type PatternId } from './patterns';
 import { Scoring } from './scoring';
+import { omegaAt, type SpeedFn } from './speed';
 
 export type SimEvent =
   | { type: 'flip' }
@@ -16,6 +18,8 @@ export type SimEvent =
   | { type: 'multiplier'; value: number; up: boolean }
   | { type: 'warn'; kind: Hazard['kind']; family: Family }
   | { type: 'activate' }
+  /** Transition du calendrier d'événements (annonce 2 s avant, début, fin, reprise après la respiration). */
+  | { type: 'event'; stage: DirectorEvent['stage']; kind: EventKind }
   /** (x, y) : position du vaisseau ; (hitX, hitY) : point de contact avec la menace. */
   | { type: 'death'; x: number; y: number; hitX: number; hitY: number; by: Hazard['kind'] }
   | { type: 'complete' };
@@ -48,7 +52,10 @@ export class Simulation {
   readonly events: SimEvent[] = [];
   readonly timeLimit: number | null;
   private readonly limitSteps: number;
-  private readonly invincible: boolean;
+  /** Outil de test et de démonstration : sans collision. */
+  invincible: boolean;
+  /** Facteur de vitesse du vaisseau selon le temps de jeu actif (courbe de Survie, ou vitesse du niveau). */
+  readonly speedFn: SpeedFn;
 
   state: SimState = 'running';
   stepIndex = 0;
@@ -62,7 +69,8 @@ export class Simulation {
 
   constructor(opts: SimOptions) {
     this.rng = new Rng(opts.seed);
-    this.director = new Director(opts.profile, this.rng);
+    this.director = new Director(opts.profile, this.rng, opts.seed);
+    this.speedFn = opts.profile.speed;
     this.timeLimit = opts.timeLimit;
     this.limitSteps = opts.timeLimit === null ? Infinity : Math.round(opts.timeLimit / SIM.dt);
     this.invincible = opts.invincible ?? false;
@@ -91,8 +99,11 @@ export class Simulation {
       this.events.push({ type: 'flip' });
     }
 
-    // 2. Nouvelle vague éventuelle
+    // 2. Nouvelle vague éventuelle (un seul directeur : normal, annonce, événement ou respiration)
     const added = this.director.update(t0, this);
+    const pend = this.director.pendingEvents;
+    for (let i = 0; i < pend.length; i++) this.events.push({ type: 'event', stage: pend[i].stage, kind: pend[i].kind });
+    pend.length = 0;
     if (added) {
       for (const h of added) {
         h.id = ++this.hazardCount;
@@ -108,7 +119,7 @@ export class Simulation {
         this.seenFamilies.add(family);
         this.events.push({ type: 'warn', kind: h.kind, family });
       }
-      if (h.kind === 'sector' && !h.activated && t0 >= h.activeStart) {
+      if (h.kind !== 'projectile' && !h.activated && t0 >= h.activeStart) {
         h.activated = true;
         this.events.push({ type: 'activate' });
       }
@@ -116,7 +127,8 @@ export class Simulation {
 
     // 4. Déplacement
     const from = this.angle;
-    const delta = this.dir * PLAYER.angularSpeed * dt;
+    // Vitesse réelle à cet instant (courbe progressive en Survie) : la direction seule change à l'inversion
+    const delta = this.dir * omegaAt(this.speedFn, t0 + dt / 2) * dt;
     const t1 = t0 + dt;
 
     // 5. Collision continue sur [t0, t1] (évaluée avant tout le reste)
@@ -157,6 +169,16 @@ export class Simulation {
     if (this.stepIndex % 1024 === 0) this.angle = wrapAngle(this.angle);
   }
 
+  /** Ajoute un motif tout de suite, sans validation d'évitement (outil de démonstration `?demo` et tests). */
+  injectPattern(id: PatternId): Hazard[] {
+    const added = this.director.buildPattern(id, this.time, this);
+    for (const h of added) {
+      h.id = ++this.hazardCount;
+      this.hazards.push(h);
+    }
+    return added;
+  }
+
   /** Avance de plusieurs pas (tests et outils). */
   advance(seconds: number): void {
     const n = Math.round(seconds / SIM.dt);
@@ -169,6 +191,11 @@ export class Simulation {
 
   playerY(): number {
     return ARENA.orbitRadius * Math.sin(this.angle);
+  }
+
+  /** Vitesse angulaire actuelle du vaisseau (rad/s, toujours positive). */
+  get omega(): number {
+    return omegaAt(this.speedFn, this.time);
   }
 
   get playerAngle(): number {

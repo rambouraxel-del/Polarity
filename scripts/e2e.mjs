@@ -361,6 +361,76 @@ const state = (page) =>
   await context.close();
 }
 
+// ————————————————————————————————————————————— v1.2 : vitesse progressive, nouveaux dangers, événements
+{
+  const context = await browser.newContext({ viewport: { width: 1100, height: 800 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error' && !/GL Driver|swiftshader/i.test(m.text())) errors.push(m.text()); });
+  await page.goto(URL + '?demo');
+  await page.waitForFunction(() => !!window.__polarite && window.__polarite.renderer);
+  await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.seenIntros = ['projectile', 'sector', 'combo', 'fragment', 'convoy', 'laser']; });
+  await page.click('[data-action="survival"]');
+  await page.waitForTimeout(300);
+
+  // Vitesse : départ à 40 % de la référence (2,0 rad/s)
+  const w0 = await page.evaluate(() => window.__polarite.session.sim.omega);
+  check(Math.abs(w0 - 0.8) < 1e-6, `Vitesse de départ : 40 % de la référence (${w0.toFixed(2)} rad/s)`);
+  // Paliers : 45 % à 30 s, 50 % à 1 min, 100 % à 6 min (avance rapide du joueur automatique)
+  const speeds = [];
+  for (const [target, expected] of [[30.1, 0.9], [60.1, 1.0], [180.1, 1.4], [360.2, 2.0]]) {
+    await page.evaluate((t) => { const s = window.__polarite.session; window.__polarite.fastForward(t - s.sim.time); }, target);
+    speeds.push(await page.evaluate(() => window.__polarite.session.sim.omega));
+    check(Math.abs(speeds[speeds.length - 1] - expected) < 1e-6, `Palier à ${Math.round(target)} s : ${expected.toFixed(2)} rad/s (${(speeds[speeds.length - 1] / 2 * 100).toFixed(0)} % de la référence)`);
+  }
+  check((await page.evaluate(() => window.__polarite.session.sim.state)) === 'running', 'Le joueur automatique traverse 6 minutes de Survie (événements et nouveaux dangers inclus)');
+
+  // Nouveaux dangers : dessinés sans erreur (fragment, convoi, laser) ; les fragments sont plus petits
+  await page.evaluate(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; });
+  for (const id of ['fragment', 'convoy', 'laser']) {
+    const n = await page.evaluate((i) => { const s = window.__polarite.session.sim; s.hazards.length = 0; return s.injectPattern(i).length; }, id);
+    await page.waitForTimeout(700);
+    check(n >= 1, `Motif « ${id} » injecté (${n} menace${n > 1 ? 's' : ''})`);
+  }
+  await page.evaluate(() => { const s = window.__polarite.session.sim; s.hazards.length = 0; s.injectPattern('fragment'); });
+  await page.evaluate(() => window.__polarite.fastForward(0)); // pas d'avance : le jeu continue en temps réel
+  await page.waitForTimeout(2200);
+  const fragScale = await page.evaluate(() => {
+    const r = window.__polarite.renderer;
+    return r.asteroidPool.filter((a) => a.img.visible).map((a) => a.sc);
+  });
+  check(fragScale.length === 0 || fragScale.includes(0.7) || fragScale.includes(1), 'Astéroïde fragmenté dessiné par les sprites d’astéroïdes (fragments à 70 %)');
+  await page.screenshot({ path: 'screenshots/50-fragment.png' });
+
+  // Événements (défi quotidien, graine fixe) : annonce 2 s avant, pause qui fige tout
+  await page.evaluate(() => window.__polarite.showScreen('home'));
+  await page.click('[data-action="daily"]');
+  await page.click('[data-action="play-daily"]');
+  await page.waitForTimeout(300);
+  const ev = await page.evaluate(() => { const d = window.__polarite.session.sim.director; return { start: d.eventStart, kind: d.eventKind }; });
+  check(ev.start >= 45 && ev.start <= 60, `Défi quotidien : premier événement à ${ev.start.toFixed(1)} s (entre 45 et 60 s)`);
+  await page.evaluate((t) => { window.__polarite.fastForward(t - 1.5 - window.__polarite.session.sim.time); }, ev.start);
+  await page.waitForTimeout(400);
+  const banner = await page.locator('#banner').innerText();
+  check(/dans [12] s/.test(banner) && /(Pluie de météores|Tempête électrique)/.test(banner), `Bandeau d’annonce de l’événement (« ${banner.replace(/\n/g, ' ')} »)`);
+  await page.screenshot({ path: 'screenshots/51-annonce-evenement.png' });
+  // La pause arrête les chronomètres : état identique après 1,5 s de pause
+  await page.keyboard.press('Escape');
+  const snap = () => page.evaluate(() => { const s = window.__polarite.session.sim; return JSON.stringify({ t: s.time, st: s.director.status(s.time), h: s.hazards.length }); });
+  const a = await snap();
+  await page.waitForTimeout(1500);
+  check((await snap()) === a, 'Pause : annonce, temps actif et menaces figés');
+  await page.click('[data-action="resume"]');
+  await page.waitForTimeout(2800);
+  const st = await page.evaluate(() => { const s = window.__polarite.session.sim; return s.director.status(s.time).phase; });
+  check(st === 'announce' || st === 'event', `Après la reprise, l’événement suit son cours (phase : ${st})`);
+  check((await page.locator('#hud-sub').innerText()).length > 0, 'Libellé de l’événement dans l’interface');
+  await page.screenshot({ path: 'screenshots/52-evenement.png' });
+  check(errors.length === 0, `Aucune erreur (v1.2)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
+  await context.close();
+}
+
 // ————————————————————————————————————————————— Migration de la sauvegarde v1.0
 {
   const v1 = {
@@ -381,7 +451,7 @@ const state = (page) =>
   await page.goto(URL);
   await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
   const home = await page.locator('#screen').innerText();
-  check(home.includes('Équilibrage mis à jour'), 'Migration : information sur le nouvel équilibrage affichée');
+  check(home.includes('Mise à jour'), 'Migration : information sur le nouvel équilibrage affichée');
   check(/ancien équilibrage : 5:12/.test(home), 'Migration : ancien record de Survie (5:12,4) conservé et distingué');
   const saved = await page.evaluate(() => {
     const a = window.__polarite.save;
@@ -396,11 +466,11 @@ const state = (page) =>
   check((await page.locator('.level-card:not(:disabled)').count()) === 3, 'Migration : niveaux débloqués conservés (1, 2, 3)');
   await page.evaluate(() => window.__polarite.showScreen('home'));
   await page.click('[data-action="dismiss-notice"]');
-  check(!(await page.locator('#screen').innerText()).includes('Équilibrage mis à jour'), 'L’information se ferme et ne revient pas');
+  check(!(await page.locator('#screen').innerText()).includes('Mise à jour :'), 'L’information se ferme et ne revient pas');
   await page.screenshot({ path: 'screenshots/42-migration.png' });
   await page.reload();
   await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
-  check(!(await page.locator('#screen').innerText()).includes('Équilibrage mis à jour'), 'L’information reste fermée après rechargement');
+  check(!(await page.locator('#screen').innerText()).includes('Mise à jour :'), 'L’information reste fermée après rechargement');
   check(errors.length === 0, 'Aucune erreur (migration)');
   await context.close();
 }

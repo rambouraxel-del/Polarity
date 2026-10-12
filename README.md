@@ -5,8 +5,10 @@ Jeu d'arcade web au néon, jouable sur ordinateur et mobile. Un petit vaisseau t
 les six balises pour enchaîner les cycles et faire monter le multiplicateur.
 
 - **Niveaux** : 12 niveaux de 90 secondes. Survivre jusqu'au bout débloque le suivant ; le score donne jusqu'à 3 étoiles.
-- **Survie** : sans limite de durée, la difficulté monte progressivement. Le record est le temps de survie.
-- **Défi quotidien** : règles de la Survie, mêmes motifs pour tous à une date UTC donnée. Meilleur résultat conservé par date.
+- **Survie** : sans limite de durée, la difficulté monte progressivement. Le record est le temps de survie. Le vaisseau part à **40 % de sa vitesse de référence**
+  et gagne 5 points de pourcentage toutes les 30 s (100 % à 6 min). Des **événements** rythment la partie : *pluie de météores* (12 s) et *tempête électrique* (10 s),
+  annoncés 2 s avant, suivis de 3 s de respiration. Trois dangers s'y ajoutent peu à peu : **astéroïde fragmenté**, **convoi d'astéroïdes**, **laser balayeur**.
+- **Défi quotidien** : règles de la Survie, mêmes motifs et mêmes événements (graine = date UTC) pour tous. Meilleur résultat conservé par date.
 - **Apparences et succès** : 9 succès, 7 apparences purement cosmétiques.
 
 Style graphique « Néon premium » (v1.1) : vrai vaisseau blanc/argent à cockpit cyan et astéroïdes rocheux aux fissures orange,
@@ -46,6 +48,7 @@ npm test           # tests unitaires (Vitest)
 npm run check      # typecheck + tests + build
 npm run e2e        # test navigateur Chromium (Playwright requis, non inclus) après npm run build
 npm run sim        # outil d'équilibrage : bots sur les 12 niveaux, courbe et mix de motifs de la Survie
+npm run cost       # coût du directeur de vagues (validateur d'évitement inclus)
 npm run perf       # coût processeur en émulation mobile (node scripts/perf.mjs --dist <dossier> pour comparer deux builds)
 npm run sprites    # recrée les textures 128 px depuis art/source/ (Python + Pillow)
 ```
@@ -72,16 +75,19 @@ fenêtre perd le focus ; la reprise est volontaire et précédée d'un compte à
 - **Secteur électrique** : contours pointillés de part et d'autre de l'orbite et jauge de remplissage pendant l'annonce ;
   une fois actif, bande pleine épaisse et éclair en zigzag. On peut le quitter ou le traverser avant son activation.
 - **Attaques combinées** : deux menaces décalées dans le temps.
+- **Astéroïde fragmenté** : une étoile marque l'endroit où il se divisera ; les trajectoires des deux fragments (plus petits) sont déjà annoncées, avec leurs croix de passage.
+- **Convoi** : plusieurs astéroïdes sur la même ligne pointillée, l'un après l'autre : anticipez les suivants.
+- **Laser balayeur** : un rayon part du centre et pivote sur l'arc pointillé annoncé (chevrons = sens du balayage). Le reste de l'orbite est la zone de refuge.
 
 Les annonces se distinguent des dangers actifs par la forme (pointillés/contours contre formes pleines), pas seulement par la couleur.
 
 ## Sauvegarde et records
 
-Sauvegarde locale versionnée (format 2). Les **records de Survie et du défi quotidien dépendent de la version d'équilibrage** :
-après la mise à jour v1.1 (courbe plus rapide, hitboxes ajustées), les anciens records sont **conservés à part** (« ancien équilibrage »),
+Sauvegarde locale versionnée (format 2). Les **records de Survie et du défi quotidien dépendent de la version d'équilibrage** (3 depuis la v1.2 :
+vitesse progressive, nouveaux dangers, événements) : les anciens records (v1.0 et v1.1) sont **conservés à part** (« ancien équilibrage »),
 affichés à titre indicatif et jamais comparés aux nouveaux ; les nouveaux records repartent de zéro. Niveaux débloqués, étoiles, meilleurs
 scores, succès, apparences et options sont **préservés tels quels**. Une copie de l'ancienne sauvegarde est gardée dans le navigateur
-(`polarite.save.avant-v1`) et supprimée seulement par « Effacer toute la progression ».
+(`polarite.save.avant-v1`, puis `polarite.save.avant-eq2` pour le passage v1.1 → v1.2) et supprimée seulement par « Effacer toute la progression ».
 
 ## Options
 
@@ -90,7 +96,7 @@ effacement de la progression (avec confirmation). Les options sont sauvegardées
 
 ## Structure
 
-Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets) et
+Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
 `docs/MONETISATION.md` (pistes de rentabilité). Suivi : `PROGRESS.md`, reprise : `RESUME.md`.
 
 ## Limites connues
@@ -104,5 +110,6 @@ Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, 
 - Tests réalisés en Chromium (bureau et émulation mobile). Safari iOS et Firefox n'ont pas été testés sur appareil réel.
 - Le rendu utilise WebGL (repli Canvas automatique via Phaser) ; le paquet JS fait ~1,3 Mo (≈ 340 Ko gzip), essentiellement Phaser,
   plus ≈ 125 Ko de sprites.
+- La vitesse progressive du vaisseau, les événements et les nouveaux dangers sont calibrés avec des robots et par tests : à valider par des joueurs (début de partie plus lent, montée de vitesse, lisibilité des lasers et des fragments sur petit écran).
 - Performances mobiles : mesurées seulement en émulation processeur (×4 ralenti, rendu logiciel) : le coût GPU d'un vrai téléphone n'a pas été mesuré.
 - Les sprites sont générés par IA (voir `docs/ASSETS.md`) : vérifier les conditions d'usage du fournisseur avant commercialisation.

@@ -34,7 +34,7 @@ export class Hud {
    * @param record meilleur temps précédent (Survie/Défi) ; null en mode Niveaux.
    * @returns vrai au moment précis où le record vient d'être dépassé.
    */
-  update(session: GameSession, label: string, record: number | null): boolean {
+  update(session: GameSession, label: string, record: number | null, showRecord = true): boolean {
     const sim = session.sim;
     const t = sim.time;
     this.set(this.score, 'score', formatScore(sim.scoring.score));
@@ -61,7 +61,7 @@ export class Hud {
         }
         this.set(this.sub, 'sub', 'Nouveau record !');
       } else {
-        this.set(this.sub, 'sub', record > 0 ? `${label} · record ${formatTime(record)}` : label);
+        this.set(this.sub, 'sub', record > 0 && showRecord ? `${label} · record ${formatTime(record)}` : label);
       }
     }
     return crossed;

@@ -1,8 +1,10 @@
-import { ARENA, PLAYER } from '../config/balance';
+import { ARENA } from '../config/balance';
+import { CONVOY, FRAGMENT, LASER } from '../config/hazards';
 import { TAU } from '../core/math';
 import type { Rng } from '../core/rng';
 import type { DifficultyParams } from './difficulty';
-import { makeChordProjectile, makeSector, type Hazard } from './hazards';
+import { makeChordProjectile, makeLaser, makeRayProjectile, makeSector, type Hazard } from './hazards';
+import { angularTravel, type SpeedFn } from './speed';
 
 export type PatternId =
   | 'shot'
@@ -15,9 +17,12 @@ export type PatternId =
   | 'chase'
   | 'shotArc'
   | 'pincer'
-  | 'echo';
+  | 'echo'
+  | 'fragment'
+  | 'convoy'
+  | 'laser';
 
-export type Family = 'projectile' | 'sector' | 'combo';
+export type Family = 'projectile' | 'sector' | 'combo' | 'fragment' | 'convoy' | 'laser';
 
 export interface PatternContext {
   now: number;
@@ -25,6 +30,8 @@ export interface PatternContext {
   p: DifficultyParams;
   playerAngle: number;
   playerDir: 1 | -1;
+  /** Facteur de vitesse du vaisseau selon le temps (pour prévoir sa position). */
+  speed: SpeedFn;
 }
 
 export interface PatternDef {
@@ -38,11 +45,10 @@ export interface PatternDef {
 
 const R = ARENA.orbitRadius;
 const S = ARENA.spawnRadius;
-const W = PLAYER.angularSpeed;
 
 /** Angle prévu du joueur à l'instant t s'il ne change pas de direction. */
 function predict(ctx: PatternContext, t: number): number {
-  return ctx.playerAngle + ctx.playerDir * W * (t - ctx.now);
+  return ctx.playerAngle + ctx.playerDir * angularTravel(ctx.speed, ctx.now, t);
 }
 
 /** Estimation du temps entre le départ d'un projectile et son premier passage sur l'orbite. */
@@ -222,6 +228,82 @@ export const PATTERNS: Record<PatternId, PatternDef> = {
       ];
     },
   },
+  fragment: {
+    id: 'fragment', family: 'fragment', name: 'Astéroïde fragmenté', cost: 2,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const ws = ctx.now;
+      const speed = p.projectileSpeed;
+      const warn = p.projectileWarn + FRAGMENT.extraWarn;
+      const a1 = aimAngle(ctx, ws + warn + approachTime(speed));
+      const a2 = a1 + rng.sign() * rng.range(FRAGMENT.sep.min, FRAGMENT.sep.max);
+      // Trajectoire de l'astéroïde : corde de l'orbite entre a1 (entrée) et a2 ; division près du milieu, donc près du centre
+      const p1x = R * Math.cos(a1);
+      const p1y = R * Math.sin(a1);
+      let ux = R * Math.cos(a2) - p1x;
+      let uy = R * Math.sin(a2) - p1y;
+      const chord = Math.hypot(ux, uy);
+      ux /= chord;
+      uy /= chord;
+      const along1 = p1x * ux + p1y * uy;
+      const x0 = p1x - along1 * ux - S * ux;
+      const y0 = p1y - along1 * uy - S * uy;
+      const launch = ws + warn;
+      const phi = 0.5 + rng.range(-FRAGMENT.splitJitter, FRAGMENT.splitJitter);
+      const sx = p1x + ux * chord * phi;
+      const sy = p1y + uy * chord * phi;
+      const splitS = (sx - x0) * ux + (sy - y0) * uy;
+      const tSplit = launch + splitS / speed;
+      const main = makeRayProjectile('fragment', ws, launch, x0, y0, ux * speed, uy * speed, { end: tSplit });
+      // L'astéroïde ne revient jamais sur l'orbite : un seul point de passage (l'entrée)
+      main.cross2 = main.cross1;
+      main.crossTime2 = main.crossTime1;
+      main.split = { x: sx, y: sy, t: tSplit };
+      const out: Hazard[] = [main];
+      const psi = Math.atan2(uy, ux);
+      const spread = rng.range(FRAGMENT.spread.min, FRAGMENT.spread.max);
+      for (const side of [-1, 1]) {
+        const dx = Math.cos(psi + side * spread);
+        const dy = Math.sin(psi + side * spread);
+        // Distance jusqu'à l'orbite : impose un délai minimal de réaction avant le passage du fragment
+        const b = sx * dx + sy * dy;
+        const exit = -b + Math.sqrt(Math.max(0, b * b - (sx * sx + sy * sy) + R * R));
+        const fs = Math.max(FRAGMENT.minSpeed, Math.min(speed * FRAGMENT.speedScale, exit / FRAGMENT.minLead));
+        out.push(makeRayProjectile('fragment', ws, tSplit, sx, sy, dx * fs, dy * fs, { scale: FRAGMENT.scale, fragment: true }));
+      }
+      return out;
+    },
+  },
+  convoy: {
+    id: 'convoy', family: 'convoy', name: 'Convoi d’astéroïdes', cost: 1.7,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const ws = ctx.now;
+      const n = rng.int(CONVOY.count.min, CONVOY.count.max);
+      const stagger = Math.max(CONVOY.minStagger, p.comboStagger * rng.range(CONVOY.stagger.min, CONVOY.stagger.max));
+      const a1 = aimAngle(ctx, crossingTime(ctx, ws));
+      const a2 = a1 + rng.sign() * rng.range(1.6, 2.7);
+      const out: Hazard[] = [];
+      // Même trajectoire, même vitesse : les astéroïdes se suivent à `stagger` secondes d'intervalle
+      for (let i = 0; i < n; i++) {
+        out.push(makeChordProjectile('convoy', ws, p.projectileWarn + i * stagger, p.projectileSpeed, a1, a2));
+      }
+      return out;
+    },
+  },
+  laser: {
+    id: 'laser', family: 'laser', name: 'Laser balayeur', cost: 1.9,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const ws = ctx.now;
+      const span = p.laserSpan * (1 + rng.range(-LASER.spanJitter, LASER.spanJitter));
+      // Secteur limité : le reste de l'orbite est la zone de refuge (au moins LASER.minRefuge)
+      const swept = Math.min(span, TAU - LASER.minRefuge - 2 * LASER.half);
+      const sign = rng.sign();
+      const center = predict(ctx, ws + p.laserWarn) + rng.range(-LASER.aimJitter, LASER.aimJitter);
+      return [makeLaser('laser', ws, p.laserWarn, center - (sign * swept) / 2, sign * p.laserRate, swept, LASER.half)];
+    },
+  },
 };
 
 export const PATTERN_IDS = Object.keys(PATTERNS) as PatternId[];
@@ -230,6 +312,9 @@ export const FAMILY_INTRO: Record<Family, string> = {
   projectile: 'Projectile : la ligne pointillée annonce sa trajectoire, les croix montrent où il coupe l’orbite.',
   sector: 'Secteur électrique : quittez ou traversez la zone pointillée avant qu’elle ne s’allume.',
   combo: 'Attaque combinée : esquivez la première menace en anticipant la seconde.',
+  fragment: 'Astéroïde fragmenté : après avoir traversé l’orbite il se divise ; les trajectoires des deux fragments sont annoncées.',
+  convoy: 'Convoi : plusieurs astéroïdes suivent la même trajectoire, l’un après l’autre. Anticipez les suivants.',
+  laser: 'Laser balayeur : un rayon pivote sur la zone annoncée. Rejoignez la zone de refuge, en dehors de l’arc.',
 };
 
 export type PatternWeights = Partial<Record<PatternId, number>>;
