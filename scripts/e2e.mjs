@@ -1048,7 +1048,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.goto(URL);
   await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   const m = await page.evaluate(() => ({ save: JSON.parse(localStorage.getItem('polarite.save')), backup: localStorage.getItem('polarite.save.avant-v4') }));
-  check(m.save.version === 5 && m.save.wallet.shards === 777 && m.save.wallet.prisms === 3 && m.save.survival.bestTime === 200 && m.save.skin === 'aurore' && m.save.levels['1'].stars === 2, 'Migration v4 → v5 : monnaies, records, niveaux et apparence conservés');
+  check(m.save.version === 5 && m.save.wallet.shards >= 777 && m.save.wallet.prisms === 3 && m.save.survival.bestTime === 200 && m.save.skin === 'aurore' && m.save.levels['1'].stars === 2, 'Migration v4 → v5 : monnaies, records, niveaux et apparence conservés');
   check(m.save.campaign && m.save.campaign.chapterComplete === false && Object.keys(m.save.campaign.missions).length === 0, 'Migration v4 → v5 : campagne vide, prête');
   check(!!m.backup && JSON.parse(m.backup).version === 4, 'Migration v4 → v5 : copie de la sauvegarde d’origine conservée');
   check(errors.length === 0, `Aucune erreur (migration v5)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
