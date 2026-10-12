@@ -892,8 +892,10 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
     }, maxSeconds);
   const waitStory = () => page.waitForSelector('.story', { timeout: 8000 });
   const waitEnabled = (sel) => page.waitForFunction((q) => { const b = document.querySelector(q); return b && !b.disabled; }, sel, { timeout: 8000 });
-  const storyState = () =>
-    page.evaluate(() => {
+  const storyState = async () => {
+    // Les images de la scène (illustration, portrait) viennent d'être insérées : on attend leur décodage
+    await page.waitForFunction(() => [...document.querySelectorAll('.story img')].every((i) => i.complete), null, { timeout: 4000 }).catch(() => undefined);
+    return page.evaluate(() => {
       const box = document.querySelector('.story__box').getBoundingClientRect();
       const scene = document.querySelector('.story__scene').getBoundingClientRect();
       const img = document.querySelector('.story__img');
@@ -911,6 +913,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
         vw: window.innerWidth, vh: window.innerHeight,
       };
     });
+  };
 
   // Menus
   await page.tap('[data-action="campaign"]');
