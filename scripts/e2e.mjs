@@ -1044,12 +1044,10 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   // Avancer jusqu'au message système, puis à la voix enregistrée
   let sawSystem = false;
   let sawVoice = false;
+  await app(() => { window.__polarite.reducedMotion = true; }); // texte instantané : parcours déterministe
   for (let i = 0; i < 60 && (await page.locator('.story').count()) > 0; i++) {
-    let cur = await storyState();
-    if (cur.live !== cur.full) {
-      await page.tap('.story__box .story__text'); // premier toucher : révèle
-      cur = await storyState();
-    }
+    await sleep(60);
+    const cur = await storyState();
     if (cur.system) {
       sawSystem = true;
       check(cur.portrait === null && /Système/.test(cur.name), 'Message système : nom neutre « Système », aucun portrait');
@@ -1092,8 +1090,10 @@ for (const [w, h, name, touch] of [[320, 568, 'petit écran', true], [844, 390, 
   // Parcourt toute la scène en vérifiant chaque réplique (débordement, boîte visible, portrait)
   let ok = true;
   let seenNames = new Set();
+  await page.evaluate(() => { window.__polarite.reducedMotion = true; });
   for (let i = 0; i < 16 && (await page.locator('.story').count()) > 0; i++) {
-    if (await page.evaluate(() => document.getElementById('story-live').textContent !== document.querySelector('.story__ghost').textContent)) await page.click('.story__box .story__text');
+    await page.waitForTimeout(60);
+    if ((await page.locator('.story__box').count()) === 0) break;
     const r = await page.evaluate(() => {
       const box = document.querySelector('.story__box').getBoundingClientRect();
       const img = document.querySelector('.story__img').getBoundingClientRect();

@@ -500,6 +500,7 @@
 
 .story__count {
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .story__hint {
@@ -515,6 +516,22 @@
 
 .story__bar .btn {
   min-height: 40px;
+}
+
+/* Écran étroit : compteur et indication sur une ligne, « Passer la scène » pleine largeur dessous */
+@media (max-width: 400px) {
+  .story__bar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .story__hint {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .story__bar .btn {
+    flex: 1 0 100%;
+  }
 }
 
 /* Petit écran en hauteur : boîte plus compacte */
