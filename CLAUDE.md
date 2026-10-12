@@ -3,13 +3,13 @@
 ## Produit
 Jeu d'arcade web (ordinateur + mobile). Un vaisseau tourne seul sur une orbite circulaire ; une seule commande
 (clic / toucher dans l'arène / Espace) inverse sa direction. Éviter les menaces, collecter 6 balises, enchaîner les combos.
-Modes : **Campagne** (chapitre 1 « Le signal impossible » : 10 missions, histoire, étoiles, hangar d'améliorations ; voir `docs/CAMPAGNE.md`),
+Modes : **Campagne** (chapitre 1 « Douze ans de silence » : niveaux 1 à 5 livrés, récit illustré, étoiles, Éclats de campagne ; voir `docs/CAMPAGNE.md`),
 **Défis classiques** (12 niveaux × 90 s, déblocage par la survie, étoiles au score ; sous-menu de la Campagne), **Survie** (sans fin, record = temps),
 **Défi quotidien** (règles de Survie, graine = date UTC). Succès + apparences cosmétiques. Tout en local, sauf le classement mondial de Survie (facultatif).
 
 Interdits de conception : tir, déplacement libre, dash, multijoueur, barre de vie, équipement à statistiques,
-coût ou recharge sur l'inversion, publicité obligatoire, « continue » payant/publicitaire. Exceptions voulues, **réservées à la Campagne** : narration courte
-(transmissions) et trois améliorations du hangar (bouclier de secours à usage unique par tentative, collecteur, stabilisateur), jamais appliquées à la Survie, au défi quotidien ni aux défis classiques.
+coût ou recharge sur l'inversion, publicité obligatoire, « continue » payant/publicitaire. Exception voulue, **réservée à la Campagne** : la narration (scènes illustrées avant et après chaque niveau).
+Les améliorations de campagne (bouclier, collecteur, stabilisateur) existent en données et en logique mais **ne sont pas proposées** (`HANGAR_ENABLED = false`) ; elles ne s'appliqueraient jamais à la Survie, au défi quotidien ni aux défis classiques.
 
 ## Pile technique
 TypeScript 5.9 · Phaser 3.90 (rendu uniquement) · Vite 8 · Vitest 5. Sprites PNG locaux (src/assets/sprites), effets générés par code. Dépendances verrouillées (`package-lock.json`).
@@ -57,8 +57,8 @@ npm run check        # typecheck + tests + build
 - `config/economy.ts` (éclat sur l'orbite, récompenses de niveau, soldes), `config/catalog.ts` (**source unique** du catalogue et des conditions d'obtention), `config/trails.ts` ; `progression/shop.ts` (possession, achats en Éclats, équipement) ; `sim/shards.ts` (éclat sur l'orbite, générateur dédié) ; `monetization/payments.ts` (interface de paiement future, aucun paiement actif). Voir `docs/ECONOMIE.md`.
 - `config/achievements.ts` — **source unique** des 27 succès (objectif, catégorie, récompense en Éclats) ; `progression/achievements.ts` (progression, déblocage, récompense unique via `save.rewarded`). Les cosmétiques liés à un succès sont décrits au catalogue.
 - `net/protocol.ts` (types/règles partagés jeu ↔ serveur), `net/leaderboard.ts` (client : profil, tickets, file « en attente », jamais de secret), `server/` (service de classement Node + SQLite : validation par REJEU de la partie ; voir `docs/CLASSEMENT.md`). `Simulation.flipLog` = journal des entrées ; `Simulation.assisted` = aide de test (jamais éligible).
-- `config/campaign.ts` — **source unique** de la campagne (missions, récompenses, améliorations et effets, objets) ; `config/story.ts` — dialogues (identifiants de séquence = clés de sauvegarde, ne jamais les changer) ;
-  `campaign/simulation.ts` (`CampaignSimulation extends Simulation`, **sans toucher à `src/sim/`**), `campaign/progress.ts` (étoiles, récompenses uniques, hangar), `campaign/bot.ts` ; `ui/campaignScreens.ts` + `styles/campaign.css`. Voir `docs/CAMPAGNE.md`.
+- `config/campaign.ts` — **source unique** de la campagne (niveaux 1 à 5, récompenses en Éclats de campagne, hangar prévu) ; `config/story.ts` + `data/campagne_niveaux_01_05.fr.json` — dialogues (source éditable séparée ; identifiants de scène `n<N>-before|after` = clés de sauvegarde, ne jamais les changer) ;
+  `campaign/simulation.ts` (`CampaignSimulation extends Simulation`, **sans toucher à `src/sim/`**), `campaign/progress.ts` (étoiles, récompenses uniques, réserve de campagne), `campaign/bot.ts` ; `ui/campaignScreens.ts` (dont l'écran de récit) + `styles/campaign.css` ; assets `assets/story/*.webp`, masters PNG dans `art/campagne/` (hors bundle). Voir `docs/CAMPAGNE.md`.
 - `config/brand.ts` — `GAME_NAME` (nom affiché, « Polarity ») et `STORAGE_NAMESPACE` (**'polarite', ne jamais changer** : clés de sauvegarde).
 - `monetization/ads.ts` — interface publicitaire facultative, désactivée (aucun SDK).
 
@@ -73,9 +73,9 @@ npm run check        # typecheck + tests + build
 - Tout nouveau paramètre d'équilibrage va dans `config/`.
 - Couleurs, polices et rayons de l'interface : uniquement via `ui/theme.ts` (ou les variables CSS) ; pas de style en ligne ni de couleur hexadécimale dans `styles/` (testé). Les assets de référence (`art/reference/`) ne sont jamais affichés.
 - Les identifiants d'apparence sont enregistrés dans la sauvegarde : ne jamais les changer ni les réutiliser ; une apparence sans effet de jeu (aucune statistique, pas de boutique ni de monnaie).
-- Économie : cosmétiques seulement, aucun avantage de jeu ; achat = vérification du solde + débit + déblocage dans la même modification ; Prismes jamais débités ni crédités localement (paiements non actifs) ; sauvegarde versionnée (format 5) : toute nouvelle donnée de progression passe par `save.ts` (sanitize + migration).
+- Économie : cosmétiques seulement, aucun avantage de jeu ; achat = vérification du solde + débit + déblocage dans la même modification ; Prismes jamais débités ni crédités localement (paiements non actifs) ; sauvegarde versionnée (format 6) : toute nouvelle donnée de progression passe par `save.ts` (sanitize + migration).
 - Classement : le serveur ne croit jamais le client (rejeu graine + entrées) ; aucune clé secrète ni route d'administration dans le jeu ; toute modification des règles de simulation exige `BALANCE_VERSION` + redéploiement du serveur ; le serveur doit rester déterministe-identique au client (même code `src/`). Succès : objectifs sans dépense, récompenses versées une seule fois.
-- Campagne : ne jamais modifier `src/sim/*` pour elle (Survie et rejeu serveur identiques, `BALANCE_VERSION` inchangée) ; `createSimulation` refuse le mode `campaign` ; aucune partie de campagne n'est envoyée au classement ; étoile et récompense passent de faux à vrai dans la même modification de sauvegarde (jamais de double crédit) ; sauvegarde format 5 (champ `campaign`).
+- Campagne : ne jamais modifier `src/sim/*` pour elle (Survie et rejeu serveur identiques, `BALANCE_VERSION` inchangée) ; `createSimulation` refuse le mode `campaign` ; aucune partie de campagne n'est envoyée au classement ; les gains vont dans la **réserve de campagne** (`save.campaign.reserve`), jamais dans le portefeuille de la Survie, et la campagne ne touche ni aux succès ni aux statistiques ni aux cosmétiques (le vaisseau de campagne est `CAMPAIGN_SKIN`) ; étoile et récompense passent de faux à vrai dans la même modification de sauvegarde (jamais de double crédit) ; sauvegarde format 6 (champ `campaign`). Récit : une réplique à la fois, premier toucher = révéler, suivant = avancer, jamais de transmission pendant une esquive, scènes jouées une seule fois puis relisibles ; niveaux 1 à 5 : astéroïdes seulement.
 - Textes utilisateur en français. Pas de bouton factice.
 - Après une modification : `npm run check`, et `npm run build && npm run e2e` si l'interface change.
 - Mettre à jour `PROGRESS.md` et `RESUME.md` à chaque jalon.

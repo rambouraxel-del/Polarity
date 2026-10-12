@@ -1,61 +1,75 @@
-# Campagne — chapitre 1 « Le signal impossible » (Écho-7)
+# Campagne — chapitre 1 « Douze ans de silence » (niveaux 1 à 5)
 
-Mode narratif jouable : 10 missions reliées, histoire courte (transmissions passables et relisibles), progression par étoiles, hangar d'améliorations.
-Il **réutilise** les mécaniques existantes (orbite, inversion, balises, directeur de vagues, validateur d'évitement) : pas de nouveau déplacement, pas de tir.
+Mode narratif jouable, centré sur l'histoire : scène illustrée avant et après chaque niveau, gameplay au service de la narration. Il **réutilise** les mécaniques existantes
+(orbite, inversion, balises, directeur de vagues, validateur d'évitement) : pas de nouveau déplacement, pas de tir. Seuls les **niveaux 1 à 5** sont livrés ; la suite du chapitre
+(environ quinze niveaux prévus) est annoncée « À venir ». Scénario complet : `docs/CAMPAGNE_SCENARIO.md` (copie lisible fournie avec le pack).
 
 ## Où est quoi ?
 | Fichier | Rôle |
 |---|---|
-| `src/config/campaign.ts` | **Source unique** : missions (objectif, limite, vitesse, script, défi secondaire), récompenses, améliorations et leurs effets, objets de mission |
-| `src/config/story.ts` | Dialogues (15 séquences de 2–4 répliques), personnages (NOVA, SIGNAL, DÉFENSES, SYSTÈME) — identifiants de séquence enregistrés dans la sauvegarde : ne jamais les changer |
-| `src/campaign/simulation.ts` | `CampaignSimulation` (hérite de `Simulation`, **sans modifier `src/sim/`**) : objectifs, objets, bouclier, collecteur, stabilisateur, transmissions |
-| `src/campaign/progress.ts` | Étoiles, récompenses uniques, déblocages, journal, hangar (achat / activation), fin de chapitre |
-| `src/campaign/bot.ts` | `MissionBot` : joueur automatique pour les tests de faisabilité |
-| `src/ui/campaignScreens.ts`, `src/styles/campaign.css` | Écrans : campagne, carte des missions, fiche, hangar, journal, dialogue, bilan |
-| `src/render/ArenaRenderer.ts` | Objets de mission (triangle / losange / hexagone vert menthe), anneau et clignotement du bouclier — effets codés |
-| `tests/campaign-*.test.ts`, `scripts/e2e.mjs` (section Campagne) | Tests |
+| `src/data/campagne_niveaux_01_05.fr.json` | **Dialogues** (source éditable, séparée de la logique, transcription fournie, textes non altérés) |
+| `src/config/story.ts` | Séquences `n<N>-before` / `n<N>-after` (IDs stables, enregistrés dans la sauvegarde), mapping locuteur → nom/portrait, résolution des assets WebP, vitesse du texte (`STORY_UI`) |
+| `src/config/campaign.ts` | **Source unique** des niveaux (objectif, limite, vitesse, script de difficulté, défi secondaire), récompenses (`CAMPAIGN_REWARDS`), chapitre, hangar prévu (`HANGAR_ENABLED = false`) |
+| `src/campaign/simulation.ts` | `CampaignSimulation` (sous-classe de `Simulation`, **`src/sim/` intact**) : objectifs, objets de mission, améliorations (inactives), événements |
+| `src/campaign/progress.ts` | Étoiles, récompenses uniques, déblocages, réserve d'Éclats de campagne, scènes vues |
+| `src/campaign/bot.ts` | Joueur automatique pour les tests de faisabilité |
+| `src/ui/campaignScreens.ts`, `src/styles/campaign.css` | Écrans : campagne, carte des niveaux, fiche, journal, **récit**, bilan |
+| `src/app.ts` | Orchestration : scène → niveau → victoire → scène de conclusion → bilan ; texte progressif ; clavier |
+| `src/config/skins.ts` (`CAMPAIGN_SKIN`) | La Traverse, vaisseau d'Élias (hors catalogue et boutique) |
+| `art/campagne/` | **Masters PNG** (hors bundle) + `ASSETS.json` |
+| `src/assets/story/*.webp` | Assets du jeu (WebP) |
+| `tests/story.test.ts`, `tests/campaign-*.test.ts`, `scripts/e2e.mjs` (section Campagne) | Tests |
+
+## Niveaux (choix d'équilibrage, à valider avec de vrais joueurs)
+Dangers : **astéroïdes uniquement** (pas de secteur électrique ni de laser avant les niveaux suivants). Aucune transmission n'est affichée pendant une esquive. « Éclats » = les balises de l'orbite.
+
+| # | Titre | Objectif | Vitesse | Difficulté (début → fin) | Défi secondaire |
+|---|---|---|---|---|---|
+| 1 | De quoi rentrer | Récolter 6 éclats (champ peu dense) | 45 % | 0,02 → 0,10 | < 40 s |
+| 2 | Une bonne journée | Récolter 12 éclats (champ plus dense, trajectoires moins prévisibles) | 50 % | 0,06 → 0,20 | multiplicateur ×3 |
+| 3 | Tenir | Survivre 60 s à la première tempête d'astéroïdes (aucun quota de récolte) | 55 % | 0,14 → 0,30 | ≥ 6 éclats |
+| 4 | Ce que la tempête a laissé | Suivre 3 fragments d'épave (rythme redescendu, astéroïdes fragmentés) | 50 % | 0,10 → 0,22 | < 45 s |
+| 5 | Douze ans de silence | Télécharger les données de la balise de la capsule : 3 passages (adaptation de « rester à proximité » au moteur) | 55 % | 0,14 → 0,30 | < 55 s |
+
+Mécanique commune : respirations (aucune nouvelle vague), vitesse réglée par niveau, trajectoires issues de la graine de la tentative, tous les niveaux validés par le validateur d'évitement du directeur.
+
+## Récit (écran dédié)
+- Illustration fixe en haut (`object-fit: contain`, jamais étirée ni recadrée), boîte de dialogue en bas : nom, petit portrait à gauche, texte français. Mise en page adaptée à la hauteur et aux safe areas ; paysage bas : illustration à gauche, dialogue à droite.
+- Une réplique à la fois, texte progressif (48 car./s ; instantané avec « effets réduits »). **Premier toucher : révèle toute la réplique ; toucher suivant : avance.** Toucher dans la zone narrative (illustration comprise) fonctionne. Un seul événement `click` (pas de double avance) ; les boutons consomment leur propre événement. Clavier : Entrée/Espace (mêmes règles), Échap = passer.
+- **Passer la scène** : ferme la scène seulement (ni victoire ni récompense). Les scènes sont jouées automatiquement **une seule fois** (introduction avant le niveau, conclusion après la victoire), puis **relisibles** depuis la fiche du niveau (« Revoir l'introduction / la conclusion ») et le **Journal des scènes**. Rejouer ou réessayer ne les répète pas ; un échec ne montre jamais la conclusion.
+- Pendant une scène, aucune partie n'est en cours : jeu, chrono, dégâts et commandes sont à l'arrêt ; les touchers de la scène n'atteignent jamais le jeu.
+- Didascalies du scénario : conservées dans le JSON, **jamais affichées** comme parole. Message système : nom neutre « Système », cadre distinct, sans portrait. Voix enregistrée : portrait de la radio, sans visage ni étiquette.
+- Niveau 5 : `05a_capsule_exterieur` à l'introduction, `05b_capsule_interieur` à la conclusion.
+
+## Mapping des assets
+| Master (`art/campagne/`) | Jeu (`src/assets/story/`) | Usage |
+|---|---|---|
+| illustrations/01_de_quoi_rentrer.png | 01_de_quoi_rentrer.webp | Niveau 1, avant et après |
+| illustrations/02_une_bonne_journee.png | 02_une_bonne_journee.webp | Niveau 2 |
+| illustrations/03_tenir.png | 03_tenir.webp | Niveau 3 |
+| illustrations/04_ce_que_la_tempete_a_laisse.png | 04_ce_que_la_tempete_a_laisse.webp | Niveau 4 |
+| illustrations/05a_capsule_exterieur.png | 05a_capsule_exterieur.webp | Niveau 5, introduction |
+| illustrations/05b_capsule_interieur.png | 05b_capsule_interieur.webp | Niveau 5, conclusion |
+| portraits/elias.png, nora.png, transmission_inconnue.png | elias.webp, nora.webp, transmission_inconnue.webp | Portraits (vrai canal alpha) |
+
+Export (Pillow) : illustrations 1200 px de large, WebP qualité 86 (**146 à 286 Ko** mesurés) ; portraits 384 px, WebP avec alpha (**42 à 46 Ko**). Les images sont des URL résolues par nom (Vite, chemin compatible sous-chemin GitHub Pages) et ne sont **chargées qu'à l'affichage de la scène** ; l'illustration de la scène suivante est préchargée. Aucun base64, aucun chargement de toutes les images au lancement.
+Pour régénérer : redimensionner depuis `art/campagne/` avec les mêmes paramètres (voir l'historique du commit).
+
+## Progression, récompenses, sauvegarde
+- Introduction → niveau → victoire → conclusion → déblocage du niveau suivant. Aucun score minimal.
+- Étoile 1 : objectif. Étoile 2 : défi secondaire du niveau.
+- **Éclats de campagne** (`save.campaign.reserve`) : **réserve séparée** du portefeuille de la Survie et des cosmétiques ; première réussite **30**, défi secondaire **10** (une seule fois chacun), réussites suivantes **0**. Jamais convertis ; aucun lien avec les Prismes. La campagne ne touche ni aux succès, ni aux statistiques, ni aux records, ni au classement.
+- Sauvegarde **format 6** : champ `campaign` (niveaux, scènes vues, réserve, améliorations prévues, fin des niveaux livrés). Migration v5 → v6 : la première campagne « Écho-7 » (jamais diffusée au-delà de la branche de développement) est remise à neuf ; **tout le reste est conservé** ; copie `polarite.save.avant-v5`. Une apparence « Écho » de cette première version n'existe plus.
+- Vaisseau de campagne : **la Traverse** (coque sable usée, ailes bleu-vert, verrière ambre, réacteur bleu-vert), propre à la campagne ; l'apparence équipée de la Survie n'y est pas appliquée.
 
 ## Garanties (Survie, classement)
-- `src/sim/*` n'est **pas modifié** : la Survie, le défi quotidien, les niveaux et la simulation de rejeu du serveur restent identiques. `BALANCE_VERSION` inchangée.
-- `createSimulation` (utilisée par le serveur) refuse le mode `campaign`. Aucune partie de campagne n'est envoyée au classement (le ticket de Survie n'est jamais attribué à une mission).
-- Les améliorations ne sont lues que par `CampaignSimulation` (`RunConfig.upgrades`, renseigné seulement pour `mode: 'campaign'`).
-- Sauvegarde **format 5** : champ `campaign` (missions, transmissions vues, améliorations, fin de chapitre). Migration v4 → v5 : champ vide, tout le reste conservé ; copie `polarite.save.avant-v4`.
+`src/sim/*` n'est **pas modifié** : la Survie, le défi quotidien, les niveaux classiques et le rejeu du serveur restent identiques ; `BALANCE_VERSION` inchangée. `createSimulation` (utilisée par le serveur) refuse le mode `campaign`. Aucune partie de campagne n'est envoyée au classement. Hébergement VPS non touché.
 
-## Missions
-Durées = temps de jeu actif (la pause les arrête). Les missions de collecte se terminent dès l'objectif atteint (limite 90 s sauf indication).
-
-| # | Titre | Objectif | Défi secondaire |
-|---|---|---|---|
-| 1 | Réveil en orbite | Survivre 45 s (astéroïdes simples) | ≥ 12 balises |
-| 2 | Remettre le relais en ligne | 6 balises en < 60 s | < 25 s |
-| 3 | Des coordonnées effacées | 3 fragments temporaires successifs (un fragment manqué réapparaît) | < 35 s |
-| 4 | Le passage des convois | Survivre 60 s (convois) | multiplicateur ×3 |
-| 5 | La boîte noire | 2 cycles de balises, puis récupérer la boîte noire | < 50 s |
-| 6 | Tempête ionique | Survivre 3 séquences électriques (75 s) | ≥ 14 balises |
-| 7 | Débris instables | 3 données au milieu d'astéroïdes fragmentés | < 55 s |
-| 8 | Les défenses d'Écho-7 | 3 verrous (1 cycle chacun) ; laser balayeur | < 55 s |
-| 9 | Une voix derrière la porte | Survivre 90 s (pluie de météores, tempête, respirations) | ≥ 5 cycles |
-| 10 | Ouvrir le sas | 3 verrous, 3 phases : astéroïdes → électricité → combinaison | < 55 s |
-
-Mécanique commune : difficulté croissante avec **respirations** (aucune nouvelle vague), vitesse du vaisseau **réglée par mission** (pas la courbe temporelle de la Survie), phases scénarisées par fenêtres de motifs (ou par cycles, mission 10) validées par le validateur d'évitement du directeur, trajectoires issues de la graine de la tentative (reproductibles, variées d'une tentative à l'autre). Les transmissions affichées en jeu tombent dans des respirations.
-
-## Progression et récompenses (modifiables dans `config/campaign.ts`)
-- Étoile 1 : objectif principal (aucun score minimal) → débloque la mission suivante. Étoile 2 : défi propre à la mission. Étoile 3 : réussir **sans déclencher le bouclier** (aussi sans le posséder).
-- Éclats : première réussite **30** (**60** mission 10) ; chaque étoile secondaire obtenue pour la première fois **10** ; réussites suivantes **5** (aucun bonus unique répété). Étoile et récompense passent de faux à vrai dans la même modification de la sauvegarde : jamais de double crédit.
-- Fin du chapitre : apparence **Écho** (coque blanche, accents violets) dans les cosmétiques (« Campagne requise » avant).
-
-## Hangar (améliorations permanentes, un seul niveau, activables, campagne uniquement)
-| Amélioration | Prix | Présentée après | Effet (`UPGRADE_EFFECTS`) |
-|---|---|---|---|
-| Bouclier de secours | 100 | mission 3 | Absorbe 1 collision par tentative, puis 1 s d'invulnérabilité (une collision pendant ce délai ne consomme rien). Anneau, clignotement, son, bandeau HUD |
-| Collecteur amélioré | 75 | mission 5 | Arc de collecte des balises +0,05 rad, rayon des objets de mission ×1,5 (la collision avec les dangers est inchangée) |
-| Stabilisateur orbital | 75 | mission 5 | +0,4 s de répit après les cycles qui en accordent déjà un (base 0,8 s), cumul borné par `RESPITE.maxPerWave` ; ne retire aucune menace active |
-
-Achat en Éclats avec confirmation (solde vérifié, débit et possession dans la même modification). Amélioration activée à l'achat ; (dés)activation libre ; relue à chaque tentative.
-
-## Menus
-Accueil : **Campagne** (remplace « Niveaux ») → carte des chapitres (Écho-7 ; chapitre 2 « À venir ») → carte des missions → fiche → Lancer. Depuis la campagne : Hangar, Journal des transmissions, **Défis classiques** (les 12 niveaux d'origine, progression et récompenses inchangées).
-Transmissions : montrées automatiquement une seule fois (introduction avant la mission, conclusion après la réussite), passables, relisibles au journal ; rejouer ne les répète pas.
+## Ajouter les niveaux suivants (6 à 15)
+1. Ajouter les dialogues au JSON (ou un nouveau fichier de chapitre) : `levels[]` avec `before` / `after` (`dialogue`, `direction`, `system`) et les illustrations (WebP dans `src/assets/story/`, master dans `art/campagne/`).
+2. Ajouter une entrée à `MISSIONS` dans `src/config/campaign.ts` (`before: 'n<N>-before'`, `after: 'n<N>-after'`), avec objectif, vitesse, script. Les secteurs électriques et lasers (`arc`, `chase`, `laser`…) ne sont autorisés que pour les niveaux où l'histoire les introduit (le test `astéroïdes seulement` est à relâcher à ce moment-là).
+3. Ajouter la faisabilité au test (`tests/campaign-simulation.test.ts` boucle sur `MISSIONS`).
+4. Hangar et améliorations : données et logique conservées (`UPGRADES`, `UPGRADE_EFFECTS`, `CampaignSimulation`, `buyUpgrade`) ; passer `HANGAR_ENABLED` à `true` et recréer l'écran du hangar (retiré pour ces cinq niveaux) quand l'histoire y arrive.
 
 ## À valider avec de vrais joueurs
-Les bots (joueur parfait) réussissent les 10 missions sur toutes les graines testées : cela prouve la **faisabilité**, pas le ressenti. À régler dans `config/campaign.ts` si besoin : `speed`, `difficulty`, `phases`/`weights`, durées de vie des objets, seuils des défis, prix et effets des améliorations. Voir `PROGRESS.md`.
+Les bots (joueur parfait) réussissent les cinq niveaux sur toutes les graines testées : cela prouve la **faisabilité**, pas le ressenti. À régler dans `config/campaign.ts` : `speed`, `difficulty`, `phases`/`weights`, durée de vie des objets (niveaux 4 et 5), seuils des défis, récompenses. Proposition d'intégration à confirmer : vitesse du texte, tailles de police et de portrait, taille de la boîte de dialogue.

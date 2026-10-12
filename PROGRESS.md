@@ -1,13 +1,13 @@
 # Suivi d'avancement
 
-## Campagne v2.0 : chapitre 1 « Le signal impossible » (livré, à valider en jeu réel)
-- [x] `config/campaign.ts` (10 missions typées, récompenses, améliorations) et `config/story.ts` (15 séquences)
-- [x] `CampaignSimulation` (sous-classe, `src/sim/` intact) : objectifs (survivre, balises, objets temporaires, cycles, boîte noire), phases scénarisées, respirations, bouclier, collecteur, stabilisateur, transmissions en partie
-- [x] Sauvegarde format 5 + migration v4 → v5 ; progression (étoiles, récompenses uniques, hangar, journal, Écho) ; catalogue `campaign` (« Campagne requise »)
-- [x] Écrans : Campagne, carte des missions, fiche, hangar, journal, dialogues, bilan, « Défis classiques » ; rendu des objets et du bouclier ; HUD de mission ; pause/reprise
-- [x] Vérifications : 294 tests, build, e2e complet (335 contrôles) et e2e classement verts
-- [x] Tests : faisabilité des 10 missions par `MissionBot` (12 graines), progression/sauvegarde, écrans ; e2e « Campagne » et migration v5
-- **Reste à valider avec de vrais joueurs** (les bots ne mesurent pas le ressenti) : difficulté de chaque mission (vitesse, fenêtres de motifs), durée de vie des objets (missions 3 et 7), seuils des défis secondaires, prix et effets des améliorations, lisibilité des objets de mission et du bouclier sur mobile
+## Campagne « Douze ans de silence », niveaux 1 à 5 (branche `campagne-douze-ans`, livré, à valider en jeu réel)
+- [x] Pack narratif intégré : 6 illustrations + 3 portraits (WebP optimisés, masters dans `art/campagne/`), dialogues JSON non altérés (`src/data/`), mapping des portraits
+- [x] Écran de récit mobile (illustration au-dessus, boîte de dialogue, portrait, texte progressif, révéler/avancer, passer, relecture, journal, clavier)
+- [x] 5 niveaux d'astéroïdes (`config/campaign.ts`), vaisseau Traverse, étoiles, Éclats de campagne séparés, sauvegarde v6 + migration v5 → v6
+- [x] Survie, classement, succès, cosmétiques, `src/sim/` et `BALANCE_VERSION` : inchangés
+- [x] Tests (faisabilité des 5 niveaux par bot sur 12 graines, progression, sauvegarde, écrans, intégrité des assets) et e2e (mobile 390×844, 320×568, 844×390, bureau, clavier, migration)
+- **Reste à valider avec de vrais joueurs** : difficulté de chaque niveau, durée de vie des objets (niveaux 4 et 5), seuils des défis, lisibilité des scènes sur appareils réels (vitesse du texte, tailles), poids réel sur réseau mobile
+- **Retiré** (remplacé par la nouvelle histoire) : première campagne « Écho-7 » (10 missions), apparence « Écho », étoile « sans bouclier », écran du hangar
 
 ## Version 1.1 — « Néon premium » et courbe de Survie accélérée (terminée)
 - [x] Sprites : vaisseau blanc/argent à cockpit cyan et 4 astéroïdes rocheux aux fissures orange (fond transparent, sans aucun effet intégré)

@@ -68,3 +68,7 @@ Logo, thème, police Orbitron (OFL), fond spatial : voir `docs/INTERFACE.md`. Le
 - Astéroïdes : taille inchangée, contour orange renforcé (`FX.asteroidGlow.alpha` 0,45 → 0,6).
 - Orbite : cyan vif `#00E5FF` (trait plein épais + halo en dégradé, texture générée par code).
 - Une texture par apparence : voir `docs/APPARENCES.md`.
+
+## Campagne : scènes illustrées et portraits
+Masters PNG dans `art/campagne/` (hors bundle ; `ASSETS.json` = manifeste d'origine). Versions du jeu en WebP dans `src/assets/story/` (mêmes noms, extension `.webp`), chargées à l'affichage de la scène uniquement.
+Illustrations : 1200 px de large, qualité 86 (146–286 Ko) ; portraits : 384 px avec alpha (42–46 Ko). Voir `docs/CAMPAGNE.md` pour le mapping et la procédure.
