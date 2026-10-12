@@ -1,15 +1,18 @@
 import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
+import { ACHIEVEMENT_CATEGORIES, type MetricKey } from '../config/achievements';
 import { catalogItem, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
 import { LEVELS } from '../config/levels';
-import { TRAILS, trailById } from '../config/trails';
+import { trailById } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
-import { ACHIEVEMENTS, achievementById } from '../progression/achievements';
+import { ACHIEVEMENTS, achievementById, achievementCosmetics, achievementProgress } from '../progression/achievements';
 import { hasLegacyRecords, isLevelUnlocked, legacyDailyList, legacySurvivalBest, type RunReport } from '../progression/progress';
 import { balanceOf, isOwned, itemPrice, itemState, type ItemState } from '../progression/shop';
-import { SKINS, isSkinOwned, resolveEquipped, unlockAchievementId, unlockCondition, type Skin } from '../progression/skins';
+import { resolveEquipped } from '../progression/skins';
 import { skinThumb } from '../render/skinSprites';
+import type { LeaderboardResponse, MeResponse, BalancesResponse } from '../net/protocol';
+import type { PendingRun } from '../net/leaderboard';
 import type { SaveData } from '../save/save';
 import logoUrl from '../assets/ui/logo.png';
 import { CURRENCY_NAME, button, coin, notice, price, screenHead, setting, stat, switchButton, tabs, walletBar } from './components';
@@ -22,8 +25,6 @@ import { ICONS } from './icons';
  * Aucun texte, score, étoile ou apparence n'est figé : tout vient de `save` et du rapport de partie.
  * Les actions passent par des attributs data-action gérés par délégation dans App ; aucun bouton n'est relié à l'aire de jeu.
  */
-
-export type CollectionTab = 'skins' | 'achievements';
 
 /** Prochain niveau à jouer : le premier débloqué non terminé (sinon le dernier). */
 export function nextLevelId(save: SaveData): number {
@@ -51,6 +52,9 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
           'cyan',
         ).replace('<div class="notice', '<div role="status" class="notice')
       : '';
+  const rewardNotice = save.rewardNotice
+    ? `<div role="status" class="notice">Récompenses de succès : <strong>+${formatScore(save.rewardNotice.shards)} Éclats</strong> pour ${save.rewardNotice.count} succès. ${button({ action: 'dismiss-reward-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
+    : '';
   const done = LEVELS.filter((l) => save.levels[String(l.id)]?.completed).length;
   const stars = LEVELS.reduce((s, l) => s + (save.levels[String(l.id)]?.stars ?? 0), 0);
   const daily = save.daily[today];
@@ -64,16 +68,17 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
     </div>
     <div class="home__menu">
       ${banner}
+      ${rewardNotice}
       ${walletBar(save.wallet)}
       ${button({ action: 'survival', label: 'Survie', sub: surv, icon: 'play', variant: 'primary', size: 'hero' })}
       ${button({ action: 'levels', label: 'Niveaux', sub: `${done}/${LEVELS.length} terminés · ${stars}/${LEVELS.length * 3} étoiles`, icon: 'levels', variant: 'secondary', size: 'row', chevron: true })}
       ${button({ action: 'daily', label: 'Défi quotidien', sub: dailyHint, icon: 'calendar', variant: 'secondary', size: 'row', chevron: true })}
       <div class="btn-row">
-        ${button({ action: 'shop', label: 'Boutique', icon: 'shop', variant: 'secondary', size: 'compact' })}
-        ${button({ action: 'skins', label: 'Apparences', icon: 'rocket', variant: 'secondary', size: 'compact' })}
+        ${button({ action: 'cosmetics', label: 'Cosmétiques', icon: 'shop', variant: 'secondary', size: 'compact' })}
+        ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
       </div>
       <div class="btn-row">
-        ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
+        ${button({ action: 'leaderboard', label: 'Classement', icon: 'podium', variant: 'secondary', size: 'compact' })}
         ${button({ action: 'options', label: 'Options', icon: 'gear', variant: 'secondary', size: 'compact' })}
       </div>
       <p class="small home__help">${homeHelp(touch)}</p>
@@ -139,102 +144,28 @@ export function dailyScreen(save: SaveData, today: string): string {
   </div>`;
 }
 
-// ————————————————————————————————————————————— Apparences et succès
+// ————————————————————————————————————————————— Cosmétiques (vaisseaux, traînées, packs)
 
+export type CosmeticsTab = 'ships' | 'trails' | 'packs';
+export type CosmeticsFilter = 'all' | 'owned' | 'locked';
 
-type SkinState = 'equipped' | 'available' | 'locked';
+export const COSMETIC_TABS: { id: CosmeticsTab; label: string; kind: ItemKind }[] = [
+  { id: 'ships', label: 'Vaisseaux', kind: 'ship' },
+  { id: 'trails', label: 'Traînées', kind: 'trail' },
+  { id: 'packs', label: 'Packs', kind: 'pack' },
+];
 
-const STATE_LABEL: Record<SkinState, string> = { equipped: 'Équipé', available: 'Disponible', locked: 'Verrouillé' };
-
-function skinState(save: SaveData, skin: Skin): SkinState {
-  if (!isSkinOwned(skin, save)) return 'locked';
-  return resolveEquipped(save.skin, save).id === skin.id ? 'equipped' : 'available';
-}
-
-const stateChip = (st: SkinState): string =>
-  `<span class="chip chip--${st}">${st === 'equipped' ? ICONS.check : st === 'locked' ? ICONS.lock : ''}${STATE_LABEL[st]}</span>`;
+export const COSMETIC_FILTERS: { id: CosmeticsFilter; label: string }[] = [
+  { id: 'all', label: 'Tous' },
+  { id: 'owned', label: 'Possédés' },
+  { id: 'locked', label: 'À débloquer' },
+];
 
 /** Miniature d'un vaisseau (sprite recoloré) ; à défaut, une icône. */
 const shipThumb = (id: string): string => {
   const thumb = skinThumb(id);
   return thumb ? `<img src="${thumb}" alt="" width="64" height="64" decoding="async" />` : ICONS.rocket;
 };
-
-function skinCard(save: SaveData, skin: Skin, selected: boolean): string {
-  const st = skinState(save, skin);
-  return `<button class="skin skin--${st}${selected ? ' skin--selected' : ''}" data-action="select-skin" data-skin="${skin.id}" aria-pressed="${selected}" aria-label="${escapeHtml(skin.name)} — ${STATE_LABEL[st].toLowerCase()}">
-    <span class="skin__thumb">${shipThumb(skin.id)}${st === 'locked' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
-    <span class="skin__name">${escapeHtml(skin.name)}</span>
-    ${stateChip(st)}
-  </button>`;
-}
-
-/** Condition de déblocage précise d'une exclusivité de succès. */
-function unlockText(skin: Skin, unlocked: boolean): string {
-  const c = unlockCondition(skin);
-  if (!c) return unlocked ? 'Disponible.' : 'À acheter dans la boutique.';
-  const what = `succès « ${escapeHtml(c.name)} »${c.description ? ` : ${escapeHtml(c.description)}` : ''}`;
-  return unlocked ? `Débloquée par le ${what}` : `Pour la débloquer : ${what}`;
-}
-
-/** Vaisseaux affichés dans Apparences : ceux que l'on possède, et les exclusivités de succès (verrouillées tant que le succès manque). */
-const wardrobe = (save: SaveData): Skin[] => SKINS.filter((k) => isSkinOwned(k, save) || unlockAchievementId(k) !== null);
-
-/** Traînées possédées : sélection rapide sous la grille. */
-function trailRow(save: SaveData): string {
-  const owned = TRAILS.filter((t) => isOwned(save, t.id));
-  const chips = owned
-    .map((t) => {
-      const on = save.trail === t.id;
-      const swatch = t.color === null ? '' : `<i class="swatch" style="background:#${t.color.toString(16).padStart(6, '0')}"></i>`;
-      return `<button class="trail-chip${on ? ' trail-chip--on' : ''}" data-action="equip-item" data-item="${t.id}" aria-pressed="${on}">${swatch}${escapeHtml(t.name)}${on ? ICONS.check : ''}</button>`;
-    })
-    .join('');
-  return `<h3 class="section-title">Traînée</h3><div class="trail-row" role="group" aria-label="Traînée équipée">${chips}</div>`;
-}
-
-function skinsPanel(save: SaveData, head: string, selectedId?: string): string {
-  const equipped = resolveEquipped(save.skin, save);
-  const list = wardrobe(save);
-  const sel = list.find((k) => k.id === selectedId) ?? equipped;
-  const st = skinState(save, sel);
-  const action =
-    st === 'available'
-      ? button({ action: 'equip-skin', label: 'Équiper', icon: 'check', variant: 'primary', attrs: `data-skin="${sel.id}"` })
-      : st === 'equipped'
-        ? button({ action: 'equip-skin', label: 'Équipé', icon: 'check', variant: 'secondary', attrs: 'disabled' })
-        : button({ action: 'equip-skin', label: 'Succès requis', icon: 'lock', variant: 'secondary', attrs: 'disabled' });
-  const cards = list.map((k) => skinCard(save, k, k.id === sel.id)).join('');
-  return `<div class="panel panel--wide">${head}
-    ${walletBar(save.wallet)}
-    <div class="skin-stage">
-      <div class="skin-preview${st === 'locked' ? ' skin-preview--locked' : ''}">
-        <canvas class="skin-preview__canvas" data-skin-preview="${sel.id}" role="img" aria-label="Aperçu de l’apparence ${escapeHtml(sel.name)}"></canvas>
-        ${st === 'locked' ? `<span class="skin-preview__lock">${ICONS.lock}</span>` : ''}
-      </div>
-      <div class="skin-info">
-        <h3 class="skin-info__name">${escapeHtml(sel.name)}</h3>
-        ${stateChip(st)}
-        <p class="skin-info__cond${st === 'locked' ? ' skin-info__cond--locked' : ''}" id="skin-cond">${unlockText(sel, st !== 'locked')}</p>
-        ${action}
-      </div>
-    </div>
-    <div class="skins" role="group" aria-label="Apparences">${cards}</div>
-    ${trailRow(save)}
-    <div class="shop-link">${button({ action: 'shop', label: 'Voir la boutique', icon: 'shop', variant: 'secondary', chevron: true })}</div>
-    <p class="small" style="margin-top:12px">Purement esthétiques : aucune apparence ni traînée ne modifie les performances. Les menaces gardent toujours leurs couleurs.</p>
-  </div>`;
-}
-
-// ————————————————————————————————————————————— Boutique
-
-export type ShopTab = 'ships' | 'trails' | 'packs';
-
-export const SHOP_TABS: { id: ShopTab; label: string; kind: ItemKind }[] = [
-  { id: 'ships', label: 'Vaisseaux', kind: 'ship' },
-  { id: 'trails', label: 'Traînées', kind: 'trail' },
-  { id: 'packs', label: 'Packs', kind: 'pack' },
-];
 
 const KIND_LABEL: Record<ItemKind, string> = { ship: 'Vaisseau', trail: 'Traînée', pack: 'Pack' };
 
@@ -326,11 +257,24 @@ function previewOf(save: SaveData, item: CatalogItem): { skin: string; trail: nu
   return { skin: ship?.id ?? resolveEquipped(save.skin, save).id, trail: trail ? trailColor(save, trail.id) : null };
 }
 
-export function shopScreen(save: SaveData, tab: ShopTab, selectedId?: string): string {
-  const kind = SHOP_TABS.find((t) => t.id === tab)?.kind ?? 'ship';
-  const items = itemsOfKind(kind);
-  // Par défaut : l'article équipé de l'onglet (sinon le premier)
+/** Articles d'une catégorie selon le filtre (possédés ou à débloquer). */
+export function cosmeticItems(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter): CatalogItem[] {
+  const kind = COSMETIC_TABS.find((t) => t.id === tab)?.kind ?? 'ship';
+  return itemsOfKind(kind).filter((i) => (filter === 'all' ? true : filter === 'owned' ? isOwned(save, i.id) : !isOwned(save, i.id)));
+}
+
+/** Menu unique « Cosmétiques » : soldes une seule fois, catégories, filtres, grand aperçu animé, action adaptée. */
+export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string): string {
+  const items = cosmeticItems(save, tab, filter);
+  // Par défaut : l'article équipé de la liste (sinon le premier)
   const sel = items.find((i) => i.id === selectedId) ?? items.find((i) => itemState(save, i) === 'equipped') ?? items[0];
+  const head = `${screenHead('Cosmétiques')}
+    ${walletBar(save.wallet)}
+    ${tabs(COSMETIC_TABS.map((t) => ({ id: t.id, label: t.label, action: `cat-${t.id}` })), tab)}
+    <div class="filters" role="group" aria-label="Filtre">${COSMETIC_FILTERS.map((f) => `<button class="filter${f.id === filter ? ' filter--on' : ''}" data-action="filter-${f.id}" aria-pressed="${f.id === filter}">${f.label}</button>`).join('')}</div>`;
+  if (!sel) {
+    return `<div class="panel panel--wide">${head}<p class="sub" style="margin:18px 0">${filter === 'owned' ? 'Vous ne possédez encore aucun article dans cette catégorie.' : 'Tout est débloqué dans cette catégorie.'}</p></div>`;
+  }
   const st = itemState(save, sel);
   const act = itemAction(save, sel, st);
   const prev = previewOf(save, sel);
@@ -344,11 +288,9 @@ export function shopScreen(save: SaveData, tab: ShopTab, selectedId?: string): s
           })
           .join('')}</ul>`
       : '';
-  const owned = sel.kind === 'pack' ? (sel.contents ?? []).filter((id) => isOwned(save, id)).length : 0;
-  const packNote = owned > 0 && st !== 'owned' ? `<p class="shop-note">Contient ${owned} article${owned > 1 ? 's' : ''} que vous possédez déjà.</p>` : '';
-  return `<div class="panel panel--wide">${screenHead('Boutique')}
-    ${walletBar(save.wallet)}
-    ${tabs(SHOP_TABS.map((t) => ({ id: t.id, label: t.label, action: `tab-shop-${t.id}` })), tab)}
+  const ownedParts = sel.kind === 'pack' ? (sel.contents ?? []).filter((id) => isOwned(save, id)).length : 0;
+  const packNote = ownedParts > 0 && st !== 'owned' ? `<p class="shop-note">Contient ${ownedParts} article${ownedParts > 1 ? 's' : ''} que vous possédez déjà.</p>` : '';
+  return `<div class="panel panel--wide">${head}
     <div class="skin-stage">
       <div class="skin-preview${st === 'achievement' || st === 'soon' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
@@ -365,8 +307,8 @@ export function shopScreen(save: SaveData, tab: ShopTab, selectedId?: string): s
         ${act.button}
       </div>
     </div>
-    <div class="skins" role="group" aria-label="${SHOP_TABS.find((t) => t.id === tab)?.label ?? ''}">${items.map((i) => itemCard(save, i, i.id === sel.id)).join('')}</div>
-    <p class="small" style="margin-top:12px">Les achats sont purement cosmétiques : mêmes vitesses et mêmes hitboxes dans tous les modes. Les Éclats se gagnent en jouant.</p>
+    <div class="skins" role="group" aria-label="${COSMETIC_TABS.find((t) => t.id === tab)?.label ?? ''}">${items.map((i) => itemCard(save, i, i.id === sel.id)).join('')}</div>
+    <p class="small" style="margin-top:12px">Purement cosmétiques : mêmes vitesses et mêmes hitboxes dans tous les modes. Les Éclats se gagnent en jouant et avec les succès.</p>
   </div>`;
 }
 
@@ -375,7 +317,7 @@ export function confirmPurchaseScreen(save: SaveData, itemId: string): string {
   const item = catalogItem(itemId);
   const p = item ? itemPrice(item) : null;
   if (!item || !p) {
-    return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>${button({ action: 'shop', label: 'Retour à la boutique', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
+    return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>${button({ action: 'back-cosmetics', label: 'Retour aux cosmétiques', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
   }
   const bal = balanceOf(save, p.currency);
   return `<div class="panel panel--pause">
@@ -387,29 +329,168 @@ export function confirmPurchaseScreen(save: SaveData, itemId: string): string {
     <div class="confirm__row"><span>Solde après l’achat</span><strong>${formatScore(Math.max(0, bal - p.amount))}</strong></div>
     <div class="btn-stack" style="margin-top:14px">
       ${button({ action: 'confirm-buy', label: 'Confirmer l’achat', icon: 'check', variant: 'primary', attrs: `data-item="${item.id}" data-autofocus` })}
-      ${button({ action: 'shop', label: 'Annuler', variant: 'ghost' })}
+      ${button({ action: 'back-cosmetics', label: 'Annuler', variant: 'ghost' })}
     </div>
   </div>`;
 }
 
-export function collectionScreen(save: SaveData, tab: CollectionTab, selected?: string): string {
-  const count = ACHIEVEMENTS.filter((a) => save.achievements[a.id] !== undefined).length;
-  const head = `${screenHead(tab === 'skins' ? 'Apparences' : 'Succès')}${tabs(
-    [
-      { id: 'skins', label: 'Apparences', action: 'tab-skins' },
-      { id: 'achievements', label: `Succès ${count}/${ACHIEVEMENTS.length}`, action: 'tab-achievements' },
-    ],
-    tab,
-  )}`;
-  if (tab === 'skins') return skinsPanel(save, head, selected);
-  const achs = ACHIEVEMENTS.map((a) => {
-    const done = save.achievements[a.id] !== undefined;
-    const skin = SKINS.find((s) => unlockAchievementId(s) === a.id);
-    return `<div class="ach${done ? ' ach--done' : ''}"><div class="ach__medal">${done ? ICONS.star : ICONS.lock}</div>
-      <div><div class="ach__t">${escapeHtml(a.name)}<span class="sr-only">${done ? ' — obtenu' : ' — à débloquer'}</span></div>
-      <div class="ach__d">${escapeHtml(a.description)}${skin ? ` — apparence « ${escapeHtml(skin.name)} »` : ''}</div></div></div>`;
+// ————————————————————————————————————————————— Succès
+
+/** Valeur d'une grandeur, avec son unité (durées en m:ss). */
+function metricText(key: MetricKey, v: number): string {
+  return key === 'bestSurvival' || key === 'bestDaily' ? formatTime(v, 0) : formatScore(v);
+}
+
+/** Cosmétiques débloqués par un succès, en texte (« Vaisseau Glace »). */
+function cosmeticRewardText(id: string): string {
+  return achievementCosmetics(id)
+    .map((c) => `${KIND_LABEL[c.kind]} ${escapeHtml(c.name)}`)
+    .join(' · ');
+}
+
+/** Menu Succès : progression, récompense (Éclats, cosmétique) et état de chaque succès, par catégorie. */
+export function achievementsScreen(save: SaveData): string {
+  const done = ACHIEVEMENTS.filter((a) => save.achievements[a.id] !== undefined);
+  const earnedShards = done.filter((a) => save.rewarded.includes(a.id)).reduce((t, a) => t + a.shards, 0);
+  const sections = ACHIEVEMENT_CATEGORIES.map((cat) => {
+    const list = ACHIEVEMENTS.filter((a) => a.category === cat.id);
+    const rows = list
+      .map((a) => {
+        const pr = achievementProgress(save, a);
+        const cosm = cosmeticRewardText(a.id);
+        const reward = `<span class="price price--shards">${coin('shards')}<strong>+${formatScore(a.shards)}</strong><span class="price__l">${CURRENCY_NAME.shards}</span></span>${cosm ? `<span class="chip chip--owned">${cosm}</span>` : ''}`;
+        const state = pr.earned
+          ? `<span class="chip chip--equipped">${ICONS.check}Obtenu${pr.rewarded ? ' · récompense reçue' : ''}</span>`
+          : `<div class="ach__bar" role="progressbar" aria-valuemin="0" aria-valuemax="${a.target}" aria-valuenow="${Math.floor(pr.value)}"><i style="width:${Math.round(pr.ratio * 100)}%"></i></div><span class="ach__n">${metricText(a.metric, pr.value)} / ${metricText(a.metric, a.target)}</span>`;
+        return `<div class="ach${pr.earned ? ' ach--done' : ''}"><div class="ach__medal">${pr.earned ? ICONS.star : ICONS.lock}</div>
+          <div class="ach__body"><div class="ach__t">${escapeHtml(a.name)}<span class="sr-only">${pr.earned ? ' — obtenu' : ' — à débloquer'}</span></div>
+          <div class="ach__d">${escapeHtml(a.description)}</div>
+          <div class="ach__state">${state}</div>
+          <div class="ach__reward">${reward}</div></div></div>`;
+      })
+      .join('');
+    const n = list.filter((a) => save.achievements[a.id] !== undefined).length;
+    return `<h3 class="section-title">${cat.label} <span class="section-count">${n}/${list.length}</span></h3>${rows}`;
   }).join('');
-  return `<div class="panel panel--wide">${head}${achs}</div>`;
+  return `<div class="panel panel--wide">${screenHead('Succès')}
+    <div class="stats">${stat('Succès obtenus', `${done.length} / ${ACHIEVEMENTS.length}`, done.length === ACHIEVEMENTS.length)}${stat('Éclats gagnés', formatScore(earnedShards), false)}</div>
+    ${sections}
+  </div>`;
+}
+
+// ————————————————————————————————————————————— Classement mondial
+
+/** État affiché dans le menu Classement (construit par App ; aucune donnée fictive : tout vient du service). */
+export interface LeaderboardView {
+  /** Un service de classement est-il configuré pour cette version du jeu ? */
+  configured: boolean;
+  identity: { nickname: string } | null;
+  /** Chargement du classement en cours, ou erreur réseau. */
+  loading: boolean;
+  error: string | null;
+  top: LeaderboardResponse | null;
+  me: MeResponse | null;
+  balances: BalancesResponse | null;
+  /** Version d'équilibrage affichée. */
+  balance: number;
+  pending: PendingRun[];
+  /** Message sur le dernier pseudo saisi (erreur ou confirmation). */
+  nickMessage: string | null;
+  /** Résultat de Survie local (record actuel). */
+  localBest: { time: number; score: number } | null;
+}
+
+function pendingRow(p: PendingRun): string {
+  const r = p.submission.claimed;
+  let label: string;
+  let cls: string;
+  if (p.status === 'accepted') {
+    label = `Validé par le serveur${p.result ? ` — rang ${p.result.rank}${p.result.personalBest ? ' (nouveau meilleur)' : ''}` : ''}`;
+    cls = 'lb-pending--ok';
+  } else if (p.status === 'rejected') {
+    label = `Non validé — ${p.message ?? 'refusé par le serveur'}`;
+    cls = 'lb-pending--bad';
+  } else {
+    label = p.lastError ? 'En attente de connexion (nouvel essai automatique)' : 'En attente d’envoi';
+    cls = 'lb-pending--wait';
+  }
+  return `<li class="lb-pending ${cls}"><strong>${formatTime(r.time)}</strong> · ${formatScore(r.score)} pts<span>${escapeHtml(label)}</span></li>`;
+}
+
+export function leaderboardScreen(v: LeaderboardView): string {
+  const head = screenHead('Classement');
+  const rules = `<p class="small" style="margin-top:12px">Survie, version d’équilibrage ${v.balance}. Critère principal : durée de survie ; le score départage. Seules les parties <strong>rejouées et validées par le serveur</strong> sont classées ; les parties de démonstration ou de test n’en font jamais partie.</p>`;
+  const local = v.localBest ? `<div class="stats">${stat('Votre record sur cet appareil', formatTime(v.localBest.time))}${stat('Score associé', formatScore(v.localBest.score))}</div>` : '';
+  if (!v.configured) {
+    return `<div class="panel panel--wide">${head}
+      ${notice('Le classement mondial n’est <strong>pas encore activé</strong> : aucun service n’est configuré pour cette version du jeu. Le jeu reste entièrement jouable ; vos records sont enregistrés sur cet appareil. Voir docs/CLASSEMENT.md pour la mise en service.', 'cyan')}
+      ${local}${rules}
+    </div>`;
+  }
+  const nickForm = (action: string, label: string, value: string): string => `<form class="nick-form" data-form="${action}" autocomplete="off" novalidate>
+      <label class="sr-only" for="nick-input">Pseudo</label>
+      <input id="nick-input" class="input" name="nickname" type="text" minlength="3" maxlength="16" value="${escapeHtml(value)}" placeholder="Votre pseudo" spellcheck="false" autocapitalize="off" />
+      ${button({ action, label, icon: 'check', variant: 'primary', size: 'sm', attrs: 'type="submit"' })}
+    </form>`;
+  const identity = v.identity
+    ? `<div class="lb-id"><span class="kind-label">Votre pseudo</span><strong class="lb-id__name">${escapeHtml(v.identity.nickname)}</strong></div>${nickForm('lb-rename', 'Changer', '')}`
+    : `<p class="sub" style="margin:10px 0">Choisissez un pseudo pour participer au classement mondial (3 à 16 caractères, visible par tous).</p>${nickForm('lb-register', 'Créer mon profil', '')}`;
+  const msg = v.nickMessage ? `<p class="shop-note" role="status" id="nick-msg">${escapeHtml(v.nickMessage)}</p>` : '';
+  const me = v.me
+    ? v.me.best
+      ? `<div class="stats">${stat('Votre rang', `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
+      : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé pour la version ${v.balance} : jouez une partie de Survie.</p>`
+    : '';
+  const versions =
+    v.balances && v.balances.versions.length > 0
+      ? `<div class="filters" role="group" aria-label="Version d’équilibrage">${[...new Set([v.balances.current, ...v.balances.versions.map((x) => x.balance)])]
+          .sort((a, b) => b - a)
+          .map((b) => `<button class="filter${b === v.balance ? ' filter--on' : ''}" data-action="lb-balance" data-balance="${b}" aria-pressed="${b === v.balance}">Version ${b}${b === v.balances!.current ? ' (actuelle)' : ' · ancien'}</button>`)
+          .join('')}</div>`
+      : '';
+  let table: string;
+  if (v.loading) table = '<p class="sub" role="status" style="margin:16px 0">Chargement du classement…</p>';
+  else if (v.error) table = `<div role="alert" class="notice">Classement indisponible : ${escapeHtml(v.error)} ${button({ action: 'lb-refresh', label: 'Réessayer', variant: 'secondary', size: 'sm' })}</div>`;
+  else if (!v.top || v.top.entries.length === 0) table = '<p class="sub" style="margin:16px 0">Aucun résultat validé pour cette version pour le moment.</p>';
+  else {
+    table = `<div class="lb-table" role="table" aria-label="Top ${v.top.entries.length}">
+      <div class="lb-row lb-row--head" role="row"><span role="columnheader">#</span><span role="columnheader">Pseudo</span><span role="columnheader">Durée</span><span role="columnheader">Score</span></div>
+      ${v.top.entries.map((e) => `<div class="lb-row${e.you ? ' lb-row--you' : ''}" role="row"><span class="lb-rank">${e.rank}</span><span class="lb-name">${escapeHtml(e.nickname)}${e.you ? ' <em>(vous)</em>' : ''}</span><span>${formatTime(e.time)}</span><span>${formatScore(e.score)}</span></div>`).join('')}
+    </div>
+    <p class="small">${v.top.total} joueur${v.top.total > 1 ? 's' : ''} classé${v.top.total > 1 ? 's' : ''} · top ${v.top.entries.length}</p>`;
+  }
+  const pending = v.pending.length
+    ? `<h3 class="section-title">Mes résultats récents</h3><ul class="lb-pending-list">${v.pending.slice().reverse().map(pendingRow).join('')}</ul>${
+        v.pending.some((p) => p.status === 'pending') ? button({ action: 'lb-flush', label: 'Envoyer maintenant', icon: 'replay', variant: 'secondary', size: 'sm' }) : button({ action: 'lb-clear', label: 'Effacer la liste', variant: 'ghost', size: 'sm' })
+      }`
+    : '';
+  return `<div class="panel panel--wide">${head}
+    ${identity}${msg}${me}${versions}${table}${pending}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
+  </div>`;
+}
+
+/** Statut du résultat mondial de la partie qui vient de finir (écran de résultat de Survie). */
+export type RunLbStatus =
+  | { kind: 'hidden' }
+  | { kind: 'no-identity' }
+  | { kind: 'no-ticket' }
+  | { kind: 'assisted' }
+  | { kind: 'sending' }
+  | { kind: 'pending'; offline: boolean }
+  | { kind: 'accepted'; rank: number; best: boolean }
+  | { kind: 'rejected'; message: string };
+
+export function runLbStatusHtml(st: RunLbStatus): string {
+  switch (st.kind) {
+    case 'hidden': return '';
+    case 'no-identity': return '<p class="lb-status lb-status--info">Classement mondial : choisissez un pseudo dans le menu Classement pour participer.</p>';
+    case 'no-ticket': return '<p class="lb-status lb-status--info">Classement mondial : résultat conservé sur cet appareil seulement (aucun ticket de partie disponible : connectez-vous une fois pour en obtenir).</p>';
+    case 'assisted': return '<p class="lb-status lb-status--info">Classement mondial : partie de démonstration ou de test, non éligible.</p>';
+    case 'sending': return '<p class="lb-status lb-status--wait" role="status">Classement mondial : envoi et validation en cours…</p>';
+    case 'pending': return `<p class="lb-status lb-status--wait" role="status">Classement mondial : <strong>en attente</strong> — ${st.offline ? 'hors connexion, nouvel essai automatique' : 'à envoyer'} (pas encore validé).</p>`;
+    case 'accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial : <strong>validé</strong> — rang ${st.rank}${st.best ? ' (nouveau meilleur résultat)' : ' (votre meilleur reste en place)'}.</p>`;
+    case 'rejected': return `<p class="lb-status lb-status--bad" role="alert">Classement mondial : <strong>non validé</strong> — ${escapeHtml(st.message)}</p>`;
+  }
 }
 
 // ————————————————————————————————————————————— Options
@@ -459,8 +540,8 @@ export function pauseScreen(modeLabel: string): string {
 function achievementsNotice(report: RunReport): string {
   return report.achievements
     .map((a) => {
-      const skin = SKINS.find((s) => unlockAchievementId(s) === a.id);
-      return notice(`Succès : <strong>${escapeHtml(a.name)}</strong>${skin ? ` — apparence « ${escapeHtml(skin.name)} » débloquée` : ''}`);
+      const cosm = cosmeticRewardText(a.id);
+      return notice(`Succès : <strong>${escapeHtml(a.name)}</strong> — <strong>+${formatScore(a.shards)} Éclats</strong>${cosm ? ` · ${cosm} débloqué` : ''}`);
     })
     .join('');
 }
@@ -490,7 +571,7 @@ function rewardsBlock(report: RunReport): string {
 /** Rejouer : bouton principal, actif après la courte protection contre les clics accidentels (`data-replay`). */
 const replayButton = (): string => button({ action: 'replay', label: 'Rejouer', icon: 'replay', variant: 'primary', attrs: 'data-replay disabled' });
 
-export function resultScreen(report: RunReport, hasNextLevel: boolean): string {
+export function resultScreen(report: RunReport, hasNextLevel: boolean, lb: RunLbStatus = { kind: 'hidden' }): string {
   const r = report.run;
   if (r.mode === 'level') {
     const level = LEVELS.find((l) => l.id === r.levelId);
@@ -547,6 +628,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean): string {
       ${record ? stat('Record précédent', formatTime(report.previousBestTime)) : stat(isDaily ? 'Meilleur du jour' : 'Record', formatTime(best))}
       ${stat('Écart avec le record précédent', report.previousBestTime > 0 ? formatDelta(diff) : '—')}
     </div>
+    <div id="lb-status">${runLbStatusHtml(lb)}</div>
     ${rewardsBlock(report)}
     ${report.legacyBestTime > 0 ? `<p class="small" style="margin-top:8px">Ancien équilibrage : ${formatTime(report.legacyBestTime)} (non comparable)</p>` : ''}
     ${achievementsNotice(report)}

@@ -9,6 +9,7 @@ import { survivalProfile } from '../src/modes/profiles';
 import { NullPaymentProvider, getPaymentProvider, premiumAvailable, setPaymentProvider, type PaymentProvider } from '../src/monetization/payments';
 import { applyRun, type RunSummary } from '../src/progression/progress';
 import { creditShards, equip, isOwned, itemState, purchase } from '../src/progression/shop';
+import { ACHIEVEMENTS, achievementById, achievementCosmetics, achievementProgress, metricValue, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
 import { BALANCE_BACKUP_PREFIX, BACKUP_PREFIX, MemoryStore, SAVE_KEY, defaultSave, loadSave, writeSave, type SaveData } from '../src/save/save';
 import { angleDiff, TAU } from '../src/core/math';
 import { Simulation } from '../src/sim/simulation';
@@ -234,27 +235,30 @@ describe('récompenses de niveau', () => {
 
   it('première réussite 50 + 15 par étoile, puis 10 par réussite, sans jamais re-payer une étoile', () => {
     const save = defaultSave();
+    // Les succès (récompensés à part) ajoutent leurs propres Éclats : on suit le solde de niveau séparément
+    let expected = 0;
+    const play = (score: number): ReturnType<typeof applyRun> => {
+      const rep = applyRun(save, win(1, score));
+      expected += rep.levelReward!.total + rep.achievementShards;
+      expect(save.wallet.shards).toBe(expected);
+      return rep;
+    };
     // 1re réussite avec 2 étoiles
-    let rep = applyRun(save, win(1, lv.stars[1]));
+    let rep = play(lv.stars[1]);
     expect(rep.stars).toBe(2);
     expect(rep.levelReward).toEqual({ firstClear: 50, newStars: 2, starReward: 30, repeatClear: 0, total: 80 });
-    expect(save.wallet.shards).toBe(80);
-    expect(rep.shardsBalance).toBe(80);
     // Réussite répétée avec les mêmes étoiles : 10 seulement
-    rep = applyRun(save, win(1, lv.stars[1]));
+    rep = play(lv.stars[1]);
     expect(rep.levelReward).toEqual({ firstClear: 0, newStars: 0, starReward: 0, repeatClear: 10, total: 10 });
-    expect(save.wallet.shards).toBe(90);
     // Meilleur score : 3e étoile payée une fois (15) + 10
-    rep = applyRun(save, win(1, lv.stars[2]));
+    rep = play(lv.stars[2]);
     expect(rep.levelReward).toEqual({ firstClear: 0, newStars: 1, starReward: 15, repeatClear: 10, total: 25 });
-    expect(save.wallet.shards).toBe(115);
     // Plus aucune étoile à gagner
-    rep = applyRun(save, win(1, lv.stars[2]));
+    rep = play(lv.stars[2]);
     expect(rep.levelReward!.total).toBe(10);
     // Un score plus faible ne fait pas payer à nouveau les étoiles
-    rep = applyRun(save, win(1, lv.stars[0]));
+    rep = play(lv.stars[0]);
     expect(rep.levelReward!.total).toBe(10);
-    expect(save.wallet.shards).toBe(135);
     expect(LEVEL_REWARDS).toEqual({ firstClear: 50, perStar: 15, repeatClear: 10 });
   });
 
@@ -262,24 +266,25 @@ describe('récompenses de niveau', () => {
     const save = defaultSave();
     const dead = applyRun(save, { ...win(1, 100), outcome: 'dead' });
     expect(dead.levelReward).toBeNull();
+    const base = save.wallet.shards;
     const surv = applyRun(save, { mode: 'survival', time: 80, score: 5000, cycles: 1, bestMultiplier: 1, outcome: 'dead', shards: 15 });
     expect(surv.levelReward).toBeNull();
-    // Les 15 Éclats ont déjà été crédités à la collecte : applyRun ne les recrédite pas
-    expect(save.wallet.shards).toBe(0);
+    // Les 15 Éclats ont déjà été crédités à la collecte : applyRun ne les recrédite pas (seuls les succès versent leurs récompenses)
+    expect(save.wallet.shards).toBe(base + surv.achievementShards);
     expect(surv.orbitShards).toBe(15);
-    // Rouvrir l'écran de résultat (nouveau rendu du même rapport) ne crédite rien
-    expect(save.wallet.shards).toBe(0);
+    expect(save.stats.totalShards).toBe(15);
   });
 
   it('les Éclats collectés restent acquis à la mort', () => {
     const save = defaultSave();
     expect(creditShards(save, 5)).toBe(5);
     expect(creditShards(save, 5)).toBe(5);
-    applyRun(save, { mode: 'survival', time: 30, score: 800, cycles: 0, bestMultiplier: 1, outcome: 'dead', shards: 10 });
-    expect(save.wallet.shards).toBe(10);
+    const rep = applyRun(save, { mode: 'survival', time: 30, score: 800, cycles: 0, bestMultiplier: 1, outcome: 'dead', shards: 10 });
+    expect(save.wallet.shards).toBe(10 + rep.achievementShards);
+    const kept = save.wallet.shards;
     expect(creditShards(save, -3)).toBe(0);
     expect(creditShards(save, Number.NaN)).toBe(0);
-    expect(save.wallet.shards).toBe(10);
+    expect(save.wallet.shards).toBe(kept);
   });
 });
 
@@ -305,8 +310,11 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     const res = loadSave(store);
     expect(res.status).toBe('migrated');
     const s = res.data;
-    expect(s.version).toBe(3);
-    expect(s.wallet).toEqual({ shards: 0, prisms: 0 });
+    expect(s.version).toBe(4);
+    // Succès déjà obtenus (first_cycle 10 + survive_60 25 + max_combo 40) : récompensés une seule fois à la migration
+    expect(s.wallet).toEqual({ shards: 75, prisms: 0 });
+    expect([...s.rewarded].sort()).toEqual(['first_cycle', 'max_combo', 'survive_60']);
+    expect(s.rewardNotice).toEqual({ shards: 75, count: 3 });
     expect(s.levels['1']).toEqual({ completed: true, bestScore: 52000, stars: 3 });
     expect(s.survival.bestTime).toBe(100);
     expect(s.achievements.max_combo).toBe(3);
@@ -320,7 +328,9 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     expect(s.paid['1']).toEqual({ first: true, stars: 3 });
     expect(s.paid['2']).toEqual({ first: true, stars: 1 });
     expect(s.paid['3']).toEqual({ first: false, stars: 0 });
+    const walletBefore = s.wallet.shards;
     const rep = applyRun(s, { mode: 'level', levelId: 1, time: 90, score: 60000, cycles: 1, bestMultiplier: 1, outcome: 'complete' });
+    expect(s.wallet.shards).toBe(walletBefore + rep.levelReward!.total + rep.achievementShards);
     expect(rep.levelReward!.firstClear).toBe(0);
     expect(rep.levelReward!.repeatClear).toBe(10);
     // Copie de l'ancienne sauvegarde conservée
@@ -334,8 +344,8 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     delete old.balance;
     store.set(SAVE_KEY, JSON.stringify(old));
     const s = loadSave(store).data;
-    expect(s.version).toBe(3);
-    expect(s.wallet.shards).toBe(0);
+    expect(s.version).toBe(4);
+    expect(s.wallet.shards).toBe(75);
     expect(s.owned).toContain('aurore');
   });
 
@@ -535,5 +545,113 @@ describe('catalogue : cohérence', () => {
       return sim.angle;
     };
     expect(run()).toBe(run());
+  });
+});
+
+describe('succès récompensés', () => {
+  const surv = (time: number, extra: Partial<RunSummary> = {}): RunSummary => ({ mode: 'survival', time, score: 1000, cycles: 0, bestMultiplier: 1, outcome: 'dead', ...extra });
+
+  it('configuration : environ 25 succès, identifiants uniques, cinq catégories, récompenses positives', async () => {
+    const { ACHIEVEMENT_CONFIG, ACHIEVEMENT_CATEGORIES } = await import('../src/config/achievements');
+    expect(ACHIEVEMENT_CONFIG.length).toBeGreaterThanOrEqual(24);
+    expect(ACHIEVEMENT_CONFIG.length).toBeLessThanOrEqual(30);
+    expect(new Set(ACHIEVEMENT_CONFIG.map((a) => a.id)).size).toBe(ACHIEVEMENT_CONFIG.length);
+    for (const c of ACHIEVEMENT_CATEGORIES) expect(ACHIEVEMENT_CONFIG.some((a) => a.category === c.id)).toBe(true);
+    for (const a of ACHIEVEMENT_CONFIG) {
+      expect(a.shards).toBeGreaterThan(0);
+      expect(a.target).toBeGreaterThan(0);
+      expect(a.description.length).toBeGreaterThan(5);
+    }
+    // Les 9 succès d'origine sont conservés
+    for (const id of ['first_cycle', 'first_level', 'survive_60', 'max_combo', 'three_stars', 'daily_30', 'survive_300', 'cycles_100', 'all_levels']) {
+      expect(ACHIEVEMENT_CONFIG.some((a) => a.id === id), id).toBe(true);
+    }
+    // Objectifs progressifs : durées, cycles, événements, étoiles, Éclats collectés au total
+    const metrics = new Set(ACHIEVEMENT_CONFIG.map((a) => a.metric));
+    for (const m of ['bestSurvival', 'totalCycles', 'totalEvents', 'totalStars', 'totalShards'] as const) expect(metrics.has(m), m).toBe(true);
+  });
+
+  it('aucun objectif ne demande de dépenser : « Éclats collectés » compte les gains, pas le solde', () => {
+    const save = defaultSave();
+    save.wallet.shards = 5000;
+    expect(metricValue(save, 'totalShards')).toBe(0);
+    // Dépenser n'avance ni ne recule aucun succès
+    const before = ACHIEVEMENTS.map((a) => metricValue(save, a.metric));
+    purchase(save, 'aurore');
+    expect(ACHIEVEMENTS.map((a) => metricValue(save, a.metric))).toEqual(before);
+    expect(ACHIEVEMENTS.some((a) => /dépens|achet/i.test(a.description))).toBe(false);
+  });
+
+  it('chaque succès verse ses Éclats une seule fois', () => {
+    const save = defaultSave();
+    const rep = applyRun(save, surv(130, { cycles: 1 }));
+    const ids = rep.achievements.map((a) => a.id);
+    expect(ids).toEqual(expect.arrayContaining(['first_cycle', 'first_survival', 'survive_60', 'survive_120']));
+    const expected = rep.achievements.reduce((t, a) => t + a.shards, 0);
+    expect(rep.achievementShards).toBe(expected);
+    expect(save.wallet.shards).toBe(expected);
+    expect(save.rewarded.sort()).toEqual([...ids].sort());
+    // Même objectif atteint de nouveau : rien de plus
+    const rep2 = applyRun(save, surv(140));
+    expect(rep2.achievements.map((a) => a.id)).not.toContain('survive_60');
+    expect(save.wallet.shards).toBe(expected + rep2.achievementShards);
+    // Registre : un identifiant déjà versé n'est jamais re-versé, même si on appelle le déblocage plusieurs fois
+    const w = save.wallet.shards;
+    expect(unlockAchievements(save, undefined, 1)).toEqual([]);
+    expect(unlockAchievements(save, undefined, 2)).toEqual([]);
+    expect(save.wallet.shards).toBe(w);
+  });
+
+  it('objectifs cumulés : événements, Éclats collectés, cycles et étoiles', () => {
+    const save = defaultSave();
+    applyRun(save, surv(50, { events: 1, shards: 20 }));
+    expect(save.achievements.first_event).toBeDefined();
+    expect(save.achievements.shards_50).toBeUndefined();
+    applyRun(save, surv(50, { events: 9, shards: 35 }));
+    expect(save.stats.totalEvents).toBe(10);
+    expect(save.stats.totalShards).toBe(55);
+    expect(save.achievements.events_10).toBeDefined();
+    expect(save.achievements.shards_50).toBeDefined();
+    expect(save.achievements.shards_250).toBeUndefined();
+    const p = achievementProgress(save, achievementById('shards_250')!);
+    expect(p).toMatchObject({ value: 55, target: 250, earned: false });
+    expect(p.ratio).toBeCloseTo(55 / 250, 10);
+  });
+
+  it('succès débloquant un cosmétique : possédé dès le succès obtenu', () => {
+    const save = defaultSave();
+    expect(isOwned(save, 'solaire')).toBe(false);
+    applyRun(save, surv(305));
+    expect(isOwned(save, 'solaire')).toBe(true);
+    expect(achievementCosmetics('survive_300').map((c) => c.id)).toEqual(['solaire']);
+    expect(achievementCosmetics('shards_250').map((c) => c.id)).toEqual(['citron']);
+    expect(achievementCosmetics('events_30').map((c) => c.id)).toEqual(['boreale']);
+  });
+
+  it('migration : succès déjà obtenus récompensés une seule fois, notification, puis rechargement stable', () => {
+    const store = new MemoryStore();
+    store.set(SAVE_KEY, JSON.stringify({ version: 3, balance: 3, levels: {}, survival: { bestTime: 0, bestScore: 0, runs: 0 }, daily: {}, archive: {}, balanceNoticeSeen: 3, achievements: { first_cycle: 1, survive_300: 2 }, skin: 'classique', trail: 'auto', wallet: { shards: 40, prisms: 0 }, owned: [], paid: {}, options: { muted: false, volume: 0.7, reducedEffects: false, tutorialSeen: true }, seenIntros: [], stats: { totalCycles: 5, totalRuns: 3 } }));
+    const first = loadSave(store);
+    expect(first.status).toBe('migrated');
+    // 40 (existant) + 10 (first_cycle) + 100 (survive_300)
+    expect(first.data.wallet.shards).toBe(150);
+    expect(first.data.rewarded.sort()).toEqual(['first_cycle', 'survive_300']);
+    expect(first.data.rewardNotice).toEqual({ shards: 110, count: 2 });
+    expect(first.data.stats).toMatchObject({ totalCycles: 5, totalRuns: 3, totalShards: 0, totalEvents: 0 });
+    writeSave(store, first.data);
+    // Rechargement : aucune seconde récompense
+    const second = loadSave(store);
+    expect(second.status).toBe('ok');
+    expect(second.data.wallet.shards).toBe(150);
+    expect(second.data).toEqual(first.data);
+    // Rattrapage des nouveaux objectifs déjà atteints : une seule fois
+    const data = second.data;
+    data.survival.bestTime = 130;
+    const gained = reconcileAchievements(data, 5);
+    expect(gained.map((a) => a.id).sort()).toEqual(['survive_120', 'survive_60']);
+    const w = data.wallet.shards;
+    expect(reconcileAchievements(data, 6)).toEqual([]);
+    expect(data.wallet.shards).toBe(w);
+    expect(data.rewardNotice!.count).toBe(2 + gained.length);
   });
 });

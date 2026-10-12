@@ -23,6 +23,7 @@ export const ICONS = {
   help: svg('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.2 1-1.2 1.9M12 17v.2"/>'),
   trash: svg('<path d="M5 7h14M10 7V4.5h4V7M7 7l1 13h8l1-13M10.5 11v5M13.5 11v5"/>'),
   shop: svg('<path d="M5 8.5h14l-1.2 11H6.2z"/><path d="M9 8.5V7a3 3 0 0 1 6 0v1.5"/><path d="M9.5 13.2a2.5 2.5 0 0 0 5 0"/>'),
+  podium: svg('<path d="M4 20h16M5 20v-6h4v6M10 20V8h4v12M15 20v-9h4v9"/><path d="M12 3.2l.8 1.7 1.8.3-1.3 1.2.3 1.8-1.6-.9-1.6.9.3-1.8-1.3-1.2 1.8-.3z" fill="currentColor" stroke="none"/>'),
   home: svg('<path d="M4 11l8-7 8 7M6 10v10h12V10"/>'),
   replay: svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.6-5.7M4.5 4.5v4h4"/>'),
   /** Étoile pleine (progression, record). */

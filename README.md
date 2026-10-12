@@ -12,7 +12,8 @@ les six balises pour enchaîner les cycles et faire monter le multiplicateur.
   annoncés 2 s avant, suivis de 3 s de respiration. Trois dangers s'y ajoutent peu à peu : **astéroïde fragmenté**, **convoi d'astéroïdes**, **laser balayeur**.
 - **Défi quotidien** : règles de la Survie, mêmes motifs et mêmes événements (graine = date UTC) pour tous. Meilleur résultat conservé par date.
 - **Éclats et boutique** : en Survie, un éclat apparaît 5 s sur l'orbite (+5 Éclats), les niveaux rapportent 50 / +15 par étoile / 10 ; les Éclats achètent des vaisseaux, traînées et packs cosmétiques. Les Prismes (monnaie premium) sont préparés mais **non achetables** (« Bientôt disponible »). Voir `docs/ECONOMIE.md`.
-- **Apparences et succès** : 9 succès, 7 apparences purement cosmétiques (coque, ailes, cockpit et réacteur de couleurs différentes, même hitbox). Menu avec grand aperçu animé, cartes *Équipé / Disponible / Verrouillé*, bouton « Équiper » et condition de déblocage précise (`docs/APPARENCES.md`).
+- **Cosmétiques** : un seul menu (Vaisseaux / Traînées / Packs, filtres Tous / Possédés / À débloquer, aperçu animé, achat ou équipement, soldes une seule fois). **Succès** : 27 objectifs progressifs (découverte, Survie, niveaux, collectes, maîtrise), chacun rapporte des Éclats (versés une fois, avec notification) ; certains débloquent un cosmétique. **Classement mondial** (Survie) : intégration prête (profil à pseudo, top 100, résultats validés par rejeu serveur) mais **non opérationnel tant qu'aucun service n'est déployé** (`docs/CLASSEMENT.md`).
+- **Apparences et succès (v1.4)** : 9 succès, 7 apparences purement cosmétiques (coque, ailes, cockpit et réacteur de couleurs différentes, même hitbox). Menu avec grand aperçu animé, cartes *Équipé / Disponible / Verrouillé*, bouton « Équiper » et condition de déblocage précise (`docs/APPARENCES.md`).
 
 Style graphique « Néon premium » (v1.1) : vrai vaisseau blanc/argent à cockpit cyan et astéroïdes rocheux aux fissures orange,
 en sprites ; réacteur, traînées, étincelles et impact sont générés par code (voir `docs/ASSETS.md`).
@@ -54,6 +55,8 @@ npm run typecheck  # TypeScript
 npm test           # tests unitaires (Vitest)
 npm run check      # typecheck + tests + build
 npm run e2e        # test navigateur Chromium (Playwright requis, non inclus) après npm run build
+npm run e2e:classement  # classement mondial : vrai serveur local + navigateur
+npm run server     # service de classement (voir docs/CLASSEMENT.md ; Node 22.13+)
 npm run sim        # outil d'équilibrage : bots sur les 12 niveaux, courbe et mix de motifs de la Survie
 npm run cost       # coût du directeur de vagues (validateur d'évitement inclus)
 npm run perf       # coût processeur en émulation mobile (node scripts/perf.mjs --dist <dossier> pour comparer deux builds)
@@ -103,7 +106,7 @@ effacement de la progression (avec confirmation). Les options sont sauvegardées
 
 ## Structure
 
-Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/INTERFACE.md` (direction artistique, thème, écrans), `docs/APPARENCES.md` (ajouter une apparence), `docs/ECONOMIE.md` (Éclats, Prismes, boutique), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
+Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/INTERFACE.md` (direction artistique, thème, écrans), `docs/APPARENCES.md` (ajouter une apparence), `docs/ECONOMIE.md` (Éclats, Prismes, boutique, succès), `docs/CLASSEMENT.md` (classement mondial : architecture, triche, mise en service), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
 `docs/MONETISATION.md` (pistes de rentabilité). Suivi : `PROGRESS.md`, reprise : `RESUME.md`.
 
 ## Limites connues

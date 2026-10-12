@@ -43,6 +43,8 @@ export class InputController {
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     this.h.firstInteraction();
+    // Saisie de texte (pseudo du classement) : les touches appartiennent au champ, pas au jeu
+    if (isEditable(e.target)) return;
     if (e.code === 'Space' || e.key === ' ') {
       if (!this.h.inGame()) return;
       e.preventDefault();
@@ -57,6 +59,13 @@ export class InputController {
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
+    if (isEditable(e.target)) return;
     if ((e.code === 'Space' || e.key === ' ') && this.h.inGame()) e.preventDefault();
   };
+}
+
+function isEditable(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null;
+  if (!el || !el.tagName) return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable === true;
 }

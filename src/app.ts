@@ -10,6 +10,7 @@ import { GameSession } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
+import { reconcileAchievements } from './progression/achievements';
 import { creditShards, equip, isOwned, purchase } from './progression/shop';
 import { resolveEquipped, skinById } from './progression/skins';
 import { DEFAULT_TRAIL_ID } from './config/trails';
@@ -18,6 +19,8 @@ import { BrowserStore, defaultSave, eraseAll, loadSave, writeSave, type KeyValue
 import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
+import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
+import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
 import { escapeHtml } from './ui/format';
 import { Hud } from './ui/hud';
 import { bannerHelp, isTouchPrimary } from './ui/controls';
@@ -25,13 +28,27 @@ import { ShipPreview } from './ui/shipPreview';
 import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 
-type ScreenId = 'home' | 'levels' | 'daily' | 'skins' | 'shop' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
 
 /**
  * Chef d'orchestre : écrans, partie en cours, sauvegarde, son et rendu.
  */
 export class App {
   private readonly store: KeyValueStore = new BrowserStore();
+  /** Classement mondial (service facultatif ; le jeu reste jouable hors ligne). */
+  readonly lb = new LeaderboardClient({ baseUrl: LEADERBOARD_URL, store: this.store, balance: BALANCE_VERSION, build: __APP_VERSION__ });
+  /** ?demo (joueur automatique) ou ?debug : jamais éligible au classement. */
+  private readonly devMode = new URLSearchParams(location.search).has('demo') || new URLSearchParams(location.search).has('debug');
+  private nextTicket: Ticket | null = null;
+  private runTicket: Ticket | null = null;
+  private runLb: S.RunLbStatus = { kind: 'hidden' };
+  private lbBalance = BALANCE_VERSION;
+  private lbLoading = false;
+  private lbError: string | null = null;
+  private lbTop: LeaderboardResponse | null = null;
+  private lbMe: MeResponse | null = null;
+  private lbBalances: BalancesResponse | null = null;
+  private lbNickMessage: string | null = null;
   save: SaveData;
   private readonly sfx = new Sfx();
   private readonly hud = new Hud();
@@ -48,11 +65,9 @@ export class App {
   private bannerTimer = 0;
   private bannerKind: 'event' | 'info' | null = null;
   private space: SpaceBackground | null = null;
-  private collectionTab: S.CollectionTab = 'skins';
-  /** Apparence affichée dans l'aperçu du menu (null = celle qui est équipée). */
-  private selectedSkin: string | null = null;
   private reducedMotion = false;
-  private shopTab: S.ShopTab = 'ships';
+  private cosmeticsTab: S.CosmeticsTab = 'ships';
+  private cosmeticsFilter: S.CosmeticsFilter = 'all';
   private selectedItem: string | null = null;
   private pendingPurchase: string | null = null;
   /** Éclats déjà crédités pendant la partie en cours (chaque éclat n'est crédité qu'une fois). */
@@ -75,6 +90,8 @@ export class App {
     // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
     this.save.skin = resolveEquipped(this.save.skin, this.save).id;
     if (!isOwned(this.save, this.save.trail)) this.save.trail = DEFAULT_TRAIL_ID;
+    // Nouveaux objectifs déjà atteints grâce à la progression existante : succès débloqués et récompensés une seule fois
+    if (reconcileAchievements(this.save).length > 0) this.persist();
   }
 
   // ————————————————————————————————————————————— démarrage
@@ -99,6 +116,18 @@ export class App {
     document.getElementById('btn-pause')!.addEventListener('pointerdown', (e) => e.preventDefault());
     this.screenEl.addEventListener('click', this.onScreenClick);
     this.screenEl.addEventListener('input', this.onScreenInput);
+    this.screenEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const kind = (e.target as HTMLElement).dataset.form;
+      if (kind === 'lb-register' || kind === 'lb-rename') void this.submitNickname(kind);
+    });
+    // Retour en ligne : envoi des résultats en attente et renouvellement des tickets
+    window.addEventListener('online', () => {
+      void this.lb.flush();
+      void this.lb.ensureTickets();
+    });
+    void this.lb.flush();
+    void this.lb.ensureTickets();
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         this.pause();
@@ -235,6 +264,9 @@ export class App {
   startRun(cfg: RunConfig): void {
     this.endSession();
     this.lastConfig = cfg;
+    this.runTicket = cfg.mode === 'survival' ? this.nextTicket : null;
+    this.nextTicket = null;
+    this.runLb = { kind: 'hidden' };
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.showScreen(null);
     this.renderer?.clearEffects();
@@ -306,7 +338,7 @@ export class App {
       return;
     }
     if (this.screen === 'confirm-purchase') {
-      this.showScreen('shop');
+      this.showScreen('cosmetics');
       return;
     }
     if (this.screen && this.screen !== 'home' && this.screen !== 'result') this.showScreen('home');
@@ -415,6 +447,7 @@ export class App {
     if (s !== this.session) return;
     const report = applyRun(this.save, summary);
     this.persist();
+    if (summary.mode === 'survival') this.afterSurvivalRun(summary, s);
     this.hud.show(false);
     this.hideBanner();
     this.showResult(report);
@@ -424,7 +457,7 @@ export class App {
     const lvl = report.run.levelId;
     const hasNext = report.run.mode === 'level' && lvl !== undefined && LEVELS.some((l) => l.id === lvl + 1);
     this.screen = 'result';
-    this.screenEl.innerHTML = S.resultScreen(report, hasNext && isLevelUnlocked(this.save, (lvl ?? 0) + 1));
+    this.screenEl.innerHTML = S.resultScreen(report, hasNext && isLevelUnlocked(this.save, (lvl ?? 0) + 1), this.runLb);
     this.screenEl.classList.remove('hidden');
     this.screenEl.classList.add('dim');
     this.screenEl.scrollTop = 0;
@@ -451,8 +484,9 @@ export class App {
       case 'home': html = S.homeScreen(this.save, today, isTouchPrimary()); break;
       case 'levels': html = S.levelsScreen(this.save); break;
       case 'daily': html = S.dailyScreen(this.save, today); break;
-      case 'skins': html = S.collectionScreen(this.save, this.collectionTab, this.selectedSkin ?? undefined); break;
-      case 'shop': html = S.shopScreen(this.save, this.shopTab, this.selectedItem ?? undefined); break;
+      case 'cosmetics': html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined); break;
+      case 'achievements': html = S.achievementsScreen(this.save); break;
+      case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
       case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? ''); break;
       case 'options': html = S.optionsScreen(this.save); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
@@ -495,12 +529,23 @@ export class App {
       case 'home': this.showScreen('home'); break;
       case 'levels': this.showScreen('levels'); break;
       case 'daily': this.showScreen('daily'); break;
-      case 'skins': this.collectionTab = 'skins'; this.selectedSkin = null; this.showScreen('skins'); break;
-      case 'achievements': this.collectionTab = 'achievements'; this.showScreen('skins'); break;
-      case 'tab-skins': this.collectionTab = 'skins'; this.showScreen('skins', false); break;
-      case 'tab-achievements': this.collectionTab = 'achievements'; this.showScreen('skins', false); break;
+      case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); break;
+      case 'back-cosmetics': this.pendingPurchase = null; this.showScreen('cosmetics'); break;
+      case 'achievements': this.showScreen('achievements'); break;
+      case 'leaderboard': this.openLeaderboard(); break;
+      case 'lb-refresh': void this.refreshLeaderboard(); break;
+      case 'lb-flush': void this.refreshLeaderboard(); break;
+      case 'lb-clear': this.lb.clearDone(); this.rerenderLeaderboard(); break;
+      case 'lb-balance':
+        this.lbBalance = Number(target.dataset.balance) || BALANCE_VERSION;
+        void this.refreshLeaderboard();
+        break;
+      // Les formulaires de pseudo sont traités à l'envoi (touche Entrée comprise), pas au clic
+      case 'lb-register':
+      case 'lb-rename':
+        break;
       case 'options': this.showScreen('options'); break;
-      case 'survival': this.startRun({ mode: 'survival', seed: randomSeed() }); break;
+      case 'survival': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
       case 'play-daily': {
         const date = utcDateString();
         this.startRun({ mode: 'daily', seed: 0, date });
@@ -523,36 +568,35 @@ export class App {
         break;
       case 'resume': this.resume(); break;
       case 'quit': this.showScreen('home'); break;
-      case 'select-skin': {
+      case 'cat-ships':
+      case 'cat-trails':
+      case 'cat-packs':
+        this.cosmeticsTab = action.slice('cat-'.length) as S.CosmeticsTab;
+        this.selectedItem = null;
+        this.showScreen('cosmetics', false);
+        break;
+      case 'filter-all':
+      case 'filter-owned':
+      case 'filter-locked':
+        this.cosmeticsFilter = action.slice('filter-'.length) as S.CosmeticsFilter;
+        this.selectedItem = null;
+        this.showScreen('cosmetics', false);
+        break;
+      case 'select-item':
         // Affiche l'aperçu de la carte choisie (sans l'équiper) et le ramène à l'écran s'il est hors de vue
-        this.selectedSkin = skinById(target.dataset.skin ?? '').id;
-        this.showScreen('skins', false);
+        this.selectedItem = target.dataset.item ?? null;
+        this.showScreen('cosmetics', false);
         this.screenEl.querySelector('.skin-stage')?.scrollIntoView({ block: 'nearest', behavior: this.reducedMotion ? 'auto' : 'smooth' });
         break;
-      }
-      case 'equip-skin':
       case 'equip-item': {
-        const id = target.dataset.skin ?? target.dataset.item ?? '';
+        const id = target.dataset.item ?? '';
         if (equip(this.save, id)) {
-          if (action === 'equip-skin') this.selectedSkin = id;
+          this.selectedItem = id;
           this.persist();
-          this.showScreen(this.screen === 'shop' ? 'shop' : 'skins', false);
+          this.showScreen('cosmetics', false);
         }
         break;
       }
-      case 'shop': this.pendingPurchase = null; this.showScreen('shop'); break;
-      case 'tab-shop-ships':
-      case 'tab-shop-trails':
-      case 'tab-shop-packs':
-        this.shopTab = action.slice('tab-shop-'.length) as S.ShopTab;
-        this.selectedItem = null;
-        this.showScreen('shop', false);
-        break;
-      case 'select-item':
-        this.selectedItem = target.dataset.item ?? null;
-        this.showScreen('shop', false);
-        this.screenEl.querySelector('.skin-stage')?.scrollIntoView({ block: 'nearest', behavior: this.reducedMotion ? 'auto' : 'smooth' });
-        break;
       case 'buy':
         // Étape de confirmation : rien n'est débité ici
         this.pendingPurchase = target.dataset.item ?? null;
@@ -567,7 +611,7 @@ export class App {
           this.selectedItem = res.item.id;
         }
         this.pendingPurchase = null;
-        this.showScreen('shop');
+        this.showScreen('cosmetics');
         break;
       }
       case 'toggle-sound':
@@ -590,6 +634,11 @@ export class App {
         break;
       case 'dismiss-notice':
         this.save.balanceNoticeSeen = BALANCE_VERSION;
+        this.persist();
+        this.showScreen('home', false);
+        break;
+      case 'dismiss-reward-notice':
+        this.save.rewardNotice = null;
         this.persist();
         this.showScreen('home', false);
         break;
@@ -629,9 +678,121 @@ export class App {
   };
 
   /** Nouvelle tentative : nouvelle graine (sauf défi, dont la graine est celle du jour). */
+  // ————————————————————————————————————————————— classement mondial
+
+  /**
+   * Fin d'une partie de Survie : si elle est éligible (graine d'un ticket, aucune aide de test), son journal d'entrées est
+   * conservé « en attente » puis envoyé ; le serveur la rejoue et décide. Rien n'est classé tant que le serveur n'a pas validé.
+   */
+  private afterSurvivalRun(summary: RunSummary, s: GameSession): void {
+    this.runLb = { kind: 'hidden' };
+    if (!this.lb.configured) return;
+    if (this.devMode || s.sim.assisted) this.runLb = { kind: 'assisted' };
+    else if (!this.lb.identity()) this.runLb = { kind: 'no-identity' };
+    else if (!this.runTicket) this.runLb = { kind: 'no-ticket' };
+    else {
+      const ticket = this.runTicket;
+      this.lb.recordRun(ticket, s.sim.flipLog, { time: summary.time, score: summary.score });
+      this.runLb = { kind: 'sending' };
+      void this.lb.flush().then((list) => {
+        const p = list.find((x) => x.id === ticket.id);
+        this.runLb = this.statusOf(p);
+        this.refreshRunLbStatus();
+        if (this.screen === 'leaderboard') void this.refreshLeaderboard();
+      });
+    }
+    this.runTicket = null;
+  }
+
+  private statusOf(p: PendingRun | undefined): S.RunLbStatus {
+    if (!p) return { kind: 'hidden' };
+    if (p.status === 'accepted' && p.result) return { kind: 'accepted', rank: p.result.rank, best: p.result.personalBest };
+    if (p.status === 'rejected') return { kind: 'rejected', message: p.message ?? 'refusé par le serveur' };
+    return { kind: 'pending', offline: !!p.lastError };
+  }
+
+  /** Met à jour la ligne de statut du résultat sans recréer l'écran (aucun crédit, aucune animation rejouée). */
+  private refreshRunLbStatus(): void {
+    if (this.screen !== 'result') return;
+    const el = this.screenEl.querySelector('#lb-status');
+    if (el) el.innerHTML = S.runLbStatusHtml(this.runLb);
+  }
+
+  private leaderboardView(): S.LeaderboardView {
+    const id = this.lb.identity();
+    return {
+      configured: this.lb.configured,
+      identity: id ? { nickname: id.nickname } : null,
+      loading: this.lbLoading,
+      error: this.lbError,
+      top: this.lbTop,
+      me: this.lbMe,
+      balances: this.lbBalances,
+      balance: this.lbBalance,
+      pending: this.lb.pending(),
+      nickMessage: this.lbNickMessage,
+      localBest: this.save.survival.bestTime > 0 ? { time: this.save.survival.bestTime, score: this.save.survival.bestScore } : null,
+    };
+  }
+
+  private rerenderLeaderboard(): void {
+    if (this.screen !== 'leaderboard') return;
+    const keep = (this.screenEl.querySelector('#nick-input') as HTMLInputElement | null)?.value;
+    this.showScreen('leaderboard', false);
+    const input = this.screenEl.querySelector('#nick-input') as HTMLInputElement | null;
+    if (input && keep) input.value = keep;
+  }
+
+  /** Ouvre le menu puis charge le classement (envoie d'abord les résultats en attente). */
+  private openLeaderboard(): void {
+    this.lbNickMessage = null;
+    this.showScreen('leaderboard');
+    void this.refreshLeaderboard();
+  }
+
+  private async refreshLeaderboard(): Promise<void> {
+    if (!this.lb.configured) return;
+    this.lbLoading = true;
+    this.lbError = null;
+    this.rerenderLeaderboard();
+    await this.lb.flush();
+    void this.lb.ensureTickets();
+    const [top, me, balances] = await Promise.all([this.lb.top(this.lbBalance), this.lb.identity() ? this.lb.me(this.lbBalance) : Promise.resolve(null), this.lb.balances()]);
+    this.lbLoading = false;
+    if (top.ok) {
+      this.lbTop = top.data;
+      this.lbError = null;
+    } else {
+      this.lbTop = null;
+      this.lbError = top.message;
+    }
+    this.lbMe = me && me.ok ? me.data : null;
+    this.lbBalances = balances.ok ? balances.data : this.lbBalances;
+    this.rerenderLeaderboard();
+  }
+
+  private async submitNickname(kind: 'lb-register' | 'lb-rename'): Promise<void> {
+    const input = this.screenEl.querySelector('#nick-input') as HTMLInputElement | null;
+    const res = kind === 'lb-register' ? await this.lb.register(input?.value ?? '') : await this.lb.rename(input?.value ?? '');
+    this.lbNickMessage = res.ok ? `Pseudo enregistré : ${res.data.nickname}` : res.message;
+    if (res.ok) void this.lb.ensureTickets();
+    this.rerenderLeaderboard();
+    if (res.ok) void this.refreshLeaderboard();
+  }
+
   private freshConfig(cfg: RunConfig): RunConfig {
     if (cfg.mode === 'daily') return { ...cfg, date: utcDateString() };
-    return { ...cfg, seed: randomSeed() };
+    return { ...cfg, seed: cfg.mode === 'survival' ? this.survivalSeed() : randomSeed() };
+  }
+
+  /**
+   * Graine d'une partie de Survie : celle d'un ticket du classement si disponible (graine attribuée par le serveur, ce qui rend
+   * la partie éligible au classement mondial), sinon une graine locale (résultat conservé sur l'appareil).
+   */
+  private survivalSeed(): number {
+    this.nextTicket = this.devMode ? null : this.lb.takeTicket();
+    if (this.nextTicket) void this.lb.ensureTickets();
+    return this.nextTicket?.seed ?? randomSeed();
   }
 
   private banner(html: string, seconds: number): void {

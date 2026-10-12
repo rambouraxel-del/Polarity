@@ -21,3 +21,7 @@ avec `npm run sim`, tests de non-régression de la sauvegarde.
 L'économie (v1.5) fournit le solde d'Éclats, les achats atomiques et le catalogue. Une future campagne pourrait proposer des améliorations achetées en Éclats ;
 à définir : nature des améliorations (sans toucher aux interdits de conception : pas de statistiques de vaisseau ni d'avantage de survie), rattachement à `BALANCE_VERSION`,
 migration de sauvegarde. **Non implémenté** dans cette version.
+
+## Classement : durcissement anti-triche (pistes)
+Le rejeu serveur garantit la cohérence avec les règles, pas l'humanité du joueur (voir `docs/CLASSEMENT.md`). Pistes : temps minimal entre ticket et soumission, détection statistique d'entrées trop régulières,
+signalements, comptes vérifiés, files de rejeu et threads de travail pour la montée en charge.

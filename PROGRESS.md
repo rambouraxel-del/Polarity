@@ -17,6 +17,13 @@
 - [x] Version d'équilibrage 3 : records v1.1 archivés à part (v1.0 intacts), copie `polarite.save.avant-eq2`, information unique à l'accueil ; progression préservée
 - [x] 218 tests, e2e étendu (paliers de vitesse, pause à l'annonce, événements, nouveaux motifs), mesure de performance, documentation (`docs/EQUILIBRAGE.md`, `docs/ROADMAP.md`)
 
+## v1.6 — Cosmétiques, succès récompensés, classement mondial (intégration terminée ; service non déployé)
+- [x] Menu **Cosmétiques** (Apparences + Boutique fusionnés) : catégories Vaisseaux / Traînées / Packs, filtres Tous / Possédés / À débloquer, aperçu animé, actions Acheter / Équiper / Équipé / Succès requis ; soldes une seule fois ; possessions et équipements préservés
+- [x] **27 succès** (découverte, Survie, niveaux, collectes, maîtrise) centralisés (`config/achievements.ts`), objectifs progressifs sans dépense, récompense en Éclats versée une seule fois (notification + sauvegarde), 2 traînées exclusives ; migration (sauvegarde format 4) : succès déjà obtenus récompensés une fois
+- [x] **Classement mondial** de Survie : service Node + SQLite (`server/`), identité stable + authentification par secret, tickets de graine signés, **validation par rejeu** (graine + journal des entrées), top 100, résultats séparés par version d'équilibrage (anciens conservés), parties démo/debug exclues, mode hors ligne (résultat « en attente » / « non validé » signalé), aucun secret dans le jeu
+- [ ] **Mise en service du classement** : héberger le service, définir `TICKET_SECRET` / `ALLOWED_ORIGINS`, renseigner la variable `LEADERBOARD_URL` du dépôt (voir `docs/CLASSEMENT.md`) — **non fait** : le classement n'est pas opérationnel tant que ce n'est pas fait
+- [x] Tests (250 unitaires dont 29 de classement), e2e (cosmétiques, succès, migration) et `e2e:classement` (vrai serveur local), documentation (`docs/CLASSEMENT.md`)
+
 ## v1.5 — économie : Éclats, Prismes, boutique (terminée)
 - [x] Éclat sur l'orbite en Survie (5 s, un seul à la fois, 15–25 s entre deux, +5 Éclats) : générateur dédié, emplacement accessible avec la vitesse réelle, pause respectée, crédit unique et immédiat, visible sur toutes les couleurs d'orbite
 - [x] Récompenses de niveau (50 / 15 par étoile / 10), registre anti-doublon, détail au résultat ; sauvegarde format 3 avec migration sans crédit rétroactif

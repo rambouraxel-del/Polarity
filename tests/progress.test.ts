@@ -171,7 +171,7 @@ describe('Migration de la sauvegarde v1.0 → v1.1', () => {
     expect(res.data.skin).toBe('aurore');
     expect(res.data.options).toEqual(V1_SAVE.options);
     expect(res.data.seenIntros).toEqual(V1_SAVE.seenIntros);
-    expect(res.data.stats).toEqual(V1_SAVE.stats);
+    expect(res.data.stats).toMatchObject(V1_SAVE.stats);
     expect(isLevelUnlocked(res.data, 3)).toBe(true);
   });
 
@@ -291,7 +291,7 @@ describe('Migration de la sauvegarde v1.1 → v1.2 (équilibrage 3)', () => {
     expect(res.data.skin).toBe('glace');
     expect(res.data.options).toEqual(V2_SAVE.options);
     expect(res.data.seenIntros).toEqual(V2_SAVE.seenIntros);
-    expect(res.data.stats).toEqual(V2_SAVE.stats);
+    expect(res.data.stats).toMatchObject(V2_SAVE.stats);
     expect(isLevelUnlocked(res.data, 4)).toBe(true);
   });
 

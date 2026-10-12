@@ -1,7 +1,7 @@
 import { LEVEL_REWARDS } from '../config/economy';
 import { LEVELS, levelById, type LevelDef } from '../config/levels';
 import { pruneDaily, type SaveData } from '../save/save';
-import { ACHIEVEMENTS, type AchievementDef } from './achievements';
+import { unlockAchievements, type AchievementDef } from './achievements';
 
 export type RunMode = 'level' | 'survival' | 'daily';
 
@@ -18,6 +18,8 @@ export interface RunSummary {
   outcome: 'dead' | 'complete';
   /** Éclats collectés sur l'orbite pendant la partie (déjà crédités et sauvegardés à chaque collecte). */
   shards?: number;
+  /** Événements (pluie de météores, tempête électrique) traversés pendant la partie. */
+  events?: number;
 }
 
 /** Récompenses d'un niveau réussi (Éclats). */
@@ -45,8 +47,10 @@ export interface RunReport {
   newRecord: boolean;
   /** Meilleur temps sous un ancien équilibrage (0 si aucun) : affiché à titre indicatif, jamais comparé. */
   legacyBestTime: number;
-  /** Nouveaux succès. */
+  /** Nouveaux succès (chacun rapporte des Éclats, versés une seule fois à ce moment-là). */
   achievements: AchievementDef[];
+  /** Total des Éclats versés par ces succès. */
+  achievementShards: number;
   /** Éclats collectés sur l'orbite (Survie) : déjà crédités pendant la partie. */
   orbitShards: number;
   /** Récompenses de niveau créditées à la fin de cette partie, ou null. */
@@ -128,12 +132,17 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     newRecord: false,
     legacyBestTime: 0,
     achievements: [],
+    achievementShards: 0,
     orbitShards: Math.max(0, Math.floor(run.shards ?? 0)),
     levelReward: null,
     shardsBalance: 0,
   };
   save.stats.totalRuns++;
   save.stats.totalCycles += run.cycles;
+  save.stats.totalShards += Math.max(0, Math.floor(run.shards ?? 0));
+  save.stats.totalEvents += Math.max(0, Math.floor(run.events ?? 0));
+  save.stats.bestScore = Math.max(save.stats.bestScore, Math.floor(run.score));
+  save.stats.bestMultiplier = Math.max(save.stats.bestMultiplier, run.bestMultiplier);
 
   if (run.mode === 'level' && run.levelId !== undefined) {
     const level = levelById(run.levelId);
@@ -181,14 +190,9 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     pruneDaily(save.daily);
   }
 
+  // Succès : déblocage et récompense en Éclats, une seule fois chacun
+  report.achievements = unlockAchievements(save, run, now);
+  report.achievementShards = report.achievements.reduce((t, a) => t + a.shards, 0);
   report.shardsBalance = save.wallet.shards;
-
-  for (const a of ACHIEVEMENTS) {
-    if (save.achievements[a.id] !== undefined) continue;
-    if (a.check(save, run)) {
-      save.achievements[a.id] = now;
-      report.achievements.push(a);
-    }
-  }
   return report;
 }

@@ -21,6 +21,8 @@ npm run typecheck    # TypeScript seul
 npm test             # tests unitaires (Vitest)
 npm run sim          # outil d'équilibrage (bot) : npm run sim -- 5   (minutes de Survie)
 npm run e2e          # test navigateur (Chromium/Playwright) après npm run build ; captures dans screenshots/
+npm run e2e:classement # classement mondial (vrai serveur local)
+npm run server       # service de classement (Node 22.13+)
 npm run cost         # coût du directeur de vagues (validateur d'évitement inclus)
 npm run perf         # coût CPU en émulation mobile (--dist <dossier> pour comparer deux builds)
 npm run sprites      # textures 128 px depuis art/source/ (Pillow)
@@ -51,6 +53,8 @@ npm run check        # typecheck + tests + build
 - `styles/` — `index.css`, `base.css`, `components.css`, `screens.css`, `hud.css` : aucune couleur en dur (variables `--c-*`, voir `docs/INTERFACE.md`).
 - `config/skins.ts` — apparences (identifiant stable, nom, modèle, couleurs coque/ailes/cockpit/réacteur, déblocage) : cosmétiques uniquement, hitbox et gabarit identiques, réacteur distinct des dangers (testé) ; `progression/skins.ts` (déblocage, repli sur « classique ») ; `render/{shipPalette,shipTextures,skinSprites}.ts` ; `ui/shipPreview.ts`. Voir `docs/APPARENCES.md`.
 - `config/economy.ts` (éclat sur l'orbite, récompenses de niveau, soldes), `config/catalog.ts` (**source unique** du catalogue et des conditions d'obtention), `config/trails.ts` ; `progression/shop.ts` (possession, achats en Éclats, équipement) ; `sim/shards.ts` (éclat sur l'orbite, générateur dédié) ; `monetization/payments.ts` (interface de paiement future, aucun paiement actif). Voir `docs/ECONOMIE.md`.
+- `config/achievements.ts` — **source unique** des 27 succès (objectif, catégorie, récompense en Éclats) ; `progression/achievements.ts` (progression, déblocage, récompense unique via `save.rewarded`). Les cosmétiques liés à un succès sont décrits au catalogue.
+- `net/protocol.ts` (types/règles partagés jeu ↔ serveur), `net/leaderboard.ts` (client : profil, tickets, file « en attente », jamais de secret), `server/` (service de classement Node + SQLite : validation par REJEU de la partie ; voir `docs/CLASSEMENT.md`). `Simulation.flipLog` = journal des entrées ; `Simulation.assisted` = aide de test (jamais éligible).
 - `config/brand.ts` — `GAME_NAME` (nom affiché, « Polarity ») et `STORAGE_NAMESPACE` (**'polarite', ne jamais changer** : clés de sauvegarde).
 - `monetization/ads.ts` — interface publicitaire facultative, désactivée (aucun SDK).
 
@@ -66,6 +70,7 @@ npm run check        # typecheck + tests + build
 - Couleurs, polices et rayons de l'interface : uniquement via `ui/theme.ts` (ou les variables CSS) ; pas de style en ligne ni de couleur hexadécimale dans `styles/` (testé). Les assets de référence (`art/reference/`) ne sont jamais affichés.
 - Les identifiants d'apparence sont enregistrés dans la sauvegarde : ne jamais les changer ni les réutiliser ; une apparence sans effet de jeu (aucune statistique, pas de boutique ni de monnaie).
 - Économie : cosmétiques seulement, aucun avantage de jeu ; achat = vérification du solde + débit + déblocage dans la même modification ; Prismes jamais débités ni crédités localement (paiements non actifs) ; sauvegarde versionnée (format 3) : toute nouvelle donnée de progression passe par `save.ts` (sanitize + migration).
+- Classement : le serveur ne croit jamais le client (rejeu graine + entrées) ; aucune clé secrète ni route d'administration dans le jeu ; toute modification des règles de simulation exige `BALANCE_VERSION` + redéploiement du serveur ; le serveur doit rester déterministe-identique au client (même code `src/`). Succès : objectifs sans dépense, récompenses versées une seule fois.
 - Textes utilisateur en français. Pas de bouton factice.
 - Après une modification : `npm run check`, et `npm run build && npm run e2e` si l'interface change.
 - Mettre à jour `PROGRESS.md` et `RESUME.md` à chaque jalon.

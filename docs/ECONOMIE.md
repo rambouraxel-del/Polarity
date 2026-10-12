@@ -36,3 +36,9 @@ Prix de départ : 100 (Aurore), 200, 350, 600 (vaisseaux) ; 150, 250, 400 (traî
 
 ## Évolutions préparées (non implémentées)
 Améliorations de campagne payées en Éclats : le solde, le registre d'achats et le catalogue sont prêts ; aucune campagne ni amélioration n'existe dans cette version.
+
+## Succès récompensés (v1.6)
+27 succès dans `src/config/achievements.ts` (découverte, Survie, niveaux, collectes, maîtrise) : durées de survie (1, 2, 3, 5, 8, 10 min), cycles (1, 10, 100, 500), événements traversés (1, 10, 30), étoiles (3★, 18, 36), niveaux (1, 3, 6, 12), Éclats collectés au total (50, 250, 1 000), multiplicateur maximal, score 100 000.
+Aucun objectif ne demande de dépenser (« Éclats collectés » = gains cumulés, pas le solde). Chaque succès verse ses Éclats **une seule fois** au déblocage (registre `rewarded`), avec notification au résultat, sauvegarde immédiate.
+Cosmétiques liés (catalogue) : Glace (Pleine charge), Solaire (Endurance), Prisme (Maître de l'orbite), traînées Citron (Chasseur d'éclats) et Boréale (Maître des éléments).
+**Migration (format 4)** : les succès déjà obtenus sont récompensés une seule fois (Éclats ajoutés au solde, notification à l'accueil) ; les nouveaux objectifs déjà atteints grâce à la progression existante se débloquent au démarrage (`reconcileAchievements`).

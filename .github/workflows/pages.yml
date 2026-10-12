@@ -25,7 +25,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Classement mondial : adresse PUBLIQUE du service (variable du dépôt LEADERBOARD_URL). Absente = classement désactivé dans le jeu.
       - run: npm run build
+        env:
+          VITE_LEADERBOARD_URL: ${{ vars.LEADERBOARD_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -48,6 +48,8 @@ export const CATALOG: CatalogItem[] = [
   { id: 'glacier', kind: 'trail', name: 'Glacier', blurb: 'Traînée bleu glacier.', acquire: shards(250) },
   { id: 'ultraviolet', kind: 'trail', name: 'Ultraviolet', blurb: 'Traînée violette.', acquire: shards(400) },
   { id: 'nebuleuse', kind: 'trail', name: 'Nébuleuse', blurb: 'Traînée bleu profond.', acquire: prisms(80) },
+  { id: 'citron', kind: 'trail', name: 'Citron', blurb: 'Traînée jaune-vert vif.', acquire: { type: 'achievement', id: 'shards_250' } },
+  { id: 'boreale', kind: 'trail', name: 'Boréale', blurb: 'Traînée vert d’aurore boréale.', acquire: { type: 'achievement', id: 'events_30' } },
   // Packs
   { id: 'pack-aurore', kind: 'pack', name: 'Pack Aurore', blurb: 'Vaisseau Aurore + traînée Émeraude.', acquire: shards(220), contents: ['aurore', 'emeraude'] },
   { id: 'pack-spectre', kind: 'pack', name: 'Pack Spectre', blurb: 'Vaisseau Spectre + traînée Ultraviolet.', acquire: shards(900), contents: ['spectre', 'ultraviolet'] },

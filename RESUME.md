@@ -1,5 +1,7 @@
 # Reprise
 
+**Dernière étape (v1.6) :** menu Cosmétiques (fusion), 27 succès récompensés (sauvegarde format 4), classement mondial de Survie **intégré mais non déployé** : service `server/` (Node 22 + SQLite, rejeu des parties), client `src/net/`, menu Classement. Reste à faire : héberger le service et renseigner `LEADERBOARD_URL` (voir `docs/CLASSEMENT.md`). Fichiers clés : `src/config/achievements.ts`, `src/progression/achievements.ts`, `src/net/{protocol,leaderboard}.ts`, `server/*`, `tests/{leaderboard-server,leaderboard-client,economy}.test.ts`, `scripts/e2e-classement.mjs`.
+
 **Dernière étape (v1.5) :** économie à deux monnaies (Éclats gagnés en jouant, Prismes premium non achetables), éclat sur l'orbite en Survie, récompenses de niveau, boutique cosmétique, sauvegarde format 3. Voir `docs/ECONOMIE.md` ; fichiers clés : `src/config/{economy,catalog,trails}.ts`, `src/sim/shards.ts`, `src/progression/shop.ts`, `src/monetization/payments.ts`, `tests/economy.test.ts`.
 
 **Dernière étape (v1.4) :** vaisseau +20 %, orbite cyan vif, menu Apparences refait, apparences en configuration extensible (`src/config/skins.ts`, `docs/APPARENCES.md`). Gameplay et équilibrage inchangés.

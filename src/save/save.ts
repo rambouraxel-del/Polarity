@@ -4,6 +4,7 @@
  * on retombe sur des valeurs par défaut (et la donnée corrompue est mise de côté, pas effacée).
  */
 
+import { ACHIEVEMENT_CONFIG } from '../config/achievements';
 import { LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
@@ -17,8 +18,11 @@ import { BALANCE_VERSION } from '../config/version';
  *  3 — v1.5 : économie (soldes d'Éclats et de Prismes, cosmétiques possédés, traînée équipée, récompenses de niveau déjà
  *      versées). Migration : soldes à 0, cosmétiques déjà obtenus conservés, récompenses historiques marquées comme
  *      traitées (aucun crédit rétroactif).
+ *  4 — v1.6 : succès récompensés (registre `rewarded`, notification `rewardNotice`) et statistiques cumulées (Éclats collectés,
+ *      événements traversés, meilleur score, meilleur multiplicateur). Migration : les succès déjà obtenus sont récompensés une
+ *      seule fois (Éclats ajoutés au solde, notification à l'accueil).
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -93,7 +97,23 @@ export interface SaveData {
   options: Options;
   /** Familles de menaces déjà présentées en Survie. */
   seenIntros: string[];
-  stats: { totalCycles: number; totalRuns: number };
+  stats: Stats;
+  /** Succès dont la récompense a déjà été versée (jamais deux fois). */
+  rewarded: string[];
+  /** Récompenses de succès à notifier à l'accueil (rattrapage de migration, nouveaux objectifs déjà atteints) ; null une fois lue. */
+  rewardNotice: { shards: number; count: number } | null;
+}
+
+/** Statistiques cumulées (servent aux objectifs des succès). */
+export interface Stats {
+  totalCycles: number;
+  totalRuns: number;
+  /** Éclats collectés sur l'orbite au total (gains, jamais le solde). */
+  totalShards: number;
+  /** Événements traversés au total. */
+  totalEvents: number;
+  bestScore: number;
+  bestMultiplier: number;
 }
 
 export interface KeyValueStore {
@@ -119,7 +139,9 @@ export function defaultSave(): SaveData {
     paid: {},
     options: { muted: false, volume: 0.7, reducedEffects: false, tutorialSeen: false },
     seenIntros: [],
-    stats: { totalCycles: 0, totalRuns: 0 },
+    stats: { totalCycles: 0, totalRuns: 0, totalShards: 0, totalEvents: 0, bestScore: 0, bestMultiplier: 0 },
+    rewarded: [],
+    rewardNotice: null,
   };
 }
 
@@ -260,7 +282,19 @@ export function sanitize(raw: unknown): SaveData {
     out.stats = {
       totalCycles: Math.floor(num(raw.stats.totalCycles, 0, 0)),
       totalRuns: Math.floor(num(raw.stats.totalRuns, 0, 0)),
+      totalShards: Math.floor(num(raw.stats.totalShards, 0, 0)),
+      totalEvents: Math.floor(num(raw.stats.totalEvents, 0, 0)),
+      bestScore: Math.floor(num(raw.stats.bestScore, 0, 0)),
+      bestMultiplier: Math.floor(num(raw.stats.bestMultiplier, 0, 0, 99)),
     };
+  }
+  if (Array.isArray(raw.rewarded)) {
+    out.rewarded = [...new Set(raw.rewarded.filter((s): s is string => typeof s === 'string' && s.length > 0 && s.length < 40))].slice(0, 200);
+  }
+  if (isObj(raw.rewardNotice)) {
+    const shards = Math.floor(num(raw.rewardNotice.shards, 0, 0, WALLET_MAX));
+    const count = Math.floor(num(raw.rewardNotice.count, 0, 0, 999));
+    out.rewardNotice = shards > 0 || count > 0 ? { shards, count } : null;
   }
   return out;
 }
@@ -289,6 +323,16 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
       }
     }
     out.paid = paid;
+  }
+  // Avant la v4 : succès sans récompense. Les succès déjà obtenus sont récompensés UNE fois à la migration.
+  if (v < 4) {
+    const ach = isObj(raw.achievements) ? raw.achievements : {};
+    const earned = ACHIEVEMENT_CONFIG.filter((a) => typeof ach[a.id] === 'number');
+    const total = earned.reduce((t, a) => t + a.shards, 0);
+    const w = isObj(out.wallet) ? out.wallet : { ...WALLET_START };
+    out.wallet = { ...w, shards: Math.floor(num(w.shards, 0, 0, WALLET_MAX)) + total };
+    out.rewarded = earned.map((a) => a.id);
+    out.rewardNotice = earned.length > 0 ? { shards: total, count: earned.length } : null;
   }
   return out;
 }
@@ -355,7 +399,7 @@ export function writeSave(store: KeyValueStore, data: SaveData): void {
 
 /** Effacement explicite et confirmé : supprime aussi les copies de sauvegarde conservées lors des migrations. */
 export function eraseAll(store: KeyValueStore): void {
-  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
+  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}3`, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
   for (let b = 1; b <= 20; b++) keys.push(`${BALANCE_BACKUP_PREFIX}${b}`);
   for (const key of keys) store.remove(key);
 }

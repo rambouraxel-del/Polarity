@@ -64,6 +64,14 @@ export class Simulation {
   private readonly shardWorld: ShardWorld;
   private readonly shardOut: ShardEvent[] = [];
 
+  /**
+   * Journal des entrées : pas de simulation auquel chaque inversion a été appliquée. Avec la graine, il suffit à rejouer la partie à
+   * l'identique (validation du classement côté serveur : server/verify.ts).
+   */
+  readonly flipLog: number[] = [];
+  /** Vrai dès qu'une aide de test ou de démonstration a servi (invincibilité, motif injecté) : la partie n'est jamais éligible au classement. */
+  assisted = false;
+
   state: SimState = 'running';
   stepIndex = 0;
   angle: number = PLAYER.startAngle;
@@ -105,6 +113,7 @@ export class Simulation {
       this.pendingFlips--;
       this.dir = this.dir === 1 ? -1 : 1;
       this.flips++;
+      this.flipLog.push(this.stepIndex);
       this.events.push({ type: 'flip' });
     }
 
@@ -133,6 +142,8 @@ export class Simulation {
         this.events.push({ type: 'activate' });
       }
     }
+
+    if (this.invincible) this.assisted = true;
 
     // 4. Déplacement
     const from = this.angle;
@@ -191,6 +202,7 @@ export class Simulation {
 
   /** Ajoute un motif tout de suite, sans validation d'évitement (outil de démonstration `?demo` et tests). */
   injectPattern(id: PatternId): Hazard[] {
+    this.assisted = true;
     const added = this.director.buildPattern(id, this.time, this);
     for (const h of added) {
       h.id = ++this.hazardCount;

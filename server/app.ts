@@ -1,0 +1,292 @@
+import { BALANCE_VERSION } from '../src/config/version';
+import {
+  LIMITS,
+  REPLAY_FORMAT,
+  nicknameKey,
+  normalizeNickname,
+  validFlips,
+  validNickname,
+  type BalancesResponse,
+  type LeaderboardEntry,
+  type LeaderboardResponse,
+  type MeResponse,
+  type RegisterResponse,
+  type RejectReason,
+  type RunResponse,
+  type RunSubmission,
+  type Ticket,
+  type TicketsResponse,
+} from '../src/net/protocol';
+import { hashToken, newPlayerId, newTicketParts, newToken, parseBearer, signTicket, tokenMatches, verifyTicketSig } from './auth';
+import { transaction, type Db } from './db';
+import { replaySurvival } from './verify';
+
+/**
+ * Logique du service de classement, indépendante du transport HTTP (testable sans réseau).
+ * Voir docs/CLASSEMENT.md pour le modèle de confiance et les limites contre la triche.
+ */
+export interface AppConfig {
+  /** Secret de signature des tickets (obligatoire en production, jamais envoyé au navigateur). */
+  ticketSecret: string;
+  /** Horloge (ms Unix) : injectable pour les tests. */
+  now?: () => number;
+  /** Version d'équilibrage acceptée (celle du code de simulation embarqué). */
+  balance?: number;
+}
+
+export interface HttpRequest {
+  method: string;
+  path: string;
+  query: URLSearchParams;
+  headers: Record<string, string | undefined>;
+  /** Corps JSON déjà analysé (undefined si absent ou invalide). */
+  body: unknown;
+  ip: string;
+}
+
+export interface HttpResponse {
+  status: number;
+  body: unknown;
+}
+
+const json = (status: number, body: unknown): HttpResponse => ({ status, body });
+const err = (status: number, error: string, message: string): HttpResponse => json(status, { error, message });
+
+const REJECT_MESSAGES: Record<RejectReason, string> = {
+  unsupported_balance: 'Cette version du jeu n’est plus prise en compte par le classement actuel.',
+  bad_ticket: 'Ticket de partie invalide.',
+  ticket_expired: 'Ticket de partie expiré.',
+  ticket_used: 'Ticket de partie déjà utilisé.',
+  bad_replay: 'Journal de la partie invalide.',
+  not_finished: 'La partie rejouée ne se termine pas : résultat non validé.',
+  inputs_after_end: 'Le journal contient des entrées après la fin de la partie : résultat non validé.',
+  divergence: 'Le résultat annoncé ne correspond pas à la partie rejouée : résultat non validé.',
+  rate_limited: 'Trop de requêtes : réessayez plus tard.',
+};
+
+/** Limiteur à fenêtre fixe, en mémoire (suffisant pour un serveur unique ; voir docs). */
+class RateLimiter {
+  private readonly hits = new Map<string, { start: number; n: number }>();
+  constructor(private readonly now: () => number) {}
+  /** Vrai si la requête est autorisée. */
+  allow(key: string, max: number, windowMs: number): boolean {
+    const t = this.now();
+    const h = this.hits.get(key);
+    if (!h || t - h.start >= windowMs) {
+      this.hits.set(key, { start: t, n: 1 });
+      if (this.hits.size > 50000) this.prune(t, windowMs);
+      return true;
+    }
+    if (h.n >= max) return false;
+    h.n++;
+    return true;
+  }
+  private prune(t: number, windowMs: number): void {
+    for (const [k, h] of this.hits) if (t - h.start >= windowMs) this.hits.delete(k);
+  }
+}
+
+interface PlayerRow {
+  id: string;
+  nickname: string;
+  token_hash: string;
+}
+
+export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpResponse {
+  if (!cfg.ticketSecret || cfg.ticketSecret.length < 16) throw new Error('ticketSecret (16 caractères minimum) requis');
+  const now = cfg.now ?? Date.now;
+  const balance = cfg.balance ?? BALANCE_VERSION;
+  const limiter = new RateLimiter(now);
+  const HOUR = 3_600_000;
+
+  const q = {
+    player: db.prepare('SELECT id, nickname, token_hash FROM players WHERE id = ?'),
+    nickTaken: db.prepare('SELECT id FROM players WHERE nickname_key = ?'),
+    insertPlayer: db.prepare('INSERT INTO players (id, nickname, nickname_key, token_hash, created_at) VALUES (?, ?, ?, ?, ?)'),
+    rename: db.prepare('UPDATE players SET nickname = ?, nickname_key = ? WHERE id = ?'),
+    openTickets: db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE player_id = ? AND used_at IS NULL AND exp > ?'),
+    insertTicket: db.prepare('INSERT INTO tickets (id, player_id, seed, exp, issued_at) VALUES (?, ?, ?, ?, ?)'),
+    ticket: db.prepare('SELECT id, player_id, seed, exp, used_at FROM tickets WHERE id = ?'),
+    useTicket: db.prepare('UPDATE tickets SET used_at = ? WHERE id = ? AND used_at IS NULL'),
+    insertRun: db.prepare('INSERT INTO runs (player_id, balance, ticket_id, seed, steps, score, flips, client_build, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    best: db.prepare('SELECT steps, score, achieved_at FROM bests WHERE player_id = ? AND balance = ?'),
+    upsertBest: db.prepare(
+      'INSERT INTO bests (player_id, balance, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, balance) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at',
+    ),
+    rank: db.prepare(
+      'SELECT COUNT(*) + 1 AS rank FROM bests WHERE balance = ? AND (steps > ? OR (steps = ? AND score > ?) OR (steps = ? AND score = ? AND achieved_at < ?))',
+    ),
+    total: db.prepare('SELECT COUNT(*) AS n FROM bests WHERE balance = ?'),
+    top: db.prepare(
+      'SELECT b.player_id, p.nickname, b.steps, b.score, b.achieved_at FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? ORDER BY b.steps DESC, b.score DESC, b.achieved_at ASC LIMIT ?',
+    ),
+    balances: db.prepare('SELECT balance, COUNT(*) AS players FROM bests GROUP BY balance ORDER BY balance DESC'),
+  };
+
+  const dt = 1 / 120;
+
+  function authenticate(req: HttpRequest): PlayerRow | null {
+    const b = parseBearer(req.headers.authorization);
+    if (!b) return null;
+    const row = q.player.get(b.playerId) as unknown as PlayerRow | undefined;
+    if (!row || !tokenMatches(b.token, row.token_hash)) return null;
+    return row;
+  }
+
+  function rankOf(bal: number, steps: number, score: number, at: number): number {
+    return (q.rank.get(bal, steps, steps, score, steps, score, at) as unknown as { rank: number }).rank;
+  }
+
+  const parseBalance = (req: HttpRequest): number => {
+    const raw = req.query.get('balance');
+    const n = raw === null ? balance : Number(raw);
+    return Number.isInteger(n) && n >= 1 && n <= 10000 ? n : balance;
+  };
+
+  // ————————————————————————— routes
+
+  function register(req: HttpRequest): HttpResponse {
+    if (!limiter.allow(`reg:${req.ip}`, 5, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    const body = req.body as { nickname?: unknown } | undefined;
+    const nick = typeof body?.nickname === 'string' ? normalizeNickname(body.nickname) : '';
+    if (!validNickname(nick)) return err(400, 'bad_nickname', `Pseudo invalide : ${LIMITS.nickname.min} à ${LIMITS.nickname.max} caractères (lettres, chiffres, espace, point, tiret).`);
+    const key = nicknameKey(nick);
+    if (q.nickTaken.get(key)) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
+    const playerId = newPlayerId();
+    const token = newToken();
+    q.insertPlayer.run(playerId, nick, key, hashToken(token), now());
+    const res: RegisterResponse = { playerId, token, nickname: nick };
+    return json(201, res);
+  }
+
+  function rename(req: HttpRequest, me: PlayerRow): HttpResponse {
+    if (!limiter.allow(`rename:${me.id}`, 5, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    const body = req.body as { nickname?: unknown } | undefined;
+    const nick = typeof body?.nickname === 'string' ? normalizeNickname(body.nickname) : '';
+    if (!validNickname(nick)) return err(400, 'bad_nickname', `Pseudo invalide : ${LIMITS.nickname.min} à ${LIMITS.nickname.max} caractères.`);
+    const key = nicknameKey(nick);
+    const other = q.nickTaken.get(key) as { id: string } | undefined;
+    if (other && other.id !== me.id) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
+    q.rename.run(nick, key, me.id);
+    return json(200, { playerId: me.id, nickname: nick });
+  }
+
+  function tickets(me: PlayerRow): HttpResponse {
+    if (!limiter.allow(`tickets:${me.id}`, 20, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    const t = Math.floor(now() / 1000);
+    const open = (q.openTickets.get(me.id, t) as unknown as { n: number }).n;
+    const count = Math.max(0, Math.min(LIMITS.ticketBatch, LIMITS.maxOpenTickets - open));
+    const out: Ticket[] = [];
+    for (let i = 0; i < count; i++) {
+      const { id, seed } = newTicketParts();
+      const exp = t + LIMITS.ticketDays * 86400;
+      q.insertTicket.run(id, me.id, seed, exp, now());
+      out.push({ id, seed, exp, sig: signTicket(cfg.ticketSecret, { id, seed, exp }, me.id) });
+    }
+    const res: TicketsResponse = { tickets: out };
+    return json(200, res);
+  }
+
+  function submitRun(req: HttpRequest, me: PlayerRow): HttpResponse {
+    if (!limiter.allow(`run:${me.id}`, 30, HOUR) || !limiter.allow(`run-gap:${me.id}`, 1, 3000)) return json(429, { status: 'rejected', reason: 'rate_limited', message: REJECT_MESSAGES.rate_limited } satisfies RunResponse);
+    const sub = req.body as Partial<RunSubmission> | undefined;
+    const reject = (reason: RejectReason, status = 422): HttpResponse => json(status, { status: 'rejected', reason, message: REJECT_MESSAGES[reason] } satisfies RunResponse);
+    // Structure
+    if (!sub || typeof sub !== 'object' || !sub.ticket || !sub.replay || !sub.claimed || !sub.client) return reject('bad_replay', 400);
+    const t = sub.ticket as Ticket;
+    if (typeof t.id !== 'string' || typeof t.sig !== 'string' || !Number.isInteger(t.seed) || !Number.isInteger(t.exp)) return reject('bad_ticket', 400);
+    if (sub.replay.v !== REPLAY_FORMAT || !validFlips(sub.replay.flips)) return reject('bad_replay', 400);
+    // Version d'équilibrage : seule la version courante peut être rejouée par ce code (les anciennes sont conservées en lecture)
+    if (sub.client.balance !== balance) return reject('unsupported_balance');
+    // Ticket : signature, propriétaire, expiration, usage unique
+    if (!verifyTicketSig(cfg.ticketSecret, t, me.id)) return reject('bad_ticket');
+    const row = q.ticket.get(t.id) as unknown as { id: string; player_id: string; seed: number; exp: number; used_at: number | null } | undefined;
+    if (!row || row.player_id !== me.id || row.seed !== t.seed || row.exp !== t.exp) return reject('bad_ticket');
+    if (row.used_at !== null) return reject('ticket_used');
+    if (Math.floor(now() / 1000) > row.exp) return reject('ticket_expired');
+
+    // Rejeu : le résultat est celui du serveur (graine du ticket + entrées du journal)
+    const rep = replaySurvival(row.seed, sub.replay.flips);
+    const consume = (): boolean => (q.useTicket.run(now(), row.id) as unknown as { changes: number }).changes === 1;
+    if (!rep.ok) {
+      transaction(db, () => void consume());
+      return reject(rep.reason);
+    }
+    const claimed = sub.claimed as { time?: unknown; score?: unknown };
+    const same = typeof claimed.time === 'number' && typeof claimed.score === 'number' && Math.abs(claimed.time - rep.time) < dt / 2 && claimed.score === rep.score;
+    if (!same) {
+      transaction(db, () => void consume());
+      return reject('divergence');
+    }
+    // Tout ou rien : usage du ticket, partie enregistrée, meilleur résultat
+    const out = transaction(db, () => {
+      if (!consume()) return null;
+      const at = now();
+      const runId = Number(
+        (q.insertRun.run(me.id, balance, row.id, row.seed, rep.steps, rep.score, JSON.stringify(sub.replay!.flips), String(sub.client!.build ?? '').slice(0, 40), at) as unknown as { lastInsertRowid: number | bigint }).lastInsertRowid,
+      );
+      const prev = q.best.get(me.id, balance) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
+      const better = !prev || rep.steps > prev.steps || (rep.steps === prev.steps && rep.score > prev.score);
+      if (better) q.upsertBest.run(me.id, balance, rep.steps, rep.score, runId, at);
+      const ref = better || !prev ? { steps: rep.steps, score: rep.score, at } : { steps: prev.steps, score: prev.score, at: prev.achieved_at };
+      return { better, rank: rankOf(balance, ref.steps, ref.score, ref.at) };
+    });
+    if (!out) return reject('ticket_used');
+    const res: RunResponse = { status: 'accepted', time: rep.time, score: rep.score, rank: out.rank, personalBest: out.better, balance };
+    return json(200, res);
+  }
+
+  function leaderboard(req: HttpRequest): HttpResponse {
+    if (!limiter.allow(`lb:${req.ip}`, 120, 60_000)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    const bal = parseBalance(req);
+    const limit = Math.min(LIMITS.topSize, Math.max(1, Math.floor(Number(req.query.get('limit') ?? LIMITS.topSize)) || LIMITS.topSize));
+    const me = authenticate(req);
+    const rows = q.top.all(bal, limit) as unknown as { player_id: string; nickname: string; steps: number; score: number; achieved_at: number }[];
+    const entries: LeaderboardEntry[] = rows.map((r, i) => ({ rank: i + 1, nickname: r.nickname, time: r.steps * dt, score: r.score, at: r.achieved_at, ...(me && r.player_id === me.id ? { you: true } : {}) }));
+    const total = (q.total.get(bal) as unknown as { n: number }).n;
+    const res: LeaderboardResponse = { balance: bal, currentBalance: balance, entries, total };
+    return json(200, res);
+  }
+
+  function meRoute(req: HttpRequest, me: PlayerRow): HttpResponse {
+    const bal = parseBalance(req);
+    const b = q.best.get(me.id, bal) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
+    const total = (q.total.get(bal) as unknown as { n: number }).n;
+    const best: MeResponse['best'] = b ? { time: b.steps * dt, score: b.score, rank: rankOf(bal, b.steps, b.score, b.achieved_at) } : null;
+    const res: MeResponse = { playerId: me.id, nickname: me.nickname, balance: bal, best, total };
+    return json(200, res);
+  }
+
+  function balances(): HttpResponse {
+    const rows = q.balances.all() as unknown as { balance: number; players: number }[];
+    const res: BalancesResponse = { current: balance, versions: rows };
+    return json(200, res);
+  }
+
+  return (req) => {
+    const route = `${req.method} ${req.path}`;
+    try {
+      switch (route) {
+        case 'GET /api/health': return json(200, { ok: true, balance });
+        case 'GET /api/leaderboard': return leaderboard(req);
+        case 'GET /api/balances': return balances();
+        case 'POST /api/register': return register(req);
+        default: break;
+      }
+      // Routes authentifiées
+      if (route === 'GET /api/me' || route === 'PATCH /api/me' || route === 'POST /api/tickets' || route === 'POST /api/runs') {
+        const me = authenticate(req);
+        if (!me) return err(401, 'unauthorized', 'Authentification requise.');
+        if (route === 'GET /api/me') return meRoute(req, me);
+        if (route === 'PATCH /api/me') return rename(req, me);
+        if (route === 'POST /api/tickets') return tickets(me);
+        return submitRun(req, me);
+      }
+      return err(404, 'not_found', 'Route inconnue.');
+    } catch (e) {
+      // Aucun détail interne n'est renvoyé au client
+      console.error('Erreur serveur :', e);
+      return err(500, 'server_error', 'Erreur interne du service.');
+    }
+  };
+}

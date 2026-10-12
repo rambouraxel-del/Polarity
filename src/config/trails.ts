@@ -18,6 +18,8 @@ export const TRAILS: TrailDef[] = [
   { id: 'glacier', name: 'Glacier', color: 0x8fd8ff },
   { id: 'ultraviolet', name: 'Ultraviolet', color: 0xa98bff },
   { id: 'nebuleuse', name: 'Nébuleuse', color: 0x7aa8ff },
+  { id: 'citron', name: 'Citron', color: 0xe4ff5d },
+  { id: 'boreale', name: 'Boréale', color: 0x3dffd8 },
 ];
 
 export function trailById(id: string): TrailDef {

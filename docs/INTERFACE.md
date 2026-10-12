@@ -44,3 +44,8 @@ Portrait mobile (320 px et plus), paysage bas (accueil sur deux colonnes), ordin
 
 ## Apparences
 Grand aperçu animé, grille de cartes, bouton « Équiper », conditions de déblocage : voir `docs/APPARENCES.md`.
+
+## Menus Cosmétiques, Succès, Classement (v1.6)
+- **Cosmétiques** remplace Apparences + Boutique : catégories Vaisseaux / Traînées / Packs, filtres Tous / Possédés / À débloquer, grand aperçu animé, description, prix ou condition, action Acheter / Équiper / Équipé / Succès requis (+ Solde insuffisant, Bientôt disponible). Soldes affichés une seule fois en haut.
+- **Succès** : par catégorie, progression (n / objectif), gain en Éclats, cosmétique lié, état (obtenu, récompense reçue).
+- **Classement** : état du service, profil (pseudo), top 100, rang, résultats récents (en attente / validé / non validé), version d'équilibrage. Voir `docs/CLASSEMENT.md`.
