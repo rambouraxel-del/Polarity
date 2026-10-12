@@ -39,11 +39,11 @@ describe('Hitbox : réglage indépendant', () => {
     }
   });
 
-  it('les visuels sont agrandis (vaisseau +45 %, astéroïdes +35 % après le +15 % de la v1.1) sans toucher aux hitboxes', () => {
+  it('les visuels sont agrandis (vaisseau +45 % puis +20 %, astéroïdes +35 % après le +15 % de la v1.1) sans toucher aux hitboxes', () => {
     const shipV11 = VISUAL.shipBaseRadius * 1.15;
     const asteroidV11 = VISUAL.asteroidBaseRadius * 1.15;
     expect(VISUAL.scale).toBe(1.15);
-    expect(shipRadius()).toBeCloseTo(shipV11 * 1.45, 12);
+    expect(shipRadius()).toBeCloseTo(shipV11 * 1.45 * 1.2, 12);
     expect(asteroidRadius()).toBeCloseTo(asteroidV11 * 1.35, 12);
     const before = shipRadius();
     setHitboxGrowth(0.08);

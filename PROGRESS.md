@@ -15,7 +15,14 @@
 - [x] Événements : pluie de météores (12 s) et tempête électrique (10 s) ; premier entre 45 et 60 s, puis 40–60 s après la fin ; annonce 2 s avant, respiration 3 s ; un seul directeur (machine d'états) ; menaces restantes jamais effacées ; calendrier reproductible (graine dédiée) ; pause = tous les chronomètres arrêtés
 - [x] Équilibrage adapté à la vitesse réelle : annonces, décalages, intervalles, largeur des secteurs, vitesse des lasers (`PACE`) ; validateur d'évitement qui suit la vitesse (réseau d'angles, testé contre une exploration exhaustive) ; plafonds et difficulté d(t) inchangés
 - [x] Version d'équilibrage 3 : records v1.1 archivés à part (v1.0 intacts), copie `polarite.save.avant-eq2`, information unique à l'accueil ; progression préservée
-- [x] 159 tests, e2e étendu (paliers de vitesse, pause à l'annonce, événements, nouveaux motifs), mesure de performance, documentation (`docs/EQUILIBRAGE.md`, `docs/ROADMAP.md`)
+- [x] 179 tests, e2e étendu (paliers de vitesse, pause à l'annonce, événements, nouveaux motifs), mesure de performance, documentation (`docs/EQUILIBRAGE.md`, `docs/ROADMAP.md`)
+
+## v1.4 — visibilité du vaisseau et apparences (terminée)
+- [x] Vaisseau +20 % (hitbox inchangée), coque plus blanche, cockpit cyan plus vif, lueur discrète et liseré sombre ; contours orange des astéroïdes renforcés (taille inchangée) ; orbite cyan vif
+- [x] Aide aux contrôles adaptée (toucher sur mobile ; clic, Espace, Échap sur ordinateur)
+- [x] Menu Apparences : grand aperçu animé (figé en effets réduits), cartes Équipé / Disponible / Verrouillé, bouton « Équiper », condition de déblocage précise
+- [x] Apparences en configuration extensible (`config/skins.ts`), une texture par apparence, repli sur « classique », réacteurs distincts des dangers (testé), sauvegarde et application dans tous les modes
+- [x] Tests (`tests/skins.test.ts`, `tests/ui.test.ts`), e2e (équipement, verrouillage, modes, rechargement, repli), documentation (`docs/APPARENCES.md`)
 
 ## Direction artistique « Néon premium » — nom Polarity (terminée)
 - [x] Nom affiché « Polarity » (`config/brand.ts`) ; clés de sauvegarde `polarite.*` inchangées (testé)
@@ -44,7 +51,7 @@ Jeu complet : 12 niveaux, Survie, défi quotidien, succès, apparences, sauvegar
 ## Vérifications exécutées (v1.1)
 | Commande | Résultat |
 |---|---|
-| `npm run check` (typecheck + tests + build) | OK — 159 tests |
+| `npm run check` (typecheck + tests + build) | OK — 179 tests |
 | `npm run e2e` (Chromium headless) | tous les contrôles OK : sprites chargés, inversion immédiate, impact, migration v1→v2, menus, 3 modes, pause, tactile, relances, 5 tailles d'écran, aucune erreur console |
 | `npm run perf` v1.2 (×4 ralenti, 390×844, charge identique) | app.frame 2,4 ms (avant 2,4–2,6 ms), p95 6,1–6,8 ms ; tas JS stable (≈ 10–11 Mo) |
 | `npm run cost` (directeur + validateur, 8 min de Survie) | médiane 0,25 ms, p99 1,6 ms, max 5 ms (démarrage à froid) |

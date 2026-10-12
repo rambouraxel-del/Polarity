@@ -10,7 +10,7 @@ import { GameSession } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
-import { isSkinUnlocked, skinById, SKINS } from './progression/skins';
+import { isSkinUnlocked, resolveEquipped, skinById } from './progression/skins';
 import { ArenaRenderer, COLORS } from './render/ArenaRenderer';
 import { BrowserStore, defaultSave, eraseAll, loadSave, writeSave, type KeyValueStore, type SaveData } from './save/save';
 import { Bot } from './sim/bot';
@@ -18,6 +18,8 @@ import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
 import { escapeHtml } from './ui/format';
 import { Hud } from './ui/hud';
+import { bannerHelp, isTouchPrimary } from './ui/controls';
+import { ShipPreview } from './ui/shipPreview';
 import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 
@@ -45,6 +47,9 @@ export class App {
   private bannerKind: 'event' | 'info' | null = null;
   private space: SpaceBackground | null = null;
   private collectionTab: S.CollectionTab = 'skins';
+  /** Apparence affichée dans l'aperçu du menu (null = celle qui est équipée). */
+  private selectedSkin: string | null = null;
+  private reducedMotion = false;
   private eventKey = '';
   private resultLock = 0;
   private clock = 0;
@@ -60,7 +65,8 @@ export class App {
     this.save = res.data;
     this.sfx.setVolume(this.save.options.volume);
     this.sfx.setMuted(this.save.options.muted);
-    if (!isSkinUnlocked(skinById(this.save.skin), this.save.achievements)) this.save.skin = SKINS[0].id;
+    // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
+    this.save.skin = resolveEquipped(this.save.skin, this.save.achievements).id;
   }
 
   // ————————————————————————————————————————————— démarrage
@@ -134,7 +140,8 @@ export class App {
     const reduced = this.save.options.reducedEffects;
     if (this.renderer) this.renderer.reducedEffects = reduced;
     document.documentElement.dataset.fx = reduced ? 'reduced' : 'full';
-    this.space?.setReduced(reduced || system);
+    this.reducedMotion = reduced || system;
+    this.space?.setReduced(this.reducedMotion);
   }
 
   // ————————————————————————————————————————————— boucle
@@ -242,11 +249,13 @@ export class App {
     this.tutorialActive = false;
     if (!this.save.options.tutorialSeen) {
       this.tutorialActive = true;
-      this.banner('Touchez ou appuyez sur <strong>Espace</strong> pour inverser la direction.', 6);
+      this.banner(bannerHelp(isTouchPrimary()), 6);
       this.save.options.tutorialSeen = true;
       this.persist();
     } else if (cfg.mode === 'level' && cfg.level) {
-      this.banner(`<strong>Niveau ${cfg.level.id} — ${escapeHtml(cfg.level.name)}</strong><br>${escapeHtml(cfg.level.hint)}`, 3.2);
+      // Niveau 1 : l'aide aux contrôles dépend de l'appareil
+      const hint = cfg.level.id === 1 ? bannerHelp(isTouchPrimary()) : escapeHtml(cfg.level.hint);
+      this.banner(`<strong>Niveau ${cfg.level.id} — ${escapeHtml(cfg.level.name)}</strong><br>${hint}`, 3.2);
     } else {
       this.hideBanner();
     }
@@ -314,13 +323,13 @@ export class App {
         const a = s.sim.beacons.angles[e.index];
         const x = ARENA.orbitRadius * Math.cos(a);
         const y = ARENA.orbitRadius * Math.sin(a);
-        r?.burst(x, y, skinById(this.save.skin).beacon, 8, 140, 0.45);
+        r?.burst(x, y, skinById(this.save.skin).colors.beacon, 8, 140, 0.45);
         r?.popup(x, y, `+${e.points}`);
         break;
       }
       case 'cycle':
         this.sfx.play('cycle');
-        r?.ring(skinById(this.save.skin).orbit);
+        r?.ring(skinById(this.save.skin).colors.orbit);
         r?.popup(0, -40 / 0.82, `Cycle +${e.points}`, '#9ff9ff');
         break;
       case 'multiplier':
@@ -405,10 +414,10 @@ export class App {
     const today = utcDateString();
     let html = '';
     switch (id) {
-      case 'home': html = S.homeScreen(this.save, today); break;
+      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary()); break;
       case 'levels': html = S.levelsScreen(this.save); break;
       case 'daily': html = S.dailyScreen(this.save, today); break;
-      case 'skins': html = S.collectionScreen(this.save, this.collectionTab); break;
+      case 'skins': html = S.collectionScreen(this.save, this.collectionTab, this.selectedSkin ?? undefined); break;
       case 'options': html = S.optionsScreen(this.save); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
       case 'pause': html = S.pauseScreen(this.modeLabel()); break;
@@ -422,6 +431,14 @@ export class App {
     if (animate) this.screenEl.scrollTop = 0;
     const focus = this.screenEl.querySelector<HTMLElement>('[data-autofocus]');
     focus?.focus({ preventScroll: true });
+    this.attachSkinPreview();
+  }
+
+  /** Grand aperçu du menu Apparences : rotation lente et réacteur animé (figé en effets réduits). */
+  private attachSkinPreview(): void {
+    const cv = this.screenEl.querySelector<HTMLCanvasElement>('canvas[data-skin-preview]');
+    if (!cv) return;
+    new ShipPreview(cv, skinById(cv.dataset.skinPreview ?? ''), this.reducedMotion).start();
   }
 
   private modeLabel(): string {
@@ -441,7 +458,7 @@ export class App {
       case 'home': this.showScreen('home'); break;
       case 'levels': this.showScreen('levels'); break;
       case 'daily': this.showScreen('daily'); break;
-      case 'skins': this.collectionTab = 'skins'; this.showScreen('skins'); break;
+      case 'skins': this.collectionTab = 'skins'; this.selectedSkin = null; this.showScreen('skins'); break;
       case 'achievements': this.collectionTab = 'achievements'; this.showScreen('skins'); break;
       case 'tab-skins': this.collectionTab = 'skins'; this.showScreen('skins', false); break;
       case 'tab-achievements': this.collectionTab = 'achievements'; this.showScreen('skins', false); break;
@@ -469,10 +486,18 @@ export class App {
         break;
       case 'resume': this.resume(); break;
       case 'quit': this.showScreen('home'); break;
-      case 'skin': {
+      case 'select-skin': {
+        // Affiche l'aperçu de la carte choisie (sans l'équiper) et le ramène à l'écran s'il est hors de vue
+        this.selectedSkin = skinById(target.dataset.skin ?? '').id;
+        this.showScreen('skins', false);
+        this.screenEl.querySelector('.skin-stage')?.scrollIntoView({ block: 'nearest', behavior: this.reducedMotion ? 'auto' : 'smooth' });
+        break;
+      }
+      case 'equip-skin': {
         const skin = skinById(target.dataset.skin ?? '');
         if (isSkinUnlocked(skin, this.save.achievements)) {
           this.save.skin = skin.id;
+          this.selectedSkin = skin.id;
           this.persist();
           this.showScreen('skins', false);
         }

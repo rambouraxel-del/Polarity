@@ -5,8 +5,8 @@
 export const VISUAL = {
   /** Agrandissement des visuels (vaisseau et astéroïdes) par rapport à la v1.0 : +15 %. */
   scale: 1.15,
-  /** Lisibilité (v1.1.x) : vaisseau +45 % et astéroïdes +35 % par rapport à la taille v1.1 (+15 %). Sans effet sur les hitboxes. */
-  shipScale: 1.45,
+  /** Lisibilité : vaisseau +45 % (v1.1.x) puis +20 % (v1.4), astéroïdes +35 % par rapport à la taille v1.1 (+15 %). Sans effet sur les hitboxes. */
+  shipScale: 1.45 * 1.2,
   asteroidScale: 1.35,
   /** Demi-longueur du vaisseau en v1.0. */
   shipBaseRadius: 11,
@@ -33,7 +33,8 @@ export const asteroidMinHalfExtent = (): number => asteroidRadius() * VISUAL.ast
 /** Effets décoratifs : purement visuels, sans lien avec les collisions. */
 export const FX = {
   /** Flamme du vaisseau, derrière lui (opposée au déplacement). */
-  thruster: { length: 14, width: 6.5, flicker: 0.12, coreColor: 0xeafcff, glowColor: 0x00e5ff },
+  /** Les couleurs du réacteur viennent de l'apparence (config/skins.ts). */
+  thruster: { length: 14, width: 6.5, flicker: 0.12 },
   /** Particules du réacteur : débit (par seconde) et durée de vie. */
   thrusterSparks: { rate: 26, life: 0.32, speed: 38 },
   /** Traînée d'astéroïde : longueur (unités monde). */
@@ -45,7 +46,11 @@ export const FX = {
     layers: [1.0, 0.68, 0.36],
   },
   /** Contour lumineux orange de l'astéroïde : silhouette remplie d'orange (additif), un peu plus grande, derrière le sprite. */
-  asteroidGlow: { tint: 0xff7a2e, alpha: 0.45, grow: 1.16 },
+  asteroidGlow: { tint: 0xff7a2e, alpha: 0.6, grow: 1.16 },
+  /** Lueur discrète du vaisseau : silhouette teintée (couleur du cockpit de l'apparence), en additif, un peu plus grande, derrière le sprite. */
+  shipGlow: { alpha: 0.35, grow: 1.22 },
+  /** Liseré sombre sous le vaisseau (fond de l'arène, alpha normal) : le détache de l'orbite lumineuse et des menaces. */
+  shipRim: { alpha: 0.7, grow: 1.12 },
   asteroidEmbers: { rate: 14, life: 0.4, speed: 22 },
   /** Impact : durée de l'onde de choc (s) et rayon final. */
   impact: { ringLife: 0.32, ringRadius: 46, flareLife: 0.16 },

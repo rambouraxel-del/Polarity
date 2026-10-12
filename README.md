@@ -11,7 +11,7 @@ les six balises pour enchaîner les cycles et faire monter le multiplicateur.
   et gagne 5 points de pourcentage toutes les 30 s (100 % à 6 min). Des **événements** rythment la partie : *pluie de météores* (12 s) et *tempête électrique* (10 s),
   annoncés 2 s avant, suivis de 3 s de respiration. Trois dangers s'y ajoutent peu à peu : **astéroïde fragmenté**, **convoi d'astéroïdes**, **laser balayeur**.
 - **Défi quotidien** : règles de la Survie, mêmes motifs et mêmes événements (graine = date UTC) pour tous. Meilleur résultat conservé par date.
-- **Apparences et succès** : 9 succès, 7 apparences purement cosmétiques.
+- **Apparences et succès** : 9 succès, 7 apparences purement cosmétiques (coque, ailes, cockpit et réacteur de couleurs différentes, même hitbox). Menu avec grand aperçu animé, cartes *Équipé / Disponible / Verrouillé*, bouton « Équiper » et condition de déblocage précise (`docs/APPARENCES.md`).
 
 Style graphique « Néon premium » (v1.1) : vrai vaisseau blanc/argent à cockpit cyan et astéroïdes rocheux aux fissures orange,
 en sprites ; réacteur, traînées, étincelles et impact sont générés par code (voir `docs/ASSETS.md`).
@@ -67,7 +67,7 @@ Paramètres d'URL de contrôle : `?demo` laisse le joueur automatique jouer (obs
 
 | Action | Ordinateur | Mobile |
 |---|---|---|
-| Inverser la direction | Clic dans l'arène ou **Espace** | Toucher l'arène |
+| Inverser la direction | Clic dans l'arène ou **Espace** | Toucher l'écran |
 | Pause | **Échap** / **P** ou bouton ❚❚ | Bouton ❚❚ |
 | Rejouer (écran de résultat) | **Espace** / **Entrée** ou bouton | Bouton |
 
@@ -102,7 +102,7 @@ effacement de la progression (avec confirmation). Les options sont sauvegardées
 
 ## Structure
 
-Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/INTERFACE.md` (direction artistique, thème, écrans), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
+Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/INTERFACE.md` (direction artistique, thème, écrans), `docs/APPARENCES.md` (ajouter une apparence), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
 `docs/MONETISATION.md` (pistes de rentabilité). Suivi : `PROGRESS.md`, reprise : `RESUME.md`.
 
 ## Limites connues

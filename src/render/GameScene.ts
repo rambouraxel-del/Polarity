@@ -6,6 +6,7 @@ import ast3 from '../assets/sprites/ast3.png';
 import ast4 from '../assets/sprites/ast4.png';
 import ship from '../assets/sprites/ship.png';
 import { ASTEROID_TEXTURES, SHIP_TEXTURE } from './ArenaRenderer';
+import { registerSkinTextures } from './shipTextures';
 
 /** Scène unique : elle charge les sprites (locaux), délègue la logique à App et sert de boucle de rendu. */
 export class GameScene extends Phaser.Scene {
@@ -19,6 +20,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Une texture par apparence, dérivée du sprite de base (même forme, même taille)
+    registerSkinTextures(this);
     this.app.onSceneReady(this);
   }
 

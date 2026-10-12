@@ -17,7 +17,7 @@ export const THEME = {
     panel: '#0A1633',
     /** Accents. `cyan` = interface ; `orbit` = orbite de l'arène (inchangée). */
     cyan: '#00E4FF',
-    orbit: '#39F3FF',
+    orbit: '#00E5FF',
     white: '#FFFFFF',
     text: '#EAF6FF',
     muted: '#9DB1D6',

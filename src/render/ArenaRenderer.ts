@@ -6,6 +6,7 @@ import { TAU } from '../core/math';
 import type { GameSession } from '../game/session';
 import { laserAngle, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
 import type { Skin } from '../progression/skins';
+import { shipTextureFor } from './shipTextures';
 import { hexNum, THEME } from '../ui/theme';
 import { heading, spriteRotation } from './geometry';
 
@@ -29,6 +30,34 @@ export const SHIP_TEXTURE = 'ship';
 export const ASTEROID_TEXTURES = ['ast1', 'ast2', 'ast3', 'ast4'] as const;
 /** Part de la toile du sprite occupée par la plus grande dimension du dessin. */
 const CONTENT = VISUAL.spriteContent / VISUAL.spriteCanvas;
+
+/** Le halo couvre l'orbite (rayon 1) jusqu'à ce rayon relatif : la texture est 1,16 fois plus large que l'orbite. */
+const ORBIT_GLOW_SPAN = 1.16;
+
+/** Texture du halo de l'orbite : anneau blanc flou (à teinter), centré sur le rayon de l'orbite. */
+function orbitGlowTexture(scene: Phaser.Scene): string {
+  const key = 'orbit-glow';
+  if (scene.textures.exists(key)) return key;
+  const size = 512;
+  const half = size / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const ring = 1 / ORBIT_GLOW_SPAN; // position de l'orbite (fraction du demi-côté)
+  const grad = ctx.createRadialGradient(half, half, 0, half, half, half);
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(Math.max(0, ring - 0.1), 'rgba(255,255,255,0)');
+  grad.addColorStop(ring - 0.03, 'rgba(255,255,255,0.16)');
+  grad.addColorStop(ring, 'rgba(255,255,255,0.3)');
+  grad.addColorStop(ring + 0.03, 'rgba(255,255,255,0.16)');
+  grad.addColorStop(Math.min(1, ring + 0.075), 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  scene.textures.addCanvas(key, canvas);
+  return key;
+}
 
 /** Hachage entier déterministe → [0, 1) : choix décoratifs liés à l'identifiant d'une menace, sans toucher au RNG du jeu. */
 function hash01(n: number, salt: number): number {
@@ -78,6 +107,13 @@ export class ArenaRenderer {
   private readonly dbg: Phaser.GameObjects.Graphics;
   private readonly flash: Phaser.GameObjects.Rectangle;
   private readonly shipSprite: Phaser.GameObjects.Image;
+  /** Lueur discrète du vaisseau : copie teintée de la silhouette, derrière le sprite (additif). */
+  private readonly shipGlow: Phaser.GameObjects.Image;
+  /** Liseré sombre : silhouette de la couleur du fond, sous la lueur, pour détacher le vaisseau de l'orbite. */
+  private readonly shipRim: Phaser.GameObjects.Image;
+  private shipKey: string = SHIP_TEXTURE;
+  /** Halo de l'orbite : texture en dégradé radial (pas de traits translucides qui se recouvrent). */
+  private readonly orbitGlow: Phaser.GameObjects.Image;
   private readonly asteroidPool: AsteroidSlot[] = [];
   private readonly scene: Phaser.Scene;
   private readonly rings: Ring[] = [];
@@ -119,6 +155,9 @@ export class ArenaRenderer {
     this.g = scene.add.graphics().setDepth(2);
     this.trailG = scene.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
     this.shipG = scene.add.graphics().setDepth(4.5).setBlendMode(Phaser.BlendModes.ADD);
+    this.orbitGlow = scene.add.image(0, 0, orbitGlowTexture(scene)).setDepth(1.9).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
+    this.shipRim = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(4.7).setVisible(false).setTintFill(COLORS.background).setAlpha(FX.shipRim.alpha);
+    this.shipGlow = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(4.8).setVisible(false).setBlendMode(Phaser.BlendModes.ADD).setAlpha(FX.shipGlow.alpha);
     this.shipSprite = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(5).setVisible(false);
     this.fx = scene.add.graphics().setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
     this.flash = scene.add.rectangle(0, 0, 10, 10, 0xffffff, 0).setOrigin(0, 0).setDepth(7);
@@ -149,6 +188,8 @@ export class ArenaRenderer {
   private applySpriteScale(): void {
     const shipPx = (2 * shipRadius() * this.scale) / CONTENT;
     this.shipSprite.setDisplaySize(shipPx, shipPx);
+    this.shipGlow.setDisplaySize(shipPx * FX.shipGlow.grow, shipPx * FX.shipGlow.grow);
+    this.shipRim.setDisplaySize(shipPx * FX.shipRim.grow, shipPx * FX.shipRim.grow);
     const astPx = (2 * asteroidRadius() * this.scale) / CONTENT;
     for (const a of this.asteroidPool) {
       a.img.setDisplaySize(astPx * a.sc, astPx * a.sc);
@@ -209,6 +250,9 @@ export class ArenaRenderer {
     this.fx.clear();
     this.dbg.clear();
     this.shipSprite.setVisible(false);
+    this.shipGlow.setVisible(false);
+    this.shipRim.setVisible(false);
+    this.orbitGlow.setVisible(false);
     for (const a of this.asteroidPool) {
       a.img.setVisible(false);
       a.glow.setVisible(false);
@@ -274,6 +318,8 @@ export class ArenaRenderer {
       this.drawShip(angle, dir, skin, clock, emitting);
     } else {
       this.shipSprite.setVisible(false);
+      this.shipGlow.setVisible(false);
+      this.shipRim.setVisible(false);
     }
 
     this.drawImpacts(realDt);
@@ -293,11 +339,11 @@ export class ArenaRenderer {
     const y = this.sy(0);
     const r = R * this.scale;
     const s = this.scale;
-    g.lineStyle(16 * s, skin.orbit, 0.05);
-    g.strokeCircle(x, y, r);
-    g.lineStyle(7 * s, skin.orbit, 0.12);
-    g.strokeCircle(x, y, r);
-    g.lineStyle(Math.max(1.5 * this.dpr, 2.2 * s), skin.orbit, 0.95);
+    // Orbite vive : halo doux (texture en dégradé, teintée) et trait plein de la couleur de l'apparence (cyan vif pour la classique)
+    const c = skin.colors.orbit;
+    const glowPx = 2 * r * ORBIT_GLOW_SPAN;
+    this.orbitGlow.setVisible(true).setPosition(x, y).setDisplaySize(glowPx, glowPx).setTint(c);
+    g.lineStyle(Math.max(2 * this.dpr, 3 * s), c, 1);
     g.strokeCircle(x, y, r);
   }
 
@@ -312,15 +358,15 @@ export class ArenaRenderer {
       const y = this.sy(R * Math.sin(a));
       if (on) {
         const pulse = this.reducedEffects ? 1 : 1 + 0.15 * Math.sin(clock * 4 + i);
-        g.fillStyle(skin.beacon, 0.18);
+        g.fillStyle(skin.colors.beacon, 0.18);
         g.fillCircle(x, y, size * 2.1 * pulse);
         // Losange plein
-        g.fillStyle(skin.beacon, 1);
+        g.fillStyle(skin.colors.beacon, 1);
         g.fillTriangle(x, y - size * 1.25, x + size, y, x - size, y);
         g.fillTriangle(x, y + size * 1.25, x + size, y, x - size, y);
       } else {
         // Balise éteinte : petit anneau creux
-        g.lineStyle(Math.max(1, 1.5 * s), skin.beacon, 0.3);
+        g.lineStyle(Math.max(1, 1.5 * s), skin.colors.beacon, 0.3);
         g.strokeCircle(x, y, size * 0.6);
       }
     }
@@ -334,16 +380,27 @@ export class ArenaRenderer {
     // Direction du déplacement : le vaisseau pointe toujours vers l'avant, immédiatement après une inversion
     const { x: tx, y: ty } = heading(angle, dir);
     const sprite = this.shipSprite;
-    sprite.setVisible(true).setTint(0xffffff);
+    // Texture de l'apparence (modèle classique si elle est indisponible)
+    const key = shipTextureFor(this.scene, skin);
+    if (key !== this.shipKey) {
+      this.shipKey = key;
+      sprite.setTexture(key);
+      this.shipGlow.setTexture(key);
+      this.shipRim.setTexture(key);
+    }
+    sprite.setVisible(true);
     sprite.setPosition(this.sx(px), this.sy(py));
     // La texture pointe vers le haut : rotation instantanée, sans interpolation
     sprite.setRotation(spriteRotation(tx, ty));
-    // Les apparences teintent légèrement le vaisseau (la teinte blanche par défaut ne change rien)
-    if (skin.ship !== 0xffffff) sprite.setTint(skin.ship);
+    // Lueur discrète : même silhouette, teinte du cockpit de l'apparence
+    const glow = this.shipGlow;
+    glow.setVisible(true).setPosition(sprite.x, sprite.y).setRotation(sprite.rotation).setTintFill(skin.colors.cockpit);
+    this.shipRim.setVisible(true).setPosition(sprite.x, sprite.y).setRotation(sprite.rotation);
 
     // Réacteur : derrière le vaisseau, à l'opposé du déplacement. Purement décoratif.
     const L = shipRadius();
     const th = FX.thruster;
+    const thc = skin.colors.thruster;
     const flick = this.reducedEffects ? 1 : 1 + th.flicker * Math.sin(clock * 38) * Math.sin(clock * 23 + 1);
     const len = th.length * flick;
     const nx = c; // normale (radiale) : décalage latéral des deux tuyères
@@ -357,11 +414,11 @@ export class ArenaRenderer {
       const ey = sy0 - ty * len;
       const w = th.width * 0.5;
       // Halo large, flamme, cœur : triangles effilés vers l'arrière
-      g.fillStyle(th.glowColor, 0.13);
+      g.fillStyle(thc.glow, 0.13);
       g.fillTriangle(this.sx(sx0 + nx * w * 1.5), this.sy(sy0 + ny * w * 1.5), this.sx(sx0 - nx * w * 1.5), this.sy(sy0 - ny * w * 1.5), this.sx(ex), this.sy(ey));
-      g.fillStyle(th.glowColor, 0.42);
+      g.fillStyle(thc.glow, 0.42);
       g.fillTriangle(this.sx(sx0 + nx * w), this.sy(sy0 + ny * w), this.sx(sx0 - nx * w), this.sy(sy0 - ny * w), this.sx(sx0 - tx * len * 0.8), this.sy(sy0 - ty * len * 0.8));
-      g.fillStyle(th.coreColor, 0.85);
+      g.fillStyle(thc.core, 0.85);
       g.fillTriangle(this.sx(sx0 + nx * w * 0.45), this.sy(sy0 + ny * w * 0.45), this.sx(sx0 - nx * w * 0.45), this.sy(sy0 - ny * w * 0.45), this.sx(sx0 - tx * len * 0.5), this.sy(sy0 - ty * len * 0.5));
     }
     // Étincelles : vers l'arrière, courtes
@@ -376,7 +433,7 @@ export class ArenaRenderer {
           -tx * FX.thrusterSparks.speed * (0.6 + k) + nx * (Math.random() - 0.5) * 14,
           -ty * FX.thrusterSparks.speed * (0.6 + k) + ny * (Math.random() - 0.5) * 14,
           FX.thrusterSparks.life * (0.6 + 0.4 * Math.random()),
-          i % 3 === 0 ? 0xffffff : th.glowColor,
+          i % 3 === 0 ? 0xffffff : thc.glow,
           1,
           1.1,
         );
@@ -408,7 +465,7 @@ export class ArenaRenderer {
       const a0 = this.trail[i - 1];
       const a1 = this.trail[i];
       const k = 1 - i / TRAIL_LEN;
-      g.lineStyle(2.5 * s * k, skin.trail, 0.22 * k);
+      g.lineStyle(2.5 * s * k, skin.colors.trail, 0.22 * k);
       g.lineBetween(this.sx(R * Math.cos(a0)), this.sy(R * Math.sin(a0)), this.sx(R * Math.cos(a1)), this.sy(R * Math.sin(a1)));
     }
   }

@@ -3,14 +3,15 @@ import { GAME_NAME } from '../config/brand';
 import { LEVELS } from '../config/levels';
 import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
-import { ACHIEVEMENTS, achievementById } from '../progression/achievements';
+import { ACHIEVEMENTS } from '../progression/achievements';
 import { hasLegacyRecords, isLevelUnlocked, legacyDailyList, legacySurvivalBest, type RunReport } from '../progression/progress';
-import { SKINS, isSkinUnlocked, type Skin } from '../progression/skins';
+import { SKINS, isSkinUnlocked, resolveEquipped, skinById, unlockAchievementId, unlockCondition, type Skin } from '../progression/skins';
+import { skinThumb } from '../render/skinSprites';
 import type { SaveData } from '../save/save';
 import logoUrl from '../assets/ui/logo.png';
-import shipUrl from '../assets/sprites/ship.png';
 import { button, notice, screenHead, setting, stat, switchButton, tabs } from './components';
 import { escapeHtml, formatDelta, formatScore, formatTime, starsHtml } from './format';
+import { homeHelp } from './controls';
 import { ICONS } from './icons';
 
 /**
@@ -18,8 +19,6 @@ import { ICONS } from './icons';
  * Aucun texte, score, étoile ou apparence n'est figé : tout vient de `save` et du rapport de partie.
  * Les actions passent par des attributs data-action gérés par délégation dans App ; aucun bouton n'est relié à l'aire de jeu.
  */
-
-const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
 
 export type CollectionTab = 'skins' | 'achievements';
 
@@ -31,7 +30,7 @@ export function nextLevelId(save: SaveData): number {
 
 // ————————————————————————————————————————————— Accueil
 
-export function homeScreen(save: SaveData, today: string): string {
+export function homeScreen(save: SaveData, today: string, touch = false): string {
   const legacy = legacySurvivalBest(save);
   const surv =
     save.survival.bestTime > 0
@@ -70,7 +69,7 @@ export function homeScreen(save: SaveData, today: string): string {
         ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
       </div>
       ${button({ action: 'options', label: 'Options', icon: 'gear', variant: 'ghost' })}
-      <p class="small home__help">Touchez l’écran ou appuyez sur <span class="kbd">Espace</span> pour inverser la direction. <span class="kbd">Échap</span> : pause.</p>
+      <p class="small home__help">${homeHelp(touch)}</p>
     </div>
   </div>`;
 }
@@ -135,25 +134,67 @@ export function dailyScreen(save: SaveData, today: string): string {
 
 // ————————————————————————————————————————————— Apparences et succès
 
-function skinPreview(s: Skin): string {
-  // Orbite et balises aux couleurs de l'apparence ; le vaisseau est le vrai sprite
-  const cx = 60;
-  const cy = 36;
-  const r = 25;
-  const a = -0.75;
-  const sx = cx + r * Math.cos(a);
-  const sy = cy + r * Math.sin(a);
-  const rot = ((a + Math.PI / 2) * 180) / Math.PI;
-  const beacons = [Math.PI * 0.55, Math.PI * 1.05, Math.PI * 0.05]
-    .map((b) => `<rect x="${(cx + r * Math.cos(b) - 3).toFixed(1)}" y="${(cy + r * Math.sin(b) - 3).toFixed(1)}" width="6" height="6" transform="rotate(45 ${(cx + r * Math.cos(b)).toFixed(1)} ${(cy + r * Math.sin(b)).toFixed(1)})" fill="${hex(s.beacon)}"/>`)
-    .join('');
-  return `<svg class="skin__preview" viewBox="0 0 120 72" aria-hidden="true">
-    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${hex(s.orbit)}" stroke-width="2.2"/>${beacons}
-    <image href="${shipUrl}" x="${(sx - 11).toFixed(1)}" y="${(sy - 11).toFixed(1)}" width="22" height="22" transform="rotate(${rot.toFixed(1)} ${sx.toFixed(1)} ${sy.toFixed(1)})"/>
-  </svg>`;
+
+type SkinState = 'equipped' | 'available' | 'locked';
+
+const STATE_LABEL: Record<SkinState, string> = { equipped: 'Équipé', available: 'Disponible', locked: 'Verrouillé' };
+
+function skinState(save: SaveData, skin: Skin): SkinState {
+  if (!isSkinUnlocked(skin, save.achievements)) return 'locked';
+  return resolveEquipped(save.skin, save.achievements).id === skin.id ? 'equipped' : 'available';
 }
 
-export function collectionScreen(save: SaveData, tab: CollectionTab): string {
+const stateChip = (st: SkinState): string =>
+  `<span class="chip chip--${st}">${st === 'equipped' ? ICONS.check : st === 'locked' ? ICONS.lock : ''}${STATE_LABEL[st]}</span>`;
+
+function skinCard(save: SaveData, skin: Skin, selected: boolean): string {
+  const st = skinState(save, skin);
+  const thumb = skinThumb(skin.id);
+  return `<button class="skin skin--${st}${selected ? ' skin--selected' : ''}" data-action="select-skin" data-skin="${skin.id}" aria-pressed="${selected}" aria-label="${escapeHtml(skin.name)} — ${STATE_LABEL[st].toLowerCase()}">
+    <span class="skin__thumb">${thumb ? `<img src="${thumb}" alt="" width="64" height="64" decoding="async" />` : ICONS.rocket}${st === 'locked' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__name">${escapeHtml(skin.name)}</span>
+    ${stateChip(st)}
+  </button>`;
+}
+
+/** Condition de déblocage précise d'une apparence verrouillée (nom du succès et ce qu'il faut accomplir). */
+function unlockText(skin: Skin, unlocked: boolean): string {
+  const c = unlockCondition(skin);
+  if (!c) return 'Disponible dès le départ.';
+  const what = `succès «\u00a0${escapeHtml(c.name)}\u00a0»${c.description ? `\u00a0: ${escapeHtml(c.description)}` : ''}`;
+  return unlocked ? `Débloquée par le ${what}` : `Pour la débloquer : ${what}`;
+}
+
+function skinsPanel(save: SaveData, head: string, selectedId?: string): string {
+  const equipped = resolveEquipped(save.skin, save.achievements);
+  const sel = skinById(selectedId ?? equipped.id);
+  const st = skinState(save, sel);
+  const action =
+    st === 'available'
+      ? button({ action: 'equip-skin', label: 'Équiper', icon: 'check', variant: 'primary', attrs: `data-skin="${sel.id}"` })
+      : st === 'equipped'
+        ? button({ action: 'equip-skin', label: 'Équipé', icon: 'check', variant: 'secondary', attrs: 'disabled' })
+        : button({ action: 'equip-skin', label: 'Verrouillée', icon: 'lock', variant: 'secondary', attrs: 'disabled' });
+  const cards = SKINS.map((k) => skinCard(save, k, k.id === sel.id)).join('');
+  return `<div class="panel panel--wide">${head}
+    <div class="skin-stage">
+      <div class="skin-preview${st === 'locked' ? ' skin-preview--locked' : ''}">
+        <canvas class="skin-preview__canvas" data-skin-preview="${sel.id}" role="img" aria-label="Aperçu de l’apparence ${escapeHtml(sel.name)}"></canvas>
+        ${st === 'locked' ? `<span class="skin-preview__lock">${ICONS.lock}</span>` : ''}
+      </div>
+      <div class="skin-info">
+        <h3 class="skin-info__name">${escapeHtml(sel.name)}</h3>
+        ${stateChip(st)}
+        <p class="skin-info__cond${st === 'locked' ? ' skin-info__cond--locked' : ''}" id="skin-cond">${unlockText(sel, st !== 'locked')}</p>
+        ${action}
+      </div>
+    </div>
+    <div class="skins" role="group" aria-label="Apparences">${cards}</div>
+    <p class="small" style="margin-top:12px">Purement esthétiques : aucune apparence ne modifie les performances. Les menaces gardent toujours leurs couleurs.</p>
+  </div>`;
+}
+
+export function collectionScreen(save: SaveData, tab: CollectionTab, selected?: string): string {
   const count = ACHIEVEMENTS.filter((a) => save.achievements[a.id] !== undefined).length;
   const head = `${screenHead(tab === 'skins' ? 'Apparences' : 'Succès')}${tabs(
     [
@@ -162,25 +203,10 @@ export function collectionScreen(save: SaveData, tab: CollectionTab): string {
     ],
     tab,
   )}`;
-  if (tab === 'skins') {
-    const skins = SKINS.map((s) => {
-      const unlocked = isSkinUnlocked(s, save.achievements);
-      const sel = save.skin === s.id;
-      const req = s.unlock ? achievementById(s.unlock)?.name ?? '' : 'Disponible';
-      return `<button class="skin${sel ? ' skin--selected' : ''}" data-action="skin" data-skin="${s.id}" ${unlocked ? '' : 'disabled'} aria-pressed="${sel}">
-        ${skinPreview(s)}
-        <div class="skin__name">${escapeHtml(s.name)}${sel ? ICONS.check : ''}</div>
-        <div class="skin__req">${unlocked ? (sel ? 'Sélectionnée' : 'Débloquée') : `Verrouillée · succès « ${escapeHtml(req)} »`}</div>
-      </button>`;
-    }).join('');
-    return `<div class="panel panel--wide">${head}
-      <p class="sub" style="margin-bottom:14px">Purement esthétiques : elles ne modifient aucune performance. Les menaces gardent toujours leurs couleurs.</p>
-      <div class="skins">${skins}</div>
-    </div>`;
-  }
+  if (tab === 'skins') return skinsPanel(save, head, selected);
   const achs = ACHIEVEMENTS.map((a) => {
     const done = save.achievements[a.id] !== undefined;
-    const skin = SKINS.find((s) => s.unlock === a.id);
+    const skin = SKINS.find((s) => unlockAchievementId(s) === a.id);
     return `<div class="ach${done ? ' ach--done' : ''}"><div class="ach__medal">${done ? ICONS.star : ICONS.lock}</div>
       <div><div class="ach__t">${escapeHtml(a.name)}<span class="sr-only">${done ? ' — obtenu' : ' — à débloquer'}</span></div>
       <div class="ach__d">${escapeHtml(a.description)}${skin ? ` — apparence « ${escapeHtml(skin.name)} »` : ''}</div></div></div>`;
@@ -235,7 +261,7 @@ export function pauseScreen(modeLabel: string): string {
 function achievementsNotice(report: RunReport): string {
   return report.achievements
     .map((a) => {
-      const skin = SKINS.find((s) => s.unlock === a.id);
+      const skin = SKINS.find((s) => unlockAchievementId(s) === a.id);
       return notice(`Succès : <strong>${escapeHtml(a.name)}</strong>${skin ? ` — apparence « ${escapeHtml(skin.name)} » débloquée` : ''}`);
     })
     .join('');

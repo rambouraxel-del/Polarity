@@ -38,3 +38,9 @@ Apparences et Succès (onglets d'un même écran), Options, confirmation d'effac
 
 ## Adaptation
 Portrait mobile (320 px et plus), paysage bas (accueil sur deux colonnes), ordinateur ; marges de sécurité (`env(safe-area-inset-*)`), cibles tactiles ≥ 40 px (vérifié en e2e), aucun défilement horizontal (vérifié en e2e sur 4 tailles).
+
+## Aide aux contrôles
+`src/ui/controls.ts` choisit le texte selon le pointeur principal (`pointer: coarse`) : mobile « Touchez l'écran pour inverser la direction » ; ordinateur « Cliquez ou appuyez sur Espace… Échap : pause ». Utilisé par l'accueil et le bandeau de la première partie / du niveau 1.
+
+## Apparences
+Grand aperçu animé, grille de cartes, bouton « Équiper », conditions de déblocage : voir `docs/APPARENCES.md`.

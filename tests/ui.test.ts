@@ -6,6 +6,7 @@ import { LEVELS } from '../src/config/levels';
 import { ACHIEVEMENTS } from '../src/progression/achievements';
 import { BACKUP_PREFIX, BALANCE_BACKUP_PREFIX, CORRUPT_KEY, SAVE_KEY, defaultSave } from '../src/save/save';
 import { THEME, contrast, themeVariables, type ThemeColor } from '../src/ui/theme';
+import { bannerHelp } from '../src/ui/controls';
 import * as S from '../src/ui/screens';
 
 const STYLES = join(__dirname, '..', 'src', 'styles');
@@ -59,11 +60,11 @@ describe('thème centralisé', () => {
     expect(contrast(c.coral, c.panel)).toBeGreaterThanOrEqual(3);
   });
 
-  it('couleurs de l’arène inchangées', () => {
+  it('couleurs de l’arène : fond et quadrillage inchangés, orbite cyan vif', () => {
     const t = THEME.color as Record<ThemeColor, string>;
     expect(t.bgDeep).toBe('#070B1F');
     expect(t.grid).toBe('#16204A');
-    expect(t.orbit).toBe('#39F3FF');
+    expect(t.orbit).toBe('#00E5FF');
   });
 });
 
@@ -94,5 +95,61 @@ describe('écrans : données réelles', () => {
     for (const a of ACHIEVEMENTS) expect(ach).toContain(a.name);
     expect(S.pauseScreen('Survie')).toContain('data-action="resume"');
     expect(S.confirmResetScreen()).toContain('data-action');
+  });
+});
+
+describe('menu Apparences', () => {
+  const save = defaultSave();
+  save.achievements = { first_cycle: 1, survive_60: 2 };
+  save.skin = 'aurore';
+
+  it('une carte par apparence avec son état (équipé, disponible, verrouillé)', () => {
+    const html = S.collectionScreen(save, 'skins');
+    expect(html.match(/class="skin /g)?.length).toBe(7);
+    expect(html).toContain('chip--equipped');
+    expect(html).toContain('chip--available');
+    expect(html).toContain('chip--locked');
+    // Équipée : Aurore (aperçu par défaut)
+    expect(html).toContain('data-skin-preview="aurore"');
+  });
+
+  it('apparence disponible : bouton « Équiper » actif', () => {
+    const html = S.collectionScreen(save, 'skins', 'ambre');
+    expect(html).toContain('data-skin-preview="ambre"');
+    expect(html).toMatch(/data-action="equip-skin"[^>]*data-skin="ambre"/);
+    expect(html).toContain('Équiper');
+  });
+
+  it('apparence verrouillée : condition précise et bouton inactif', () => {
+    const html = S.collectionScreen(save, 'skins', 'glace');
+    expect(html).toContain('Pleine charge');
+    expect(html).toContain('Atteindre le multiplicateur maximal');
+    expect(html).toMatch(/data-action="equip-skin"\s+disabled/);
+    expect(html).toContain('skin-preview--locked');
+  });
+
+  it('apparence équipée : bouton « Équipé » inactif', () => {
+    const html = S.collectionScreen(save, 'skins', 'aurore');
+    expect(html).toMatch(/data-action="equip-skin"\s+disabled[^>]*>.*Équipé/s);
+  });
+
+  it('identifiant sélectionné inconnu → modèle classique', () => {
+    expect(S.collectionScreen(save, 'skins', 'inconnue')).toContain('data-skin-preview="classique"');
+  });
+});
+
+describe('aide aux contrôles', () => {
+  it('mobile : toucher ; ordinateur : clic, Espace et Échap', () => {
+    const save = defaultSave();
+    const touch = S.homeScreen(save, '2026-10-12', true);
+    const desk = S.homeScreen(save, '2026-10-12', false);
+    expect(touch).toContain('Touchez l’écran');
+    expect(touch).not.toContain('Espace');
+    expect(desk).toContain('Espace');
+    expect(desk).toContain('Échap');
+    expect(desk).toContain('Cliquez');
+    expect(desk).not.toContain('Touchez');
+    expect(bannerHelp(true)).not.toContain('Espace');
+    expect(bannerHelp(false)).toContain('Espace');
   });
 });

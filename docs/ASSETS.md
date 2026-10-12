@@ -61,3 +61,10 @@ Astuce : ouvrez le jeu avec `?debug` pour afficher hitboxes (traits pleins) et s
 
 ## Interface
 Logo, thème, police Orbitron (OFL), fond spatial : voir `docs/INTERFACE.md`. Le logo `src/assets/ui/logo.png` est le PNG transparent fourni pour le projet (utilisé tel quel).
+
+## Vaisseau en partie (v1.4)
+- Taille : +20 % par rapport à la v1.1.x (`VISUAL.shipScale = 1,45 × 1,2`) ; hitbox inchangée (`config/hitbox.ts`).
+- Coque plus blanche, cockpit cyan plus vif (recoloration, `src/render/shipPalette.ts`), lueur discrète de la couleur du cockpit (`FX.shipGlow`) et liseré sombre qui détache le vaisseau de l'orbite (`FX.shipRim`).
+- Astéroïdes : taille inchangée, contour orange renforcé (`FX.asteroidGlow.alpha` 0,45 → 0,6).
+- Orbite : cyan vif `#00E5FF` (trait plein épais + halo en dégradé, texture générée par code).
+- Une texture par apparence : voir `docs/APPARENCES.md`.

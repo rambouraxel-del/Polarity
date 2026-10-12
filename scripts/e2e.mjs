@@ -196,6 +196,8 @@ const state = (page) =>
   check(st && st.phase === 'over', 'Relances successives sans blocage');
 
   // Relance au clavier : Espace sur l'écran de résultat (bouton Rejouer focalisé après la protection)
+  // Le focus arrive après la protection contre les clics accidentels, comptée en temps d'image : on l'attend (rendu logiciel lent)
+  await page.waitForFunction(() => document.activeElement?.hasAttribute('data-replay'), null, { timeout: 20000 });
   await page.keyboard.press('Space');
   await page.waitForTimeout(200);
   st = await state(page);
@@ -300,13 +302,13 @@ const state = (page) =>
   if (diff > Math.PI) diff = 2 * Math.PI - diff;
   check(Math.abs(diff - Math.PI) < 0.45, `Inversion : le vaisseau se retourne immédiatement (Δ ≈ ${(diff / Math.PI).toFixed(2)} π)`);
 
-  // Visuels agrandis : taille affichée du sprite = 2 × rayon visuel (11 × 1,15 × 1,45) / 0,9375 × échelle
+  // Visuels agrandis : taille affichée du sprite = 2 × rayon visuel (11 × 1,15 × 1,45 × 1,2) / 0,9375 × échelle
   const dims = await page.evaluate(() => {
     const r = window.__polarite.renderer;
     return { w: r.shipSprite.displayWidth, scale: r.scale };
   });
-  const expected = (2 * 11 * 1.15 * 1.45) / (120 / 128) * dims.scale;
-  check(Math.abs(dims.w - expected) < 0.5, `Vaisseau +45 % (${dims.w.toFixed(1)} px ≈ ${expected.toFixed(1)} px)`);
+  const expected = (2 * 11 * 1.15 * 1.45 * 1.2) / (120 / 128) * dims.scale;
+  check(Math.abs(dims.w - expected) < 0.5, `Vaisseau +20 % de plus (${dims.w.toFixed(1)} px ≈ ${expected.toFixed(1)} px)`);
 
   // Astéroïde : un projectile actif devient un sprite (sans collision : invincible)
   await page.evaluate(() => {
@@ -377,13 +379,24 @@ const state = (page) =>
   // Vitesse : départ à 40 % de la référence (2,0 rad/s)
   const w0 = await page.evaluate(() => window.__polarite.session.sim.omega);
   check(Math.abs(w0 - 0.8) < 1e-6, `Vitesse de départ : 40 % de la référence (${w0.toFixed(2)} rad/s)`);
-  // Paliers : 45 % à 30 s, 50 % à 1 min, 100 % à 6 min (avance rapide du joueur automatique)
-  const speeds = [];
-  for (const [target, expected] of [[30.1, 0.9], [60.1, 1.0], [180.1, 1.4], [360.2, 2.0]]) {
-    await page.evaluate((t) => { const s = window.__polarite.session; window.__polarite.fastForward(t - s.sim.time); }, target);
-    speeds.push(await page.evaluate(() => window.__polarite.session.sim.omega));
-    check(Math.abs(speeds[speeds.length - 1] - expected) < 1e-6, `Palier à ${Math.round(target)} s : ${expected.toFixed(2)} rad/s (${(speeds[speeds.length - 1] / 2 * 100).toFixed(0)} % de la référence)`);
+  // Paliers : 45 % à 30 s, 50 % à 1 min, 100 % à 6 min (avance rapide du joueur automatique).
+  // Le robot du navigateur joue une graine aléatoire et peut mourir : jusqu'à 3 parties, la dernière fait foi.
+  let speeds = [];
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    speeds = [];
+    for (const [target] of [[30.1], [60.1], [180.1], [360.2]]) {
+      await page.evaluate((t) => { const s = window.__polarite.session; window.__polarite.fastForward(t - s.sim.time); }, target);
+      speeds.push(await page.evaluate(() => window.__polarite.session.sim.omega));
+    }
+    if ((await page.evaluate(() => window.__polarite.session.sim.state)) === 'running' || attempt === 3) break;
+    console.log(`  (robot mort avant 6 min, nouvelle partie : tentative ${attempt + 1}/3)`);
+    await page.evaluate(() => window.__polarite.showScreen('home'));
+    await page.click('[data-action="survival"]');
+    await page.waitForTimeout(300);
   }
+  [[30.1, 0.9], [60.1, 1.0], [180.1, 1.4], [360.2, 2.0]].forEach(([target, expected], i) => {
+    check(Math.abs(speeds[i] - expected) < 1e-6, `Palier à ${Math.round(target)} s : ${expected.toFixed(2)} rad/s (${(speeds[i] / 2 * 100).toFixed(0)} % de la référence)`);
+  });
   check((await page.evaluate(() => window.__polarite.session.sim.state)) === 'running', 'Le joueur automatique traverse 6 minutes de Survie (événements et nouveaux dangers inclus)');
 
   // Nouveaux dangers : dessinés sans erreur (fragment, convoi, laser) ; les fragments sont plus petits
@@ -475,6 +488,87 @@ const state = (page) =>
   await context.close();
 }
 
+// ————————————————————————————————————————————— Menu Apparences : aperçu, équipement, verrouillage, persistance
+{
+  const { page, context, errors } = await newPage({ width: 1280, height: 800 });
+  const go = async (id) => { await page.evaluate((a) => window.__polarite.showScreen(a), id); await page.waitForTimeout(350); };
+  await page.evaluate(() => { const a = window.__polarite; a.save.achievements = { first_cycle: 1 }; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; });
+  await go('skins');
+  check((await page.locator('.skin').count()) === 7, 'Apparences : 7 cartes');
+  check((await page.locator('.skin img').count()) === 7, 'Apparences : une miniature par carte');
+  check((await page.locator('.skin--equipped').count()) === 1 && (await page.locator('.skin--locked').count()) === 5, 'Apparences : 1 équipée, 1 disponible, 5 verrouillées');
+  check((await page.locator('canvas[data-skin-preview="classique"]').count()) === 1, 'Aperçu : le vaisseau équipé est affiché en grand');
+  // Aperçu animé : l'image change au cours du temps ; figée en effets réduits
+  const frame = () => page.evaluate(() => document.querySelector('canvas[data-skin-preview]').toDataURL());
+  const a1 = await frame();
+  await page.waitForTimeout(500);
+  const a2 = await frame();
+  check(a1 !== a2, 'Aperçu : rotation lente et réacteur animés');
+  await page.screenshot({ path: 'screenshots/60-apparences-bureau.png' });
+  // Carte verrouillée : aperçu, condition précise, bouton Équiper inactif
+  await page.click('[data-skin="glace"]');
+  check((await page.locator('canvas[data-skin-preview="glace"]').count()) === 1, 'Carte verrouillée : son aperçu s’affiche');
+  const cond = await page.locator('#skin-cond').innerText();
+  check(/Pleine charge/.test(cond) && /multiplicateur maximal/.test(cond), `Apparence verrouillée : condition précise (« ${cond.replace(/\s+/g, ' ')} »)`);
+  check(await page.locator('.skin-info [data-action="equip-skin"]').isDisabled(), 'Apparence verrouillée : bouton inactif');
+  check((await page.evaluate(() => window.__polarite.save.skin)) === 'classique', 'Sélectionner une carte n’équipe pas l’apparence');
+  await page.screenshot({ path: 'screenshots/61-apparence-verrouillee.png' });
+  // Apparence disponible : Équiper
+  await page.click('[data-skin="aurore"]');
+  check(!(await page.locator('.skin-info [data-action="equip-skin"]').isDisabled()), 'Apparence disponible : bouton « Équiper » actif');
+  await page.click('.skin-info [data-action="equip-skin"]');
+  check((await page.evaluate(() => window.__polarite.save.skin)) === 'aurore', 'Équiper enregistre l’apparence');
+  check((await page.locator('.skin--equipped[data-skin="aurore"]').count()) === 1, 'La carte équipée est signalée');
+  await page.screenshot({ path: 'screenshots/62-apparence-equipee.png' });
+  // Appliquée dans tous les modes
+  for (const [mode, sel] of [['Survie', '[data-action="survival"]'], ['défi quotidien', '[data-action="daily"]'], ['Niveaux', '[data-action="levels"]']]) {
+    await go('home');
+    await page.click(sel);
+    if (mode === 'défi quotidien') await page.click('[data-action="play-daily"]');
+    if (mode === 'Niveaux') await page.click('[data-action="play-level"][data-level="1"]');
+    await page.waitForTimeout(500);
+    const key = await page.evaluate(() => window.__polarite.renderer.shipSprite.texture.key);
+    const w = await page.evaluate(() => window.__polarite.renderer.shipSprite.displayWidth);
+    check(key === 'ship-aurore' && w > 0, `Apparence équipée appliquée en ${mode} (texture ${key})`);
+  }
+  await page.screenshot({ path: 'screenshots/63-partie-apparence.png' });
+  // Persistance après rechargement
+  await page.reload();
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+  check((await page.evaluate(() => window.__polarite.save.skin)) === 'aurore', 'Persistance : l’apparence équipée survit au rechargement');
+  await page.evaluate(() => window.__polarite.showScreen('skins'));
+  await page.waitForTimeout(300);
+  check((await page.locator('.skin--equipped[data-skin="aurore"]').count()) === 1, 'Persistance : la carte équipée est affichée après rechargement');
+  // Effets réduits : aperçu figé
+  await page.evaluate(() => { const a = window.__polarite; a.save.options.reducedEffects = true; a.applyReducedEffects(); a.showScreen('skins'); });
+  await page.waitForTimeout(300);
+  const r1 = await frame();
+  await page.waitForTimeout(500);
+  const r2 = await frame();
+  check(r1 === r2, 'Effets réduits : l’aperçu du vaisseau reste fixe');
+  check(errors.length === 0, `Aucune erreur console (apparences)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
+  await context.close();
+
+  // Retour au modèle classique si l'identifiant n'existe plus, ou si l'apparence est verrouillée
+  for (const [skin, label] of [['disparue', 'identifiant inconnu'], ['prisme', 'apparence verrouillée']]) {
+    const ctx = await browser.newContext({ viewport: { width: 1000, height: 700 } });
+    const p = await ctx.newPage();
+    await p.addInitScript((id) => {
+      if (!localStorage.getItem('polarite.save')) {
+        const base = { version: 2, balance: 3, levels: {}, survival: { bestTime: 0, bestScore: 0, runs: 0 }, daily: {}, achievements: {}, skin: id, options: { muted: false, volume: 0.7, reducedEffects: false, tutorialSeen: true }, seenIntros: [], stats: { totalCycles: 0, totalRuns: 0 }, archive: {}, balanceNoticeSeen: 3 };
+        localStorage.setItem('polarite.save', JSON.stringify(base));
+      }
+    }, skin);
+    await p.goto(URL);
+    await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="levels"]'));
+    check((await p.evaluate(() => window.__polarite.save.skin)) === 'classique', `Repli sur le modèle classique (${label})`);
+    await p.click('[data-action="survival"]');
+    await p.waitForTimeout(400);
+    check((await p.evaluate(() => window.__polarite.renderer.shipSprite.texture.key)) === 'ship-classique', `Partie jouable avec le modèle classique (${label})`);
+    await ctx.close();
+  }
+}
+
 // ————————————————————————————————————————————— Interface « Néon premium » : chaque écran, transitions, effets réduits
 for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mobile portrait', true], [844, 390, 'mobile paysage', true], [320, 568, 'petit écran', true]]) {
   const { page, context, errors } = await newPage({ width: w, height: h }, { touch, dpr: 1 });
@@ -489,6 +583,10 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
     const order = await page.evaluate(() => [...document.querySelectorAll('#screen .home__menu [data-action]')].map((b) => b.dataset.action));
     check(order.join() === 'survival,levels,daily,skins,achievements,options', `Accueil : ordre des boutons (${order.join(', ')})`);
   }
+  await go('home');
+  const help = await page.locator('.home__help').innerText();
+  if (touch) check(/Touchez/.test(help) && !/Espace|Échap/.test(help), `Aide aux contrôles : toucher, sans clavier (${label})`);
+  else check(/Cliquez/.test(help) && /Espace/.test(help) && /Échap/.test(help), `Aide aux contrôles : clic, Espace et Échap (${label})`);
   for (const id of ['home', 'levels', 'daily', 'skins', 'achievements', 'options']) {
     if (id === 'achievements') { await go('skins'); await page.click('[data-action="tab-achievements"]'); await page.waitForTimeout(250); } else await go(id);
     check(await noOverflow(), `Écran ${id} sans débordement horizontal (${label})`);

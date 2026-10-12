@@ -40,7 +40,7 @@ export interface LevelDef {
 export const LEVELS: LevelDef[] = [
   {
     id: 1, name: 'Premier tour',
-    hint: 'Touchez ou appuyez sur Espace pour inverser la direction.',
+    hint: 'Une seule commande : inversez la direction pour esquiver et collecter.',
     dStart: 0, dEnd: 0.12, pacing: 'steady',
     speed: LEVEL_SPEED_DEFAULT,
     weights: { shot: 1 },
