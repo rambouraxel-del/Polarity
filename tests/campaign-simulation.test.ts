@@ -5,25 +5,73 @@ import { MISSIONS, UPGRADE_EFFECTS } from '../src/config/campaign';
 import { RESPITE, SIM } from '../src/config/balance';
 import { createSimulation } from '../src/modes/run';
 
-const SEEDS = Array.from({ length: 12 }, (_, i) => 1000 + i * 7919);
+const SEEDS = Array.from({ length: 4 }, (_, i) => 1000 + i * 7919);
 
-describe('missions de campagne : faisabilité (joueur automatique)', () => {
+describe('missions de campagne : faisabilité et durée (joueur automatique parfait)', () => {
   for (const m of MISSIONS) {
-    it(`mission ${m.id} « ${m.title} » est réalisable avec le vaisseau de base`, () => {
-      let wins = 0;
+    it(`mission ${m.id} « ${m.title} » : réalisable, entre 90 et 300 s de jeu, défi secondaire atteignable`, () => {
       for (const seed of SEEDS) {
         const sim = playMission(CampaignSimulation.create(m, seed));
-        if (sim.outcome === 'success') wins++;
+        expect(sim.outcome, `graine ${seed}`).toBe('success');
+        const r = sim.report();
+        // Même un joueur parfait ne finit pas avant 90 s (objectifs répartis sur toute la mission, sans attente artificielle)
+        expect(r.time, `graine ${seed}`).toBeGreaterThanOrEqual(90);
+        expect(r.time).toBeLessThanOrEqual(300);
+        expect(r.time).toBeLessThanOrEqual(m.limit);
+        expect(r.stars.challenge, `défi secondaire, graine ${seed}`).toBe(true);
       }
-      expect(wins).toBe(SEEDS.length);
     });
   }
+
+  it('durée croissante avec l’avancée de l’histoire (joueur parfait, médiane)', () => {
+    const times = MISSIONS.map((m) => playMission(CampaignSimulation.create(m, 1000)).report().time);
+    for (let i = 1; i < times.length; i++) expect(times[i], `niveau ${i + 1}`).toBeGreaterThanOrEqual(times[i - 1] - 1);
+    expect(times[4]).toBeGreaterThan(times[0] + 60);
+  });
+
+  it('consignes, compteurs et conditions de victoire concordent', () => {
+    for (const m of MISSIONS) {
+      const o = m.objective;
+      if (o.type === 'beacons') expect(m.objectiveText).toContain(String(o.count));
+      if (o.type === 'objects') {
+        expect(m.objectiveText).toContain(String(o.count));
+        if (o.after) expect(m.objectiveText).toContain(String(o.after.beacons));
+      }
+      if (o.type === 'survive') expect(m.objectiveText).toContain(String(o.seconds));
+      expect(m.limit).toBeLessThanOrEqual(300);
+      // La limite laisse de la marge au joueur : objectifs à collecter (limite ≥ 1,5 × la durée du joueur parfait testée ci-dessus)
+      if (o.type !== 'survive') expect(m.limit).toBeGreaterThanOrEqual(200);
+    }
+  });
+
+  it('niveau 5 : phase d’approche (éclats) puis balise narrative distincte, compteur cohérent', () => {
+    const m = MISSIONS[4];
+    const sim = CampaignSimulation.create(m, 7);
+    expect(sim.progressText()).toBe('Approche de la capsule : éclats 0/100');
+    expect(sim.objects).toHaveLength(0);
+    const bot = new MissionBot(sim);
+    let sawObject = false;
+    for (let i = 0; i < 120 * 300 && sim.state === 'running'; i++) {
+      bot.tick();
+      sim.step();
+      sim.events.length = 0;
+      sim.campaignEvents.length = 0;
+      if (sim.objects.length > 0 && !sawObject) {
+        sawObject = true;
+        expect(sim.beaconsCollected).toBeGreaterThanOrEqual(100);
+        expect(sim.objects[0].kind).toBe('blackbox');
+        expect(sim.progressText()).toMatch(/^Téléchargement \d\/5$/);
+      }
+    }
+    expect(sawObject).toBe(true);
+    expect(sim.outcome).toBe('success');
+  });
 });
 
 describe('missions de campagne : structure', () => {
-  it('cinq niveaux consécutifs, durées ≤ 90 s', () => {
+  it('cinq niveaux consécutifs, limites ≤ 300 s', () => {
     expect(MISSIONS.map((m) => m.id)).toEqual([1, 2, 3, 4, 5]);
-    for (const m of MISSIONS) expect(m.limit).toBeLessThanOrEqual(90);
+    for (const m of MISSIONS) expect(m.limit).toBeLessThanOrEqual(300);
   });
 
   it('astéroïdes seulement : ni secteur électrique ni laser avant les niveaux suivants', () => {

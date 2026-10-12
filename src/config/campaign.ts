@@ -18,12 +18,12 @@ import type { PatternWeights } from '../sim/patterns';
 export type ObjectKind = 'fragment' | 'blackbox' | 'data';
 
 /** Objets narratifs : distincts des Éclats (cristal violet), des balises (losanges dorés) et des dangers. */
-export const OBJECT_KINDS: Record<ObjectKind, { name: string; plural: string }> = {
+export const OBJECT_KINDS: Record<ObjectKind, { name: string; plural: string; /** Libellé du compteur affiché en jeu. */ counter: string }> = {
   /** Fragments d'épave (niveau 4). */
-  fragment: { name: 'fragment d’épave', plural: 'fragments d’épave' },
-  /** Balise de la capsule : le téléchargement se fait en trois passages (niveau 5). */
-  blackbox: { name: 'balise de la capsule', plural: 'balises de la capsule' },
-  data: { name: 'donnée', plural: 'données' },
+  fragment: { name: 'fragment d’épave', plural: 'fragments d’épave', counter: 'Fragments d’épave' },
+  /** Balise de la capsule (balise NARRATIVE, distincte des éclats de gameplay) : le téléchargement se fait par passages (niveau 5). */
+  blackbox: { name: 'balise de la capsule', plural: 'balises de la capsule', counter: 'Téléchargement' },
+  data: { name: 'donnée', plural: 'données', counter: 'Données' },
 };
 
 export type Objective =
@@ -31,8 +31,11 @@ export type Objective =
   | { type: 'survive'; seconds: number }
   /** Collecter `count` balises (en tout, cycles confondus). */
   | { type: 'beacons'; count: number }
-  /** Récupérer `count` objets successifs : un seul visible à la fois, durée limitée, un objet manqué réapparaît. */
-  | { type: 'objects'; kind: ObjectKind; count: number; lifetime: number; first: number; gap: { min: number; max: number }; respawn: number }
+  /**
+   * Récupérer `count` objets successifs : un seul visible à la fois, durée limitée, un objet manqué réapparaît.
+   * `after` : phase d'approche — les objets n'apparaissent qu'une fois `beacons` éclats récoltés (puis `first` secondes plus tard).
+   */
+  | { type: 'objects'; kind: ObjectKind; count: number; lifetime: number; first: number; gap: { min: number; max: number }; respawn: number; after?: { beacons: number; label: string } }
   /** Compléter `count` cycles de balises (verrous désactivés). */
   | { type: 'cycles'; count: number }
   /** Compléter `cycles` cycles, puis récupérer l'objet qui apparaît alors (persistant jusqu'à sa collecte). */
@@ -106,19 +109,19 @@ export const MISSIONS: MissionDef[] = [
     id: 1,
     title: 'De quoi rentrer',
     summary: 'Une journée normale : récoltez de quoi payer le circuit de la Traverse, dans un champ peu dense.',
-    objective: { type: 'beacons', count: 6 },
-    objectiveText: 'Récolter 6 éclats',
-    limit: 90,
-    speed: 0.45,
+    objective: { type: 'beacons', count: 84 },
+    objectiveText: 'Récolter 84 éclats',
+    limit: 240,
+    speed: 0.4,
     script: {
-      difficulty: [0.02, 0.1],
-      firstWave: 2.4,
-      phases: [phase(0, 90, { shot: 1 })],
-      breaths: [[22, 25]],
+      difficulty: [0.03, 0.2],
+      firstWave: 3,
+      phases: [phase(0, 240, { shot: 1 }, 1.2)],
+      breaths: [[32, 35], [78, 81], [124, 127], [170, 173]],
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 40, text: 'Terminer en moins de 40 secondes' },
+    challenge: { kind: 'time', target: 115, text: 'Terminer en moins de 115 secondes' },
     before: 'n1-before',
     after: 'n1-after',
   },
@@ -126,19 +129,19 @@ export const MISSIONS: MissionDef[] = [
     id: 2,
     title: 'Une bonne journée',
     summary: 'La récolte est anormalement riche, mais le champ se densifie et les trajectoires deviennent imprévisibles.',
-    objective: { type: 'beacons', count: 12 },
-    objectiveText: 'Récolter 12 éclats',
-    limit: 90,
-    speed: 0.5,
+    objective: { type: 'beacons', count: 114 },
+    objectiveText: 'Récolter 114 éclats',
+    limit: 300,
+    speed: 0.45,
     script: {
-      difficulty: [0.06, 0.2],
-      firstWave: 2.2,
-      phases: [phase(0, 40, { shot: 1, diameter: 0.5 }), phase(40, 90, { shot: 1, diameter: 0.8, parallel: 0.4 }, 0.92)],
-      breaths: [[28, 31], [55, 58]],
+      difficulty: [0.08, 0.26],
+      firstWave: 2.4,
+      phases: [phase(0, 70, { shot: 1, diameter: 0.4 }, 1.1), phase(70, 300, { shot: 1, diameter: 0.6, parallel: 0.25 }, 1)],
+      breaths: [[46, 49], [100, 103], [155, 158], [210, 213], [262, 265]],
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'combo', target: 3, text: 'Atteindre le multiplicateur ×3' },
+    challenge: { kind: 'combo', target: 4, text: 'Atteindre le multiplicateur ×4' },
     before: 'n2-before',
     after: 'n2-after',
   },
@@ -146,19 +149,19 @@ export const MISSIONS: MissionDef[] = [
     id: 3,
     title: 'Tenir',
     summary: 'La première tempête d’astéroïdes ferme le passage. Survivez et sortez de la zone ; rien d’autre ne compte.',
-    objective: { type: 'survive', seconds: 60 },
-    objectiveText: 'Survivre à la tempête (60 secondes)',
-    limit: 60,
-    speed: 0.55,
+    objective: { type: 'survive', seconds: 150 },
+    objectiveText: 'Survivre à la tempête (150 secondes)',
+    limit: 150,
+    speed: 0.5,
     script: {
-      difficulty: [0.14, 0.3],
+      difficulty: [0.14, 0.32],
       firstWave: 2,
-      phases: [phase(0, 20, { shot: 1, diameter: 0.7, parallel: 0.4 }), phase(20, 60, { shot: 1, diameter: 0.8, parallel: 0.6, cross: 0.4, convoy: 0.5 }, 0.85)],
-      breaths: [[26, 29], [44, 47]],
+      phases: [phase(0, 25, { shot: 1, diameter: 0.7, parallel: 0.4 }), phase(25, 150, { shot: 1, diameter: 0.8, parallel: 0.6, cross: 0.4, convoy: 0.5 }, 0.85)],
+      breaths: [[42, 45], [72, 75], [102, 105], [130, 133]],
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'beacons', target: 6, text: 'Récolter au moins 6 éclats en chemin' },
+    challenge: { kind: 'beacons', target: 70, text: 'Récolter au moins 70 éclats en chemin' },
     before: 'n3-before',
     after: 'n3-after',
   },
@@ -166,39 +169,39 @@ export const MISSIONS: MissionDef[] = [
     id: 4,
     title: 'Ce que la tempête a laissé',
     summary: 'Le calme revient. Traversez les débris, récoltez ce qui reste et suivez les fragments d’épave.',
-    objective: { type: 'objects', kind: 'fragment', count: 3, lifetime: 8, first: 5, gap: { min: 2, max: 3 }, respawn: 1.5 },
-    objectiveText: 'Suivre 3 fragments d’épave',
-    limit: 90,
+    objective: { type: 'objects', kind: 'fragment', count: 6, lifetime: 18, first: 16, gap: { min: 22, max: 30 }, respawn: 3 },
+    objectiveText: 'Suivre 6 fragments d’épave',
+    limit: 300,
     speed: 0.5,
     script: {
-      difficulty: [0.1, 0.22],
+      difficulty: [0.1, 0.34],
       firstWave: 3,
-      phases: [phase(0, 90, { shot: 1, fragment: 0.7, diameter: 0.3 }, 1.1)],
-      breaths: [[14, 17], [34, 37], [56, 59]],
+      phases: [phase(0, 300, { shot: 1, fragment: 0.5, diameter: 0.2 }, 1.2)],
+      breaths: [[28, 31], [66, 69], [104, 107], [142, 145], [180, 183], [218, 221], [256, 259]],
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 45, text: 'Terminer en moins de 45 secondes' },
+    challenge: { kind: 'time', target: 180, text: 'Terminer en moins de 180 secondes' },
     before: 'n4-before',
     after: 'n4-after',
   },
   {
     id: 5,
     title: 'Douze ans de silence',
-    summary: 'Atteignez la capsule à travers les débris et restez près de sa balise le temps de télécharger ses données.',
-    objective: { type: 'objects', kind: 'blackbox', count: 3, lifetime: 9, first: 6, gap: { min: 2.5, max: 3.5 }, respawn: 1.5 },
-    objectiveText: 'Télécharger les données de la balise (3 passages)',
-    limit: 90,
-    speed: 0.55,
+    summary: 'Atteignez la capsule à travers les débris, puis restez près de sa balise le temps de télécharger ses données.',
+    objective: { type: 'objects', kind: 'blackbox', count: 5, lifetime: 18, first: 8, gap: { min: 18, max: 24 }, respawn: 3, after: { beacons: 100, label: 'Approche de la capsule' } },
+    objectiveText: 'Atteindre la capsule (100 éclats), puis télécharger la balise (5 passages)',
+    limit: 300,
+    speed: 0.5,
     script: {
-      difficulty: [0.14, 0.3],
+      difficulty: [0.14, 0.36],
       firstWave: 2.4,
-      phases: [phase(0, 90, { shot: 1, diameter: 0.7, parallel: 0.4, cross: 0.3, fragment: 0.4, convoy: 0.3 })],
-      breaths: [[16, 19], [36, 39], [58, 61]],
+      phases: [phase(0, 300, { shot: 1, diameter: 0.6, parallel: 0.3, cross: 0.2, fragment: 0.4, convoy: 0.2 }, 1.05)],
+      breaths: [[34, 37], [70, 73], [106, 109], [142, 145], [178, 181], [214, 217], [250, 253], [284, 287]],
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 55, text: 'Terminer en moins de 55 secondes' },
+    challenge: { kind: 'time', target: 240, text: 'Terminer en moins de 240 secondes' },
     before: 'n5-before',
     after: 'n5-after',
   },

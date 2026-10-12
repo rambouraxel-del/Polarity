@@ -1,5 +1,5 @@
 import { RESPITE, SIM } from '../config/balance';
-import { MISSION_OBJECTS, UPGRADE_EFFECTS, type MissionDef, type ObjectKind } from '../config/campaign';
+import { MISSION_OBJECTS, OBJECT_KINDS, UPGRADE_EFFECTS, type MissionDef, type ObjectKind } from '../config/campaign';
 import { playerHitRadius } from '../config/hitbox';
 import { angleDiff, clamp, sweepOverlapsArc, TAU, wrapAngle } from '../core/math';
 import { Rng } from '../core/rng';
@@ -109,6 +109,7 @@ export class CampaignSimulation extends Simulation {
   private objCounter = 0;
   private nextObjectAt = Infinity;
   private objectsSpawned = false;
+  private approachDone = false;
   private lineIdx = 0;
   private announceIdx = 0;
   private sequencesDone = 0;
@@ -128,7 +129,8 @@ export class CampaignSimulation extends Simulation {
     this.objRng = new Rng(Math.imul(seed ^ 0x2f6e2b1, 0x9e3779b1) >>> 0);
     this.shieldCharges = upgrades.shield ? UPGRADE_EFFECTS.shield.charges : 0;
     const o = mission.objective;
-    if (o.type === 'objects') this.nextObjectAt = o.first;
+    // Avec une phase d'approche (`after`), les objets n'apparaissent qu'une fois assez d'éclats récoltés
+    if (o.type === 'objects' && !o.after) this.nextObjectAt = o.first;
   }
 
   override flip(): void {
@@ -264,6 +266,11 @@ export class CampaignSimulation extends Simulation {
   private updateObjects(from: number, delta: number): void {
     const o = this.mission.objective;
     if (this.outcome !== 'running') return;
+    // Fin de la phase d'approche : les objets se mettent à apparaître
+    if (o.type === 'objects' && o.after && !this.approachDone && this.beaconsCollected >= o.after.beacons) {
+      this.approachDone = true;
+      this.nextObjectAt = this.time + o.first;
+    }
     // Collecte
     const obj = this.objects[0];
     if (obj) {
@@ -401,8 +408,10 @@ export class CampaignSimulation extends Simulation {
         }
         return 'Survivre';
       }
-      case 'beacons': return `Balises ${Math.min(this.beaconsCollected, o.count)}/${o.count}`;
-      case 'objects': return `${o.kind === 'fragment' ? 'Fragments' : 'Données'} ${this.objectsCollected}/${o.count}`;
+      case 'beacons': return `Éclats ${Math.min(this.beaconsCollected, o.count)}/${o.count}`;
+      case 'objects':
+        if (o.after && !this.approachDone) return `${o.after.label} : éclats ${Math.min(this.beaconsCollected, o.after.beacons)}/${o.after.beacons}`;
+        return `${OBJECT_KINDS[o.kind].counter} ${this.objectsCollected}/${o.count}`;
       case 'cycles': return `Verrous ${Math.min(this.cyclesDone, o.count)}/${o.count}`;
       case 'cyclesThenObject': return this.cyclesDone < o.cycles ? `Cycles ${this.cyclesDone}/${o.cycles}` : this.objectsCollected >= 1 ? 'Boîte noire récupérée' : 'Boîte noire sur l’orbite';
     }

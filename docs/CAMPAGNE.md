@@ -21,20 +21,24 @@ Mode narratif jouable, centré sur l'histoire : scène illustrée avant et aprè
 | `tests/story.test.ts`, `tests/campaign-*.test.ts`, `scripts/e2e.mjs` (section Campagne) | Tests |
 
 ## Niveaux (choix d'équilibrage, à valider avec de vrais joueurs)
-Dangers : **astéroïdes uniquement** (pas de secteur électrique ni de laser avant les niveaux suivants). Aucune transmission n'est affichée pendant une esquive. « Éclats » = les balises de l'orbite.
+Dangers : **astéroïdes uniquement** (pas de secteur électrique ni de laser avant les niveaux suivants). Aucune transmission n'est affichée pendant une esquive. « Éclats » = les balises de gameplay de l'orbite ; la **balise narrative** de la capsule (niveau 5) est un objet distinct (hexagone vert menthe, compteur « Téléchargement »).
 
-| # | Titre | Objectif | Vitesse | Difficulté (début → fin) | Défi secondaire |
-|---|---|---|---|---|---|
-| 1 | De quoi rentrer | Récolter 6 éclats (champ peu dense) | 45 % | 0,02 → 0,10 | < 40 s |
-| 2 | Une bonne journée | Récolter 12 éclats (champ plus dense, trajectoires moins prévisibles) | 50 % | 0,06 → 0,20 | multiplicateur ×3 |
-| 3 | Tenir | Survivre 60 s à la première tempête d'astéroïdes (aucun quota de récolte) | 55 % | 0,14 → 0,30 | ≥ 6 éclats |
-| 4 | Ce que la tempête a laissé | Suivre 3 fragments d'épave (rythme redescendu, astéroïdes fragmentés) | 50 % | 0,10 → 0,22 | < 45 s |
-| 5 | Douze ans de silence | Télécharger les données de la balise de la capsule : 3 passages (adaptation de « rester à proximité » au moteur) | 55 % | 0,14 → 0,30 | < 55 s |
+Une réussite dure **90 à 300 s de jeu** (hors scènes et pauses), de plus en plus longtemps avec l'histoire. Sur l'orbite, le vaisseau ramasse les 6 éclats en un tour (≈ 8 s à 40 % de vitesse) : la durée d'un niveau de récolte vient donc du **nombre de tours** demandé, pas d'une attente. Les objets de mission (fragments, balise de la capsule) apparaissent l'un après l'autre sur toute la durée, avec une durée de vie supérieure à deux tours d'orbite (atteignables sans chance, seulement en évitant les astéroïdes).
 
-Mécanique commune : respirations (aucune nouvelle vague), vitesse réglée par niveau, trajectoires issues de la graine de la tentative, tous les niveaux validés par le validateur d'évitement du directeur.
+| # | Titre | Objectif (= compteur affiché = condition de victoire) | Vitesse | Limite | Durée visée* | Défi secondaire |
+|---|---|---|---|---|---|---|
+| 1 | De quoi rentrer | Récolter **84 éclats** (14 tours) — champ peu dense | 40 % | 240 s | ≈ 95–120 s | < 115 s |
+| 2 | Une bonne journée | Récolter **114 éclats** (19 tours) — champ plus dense, trajectoires moins prévisibles | 45 % | 300 s | ≈ 115–150 s | multiplicateur ×4 |
+| 3 | Tenir | **Survivre 150 s** à la tempête (aucun quota de récolte) | 50 % | 150 s | 150 s | ≥ 70 éclats en chemin |
+| 4 | Ce que la tempête a laissé | Suivre **6 fragments d'épave** (un à la fois, 18 s chacun, toutes les 22–30 s) | 50 % | 300 s | ≈ 155–190 s | < 180 s |
+| 5 | Douze ans de silence | Atteindre la capsule (**100 éclats**), puis télécharger la balise (**5 passages**, toutes les 18–24 s) | 50 % | 300 s | ≈ 195–240 s | < 240 s |
+
+\* Mesuré avec un joueur automatique parfait (borne basse) ; un joueur humain est plus lent. Le test `tests/campaign-simulation.test.ts` impose ≥ 90 s et ≤ 300 s même pour ce joueur parfait, et vérifie que le défi secondaire reste atteignable.
+
+Mécanique commune : respirations (aucune nouvelle vague) réparties sur toute la durée, vitesse réglée par niveau, trajectoires issues de la graine de la tentative, tous les niveaux validés par le validateur d'évitement du directeur. Objectifs et compteurs : `Éclats x/N`, `Fragments d'épave x/6`, `Approche de la capsule : éclats x/100` puis `Téléchargement x/5`.
 
 ## Récit (écran dédié)
-- Illustration fixe en haut (`object-fit: contain`, jamais étirée ni recadrée), boîte de dialogue en bas : nom, petit portrait à gauche, texte français. Mise en page adaptée à la hauteur et aux safe areas ; paysage bas : illustration à gauche, dialogue à droite.
+- Illustration fixe (3:2, `object-fit: contain`, jamais étirée ni recadrée) et boîte de dialogue (nom, petit portrait à gauche, texte français) forment **un seul bloc compact (8 px d'écart), centré verticalement et horizontalement**. Largeur du bloc : écran, hauteur disponible (rapport 3:2 conservé), maximum 780 px ; safe areas respectées ; paysage bas : illustration à gauche, dialogue à droite, l'ensemble centré.
 - Une réplique à la fois, texte progressif (48 car./s ; instantané avec « effets réduits »). **Premier toucher : révèle toute la réplique ; toucher suivant : avance.** Toucher dans la zone narrative (illustration comprise) fonctionne. Un seul événement `click` (pas de double avance) ; les boutons consomment leur propre événement. Clavier : Entrée/Espace (mêmes règles), Échap = passer.
 - **Passer la scène** : ferme la scène seulement (ni victoire ni récompense). Les scènes sont jouées automatiquement **une seule fois** (introduction avant le niveau, conclusion après la victoire), puis **relisibles** depuis la fiche du niveau (« Revoir l'introduction / la conclusion ») et le **Journal des scènes**. Rejouer ou réessayer ne les répète pas ; un échec ne montre jamais la conclusion.
 - Pendant une scène, aucune partie n'est en cours : jeu, chrono, dégâts et commandes sont à l'arrêt ; les touchers de la scène n'atteignent jamais le jeu.

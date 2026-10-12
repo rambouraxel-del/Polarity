@@ -341,7 +341,7 @@
   height: 20px;
 }
 
-/* ———————————————————————————— Récit : illustration au-dessus, dialogue au-dessous */
+/* ———————————————————————————— Récit : illustration au-dessus, dialogue au-dessous (ensemble compact, centré) */
 #screen.screen--story {
   display: block;
   padding: 0;
@@ -352,13 +352,29 @@
   -webkit-user-select: none;
 }
 
+/*
+ * L'illustration (3:2) et la boîte de dialogue forment un seul bloc, centré verticalement et horizontalement.
+ * Largeur du bloc : limitée par la largeur de l'écran, par la hauteur disponible (l'illustration garde son rapport 3:2) et par un maximum de lecture.
+ */
 .story {
+  --story-box: clamp(164px, 27dvh, 232px);
+  --story-gap: 8px;
+  --story-pad: 10px;
+  --story-w: min(
+    calc(100% - 2 * var(--story-pad)),
+    calc((100dvh - var(--sat) - var(--sab) - var(--story-box) - var(--story-gap) - 2 * var(--story-pad)) * 1.5),
+    780px
+  );
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--story-gap);
   height: 100%;
   width: 100%;
+  padding: calc(var(--sat) + var(--story-pad)) calc(var(--sar) + var(--story-pad)) calc(var(--sab) + var(--story-pad)) calc(var(--sal) + var(--story-pad));
   background: radial-gradient(120% 90% at 50% 0%, rgb(var(--c-night-rgb) / 1) 0%, var(--c-night-deep) 100%);
   animation: story-in var(--t-base) ease-out both;
 }
@@ -372,7 +388,7 @@
   }
 }
 
-/* Fond discret : la même illustration, floutée et assombrie (comble les marges autour de l'image entière) */
+/* Fond discret : la même illustration, floutée et assombrie (comble les marges autour du bloc) */
 .story__bg {
   position: absolute;
   inset: -24px;
@@ -389,14 +405,11 @@
   z-index: 1;
 }
 
-/* Illustration fixe : toute l'image est visible (contain), jamais étirée ni recadrée */
+/* Illustration fixe : rapport 3:2 conservé, entière (contain), jamais étirée ni recadrée */
 .story__scene {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: calc(var(--sat) + 8px) calc(var(--sar) + 8px) 6px calc(var(--sal) + 8px);
+  flex: none;
+  width: var(--story-w);
+  aspect-ratio: 3 / 2;
   cursor: pointer;
 }
 
@@ -404,21 +417,18 @@
   display: block;
   width: 100%;
   height: 100%;
-  max-height: 100%;
   object-fit: contain;
-  object-position: top center;
   border-radius: var(--r-md);
   pointer-events: none;
 }
 
 .story__box {
-  flex: 0 0 auto;
-  max-height: 48%;
-  min-height: 168px;
+  flex: none;
+  width: var(--story-w);
+  height: var(--story-box);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 0 calc(var(--sar) + 8px) calc(var(--sab) + 8px) calc(var(--sal) + 8px);
   padding: 12px 14px 10px;
   border-radius: var(--r-lg);
   border: 1.5px solid var(--line-strong);
@@ -553,13 +563,15 @@
   .story__bar .btn {
     flex: 1 0 100%;
   }
+  .story {
+    --story-box: clamp(176px, 30dvh, 232px);
+  }
 }
 
-/* Petit écran en hauteur : boîte plus compacte */
+/* Petit écran en hauteur : boîte et portrait plus compacts */
 @media (max-height: 640px) and (orientation: portrait) {
-  .story__box {
-    min-height: 150px;
-    max-height: 52%;
+  .story {
+    --story-box: clamp(164px, 30dvh, 200px);
   }
   .story__portrait {
     width: 56px;
@@ -570,20 +582,24 @@
   }
 }
 
-/* Paysage bas (téléphone couché) : illustration à gauche, dialogue à droite */
+/* Paysage bas (téléphone couché) : illustration et dialogue côte à côte, l'ensemble centré */
 @media (orientation: landscape) and (max-height: 520px) {
   .story {
+    --story-h: calc(100dvh - var(--sat) - var(--sab) - 2 * var(--story-pad));
+    --story-img-w: min(calc((var(--story-h)) * 1.5), 56%);
     flex-direction: row;
   }
   .story__scene {
-    flex: 1 1 56%;
-    padding: calc(var(--sat) + 6px) 4px calc(var(--sab) + 6px) calc(var(--sal) + 6px);
+    width: var(--story-img-w);
   }
   .story__box {
-    flex: 1 1 44%;
-    max-height: none;
+    width: min(calc(100% - var(--story-img-w) - var(--story-gap) - 2 * var(--story-pad)), 420px);
+    height: auto;
+    max-height: var(--story-h);
     min-height: 0;
-    margin: calc(var(--sat) + 6px) calc(var(--sar) + 6px) calc(var(--sab) + 6px) 4px;
+  }
+  .story__row {
+    max-height: calc(var(--story-h) - 70px);
   }
   .story__text {
     font-size: 15px;

@@ -927,7 +927,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check(/Suite du chapitre à venir/i.test(await page.locator('#screen').innerText()), 'Carte des niveaux : « Suite du chapitre à venir »');
   await page.screenshot({ path: 'screenshots/81-carte-niveaux.png' });
   await page.tap('[data-action="open-mission"][data-mission="1"]');
-  check(/Récolter 6 éclats/i.test(await page.locator('#screen').innerText()) && (await page.locator('[data-action="read-seq"]').count()) === 0, 'Fiche du niveau 1 : objectif, aucune relecture avant d’avoir vu les scènes');
+  check(/Récolter 84 éclats/i.test(await page.locator('#screen').innerText()) && (await page.locator('[data-action="read-seq"]').count()) === 0, 'Fiche du niveau 1 : objectif, aucune relecture avant d’avoir vu les scènes');
   await page.screenshot({ path: 'screenshots/82-fiche-niveau.png' });
 
   // Niveau 1 : scène d'introduction (illustration au-dessus, dialogue au-dessous, portrait)
@@ -975,7 +975,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.waitForFunction(() => window.__polarite.session.phase === 'running', null, { timeout: 8000 });
   check(true, 'Reprise du niveau après le compte à rebours');
   // Victoire → scène de conclusion → bilan
-  await finish(95);
+  await finish(300);
   await waitStory();
   st = await storyState();
   check(st.imgLoaded && st.name.length > 0, 'Victoire : scène de conclusion affichée avant le bilan');
@@ -996,7 +996,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.tap('[data-replay]');
   await sleep(300);
   check((await app(() => window.__polarite.session?.config.mode)) === 'campaign' && (await page.locator('.story').count()) === 0, 'Rejouer : aucune scène répétée');
-  await finish(95);
+  await finish(300);
   await page.waitForSelector('.title--cyan', { timeout: 8000 });
   check((await stored()).campaign.reserve === reserve1 && !/Première réussite/i.test(await page.locator('#screen').innerText()), `Réussite répétée : aucune récompense versée deux fois (réserve ${reserve1})`);
   // Échec : réessayer, aucune conclusion, aucune récompense
@@ -1043,7 +1043,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.screenshot({ path: 'screenshots/90-niveau5-introduction.png' });
   await page.tap('[data-action="story-skip"]');
   await sleep(400);
-  await finish(95);
+  await finish(300);
   await waitStory();
   const srcAfter = await app(() => document.querySelector('.story__img').src);
   check(srcBefore !== srcAfter && /05b/.test(srcAfter) && /05a/.test(srcBefore), 'Niveau 5 : deux illustrations (extérieur avant, intérieur après)');
