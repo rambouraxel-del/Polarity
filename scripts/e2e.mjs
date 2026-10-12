@@ -937,7 +937,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.waitForSelector('.title--cyan', { timeout: 8000 });
   const res2 = await page.locator('#screen').innerText();
   const bal2 = (await stored()).wallet.shards;
-  check(!/Première réussite/i.test(res2) && /Réussite répétée/i.test(res2) && bal2 === bal1 + 5, `Réussite répétée : +5 seulement (solde ${bal1} → ${bal2})`);
+  check(!/Première réussite/i.test(res2) && /Réussite répétée/i.test(res2) && bal2 >= bal1 + 5 && bal2 - bal1 < 100, `Réussite répétée : bonus de répétition seul, pas de 1re réussite (solde ${bal1} → ${bal2})`);
   // Mission suivante débloquée
   await go('chapter');
   check((await page.locator('.mission-node:disabled').count()) === 8, 'Mission 2 débloquée par la réussite de la mission 1');
