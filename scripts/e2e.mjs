@@ -978,6 +978,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.screenshot({ path: 'screenshots/88-bouclier-pret.png' });
   const absorbed = await app(() => {
     const c = window.__polarite.session.campaign;
+    c.hazards.push({ kind: 'sector', id: 99998, pattern: 'test', warnStart: c.time, activeStart: c.time, end: c.time + 5, threatEnd: c.time + 5, center: c.angle, half: 1, warned: true, activated: true });
     for (let i = 0; i < 120 * 60 && c.state === 'running' && !c.shieldUsed; i++) c.step();
     return { used: c.shieldUsed, state: c.state, invulnerable: c.invulnerable, charges: c.shieldCharges };
   });
