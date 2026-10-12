@@ -948,6 +948,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   const norPortrait = st.portrait.src;
   await page.screenshot({ path: 'screenshots/83-scene-niveau1-debut.png' });
   await page.tap('.story__box .story__text');
+  st = await storyState();
   check(st.name === 'Élias' && /^2 \//.test(st.count) && st.portrait?.loaded, 'Toucher suivant : réplique d’Élias avec son portrait');
   await page.tap('.story__scene'); // toucher dans l'illustration : révèle
   await page.tap('.story__scene'); // puis avance
