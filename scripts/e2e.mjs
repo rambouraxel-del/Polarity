@@ -886,14 +886,14 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
 
   // Menus
   await page.click('[data-action="campaign"]');
-  check((await page.locator('.chapter-card--open').count()) === 1 && /À venir/.test(await page.locator('.chapter-card--soon').innerText()), 'Campagne : chapitre Écho-7 ouvert, suite « À venir »');
+  check((await page.locator('.chapter-card--open').count()) === 1 && /À venir/i.test(await page.locator('.chapter-card--soon').innerText()), 'Campagne : chapitre Écho-7 ouvert, suite « À venir »');
   check((await page.locator('.chapter-card--soon button').count()) === 0, 'Campagne : le chapitre « À venir » n’a aucun bouton factice');
   await page.screenshot({ path: 'screenshots/80-campagne.png' });
   await page.click('[data-action="chapter"]');
   check((await page.locator('.mission-node').count()) === 10 && (await page.locator('.mission-node:disabled').count()) === 9, 'Carte des missions : 10 missions, une seule ouverte');
   await page.screenshot({ path: 'screenshots/81-carte-missions.png' });
   await page.click('[data-action="open-mission"][data-mission="1"]');
-  check(/Réussir sans déclencher le bouclier/.test(await page.locator('#screen').innerText()) && /30 Éclats/.test(await page.locator('#screen').innerText()), 'Fiche de mission : défis secondaires et récompenses');
+  check(/Réussir sans déclencher le bouclier/i.test(await page.locator('#screen').innerText()) && /30 Éclats/i.test(await page.locator('#screen').innerText()), 'Fiche de mission : défis secondaires et récompenses');
   await page.screenshot({ path: 'screenshots/82-fiche-mission.png' });
 
   // Mission 1 : transmission d'introduction (passable), partie, transmission de fin, bilan
@@ -907,22 +907,22 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check((await app(() => window.__polarite.save.campaign.seen.includes('m1-before'))), 'Transmission d’introduction enregistrée comme vue');
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'screenshots/84-mission-en-jeu.png' });
-  check(/Survivre|Mission 1/.test(await page.locator('#hud-sub').innerText()), 'HUD de mission affiché');
+  check(/Survivre|Mission 1/i.test(await page.locator('#hud-sub').innerText()), 'HUD de mission affiché');
   // Pause et reprise
   await page.click('#btn-pause');
   const t0 = await app(() => window.__polarite.session.sim.time);
   await page.waitForTimeout(500);
-  check((await app(() => window.__polarite.session.sim.time)) === t0 && /Carte des missions/.test(await page.locator('#screen').innerText()), 'Pause de mission : temps figé, retour à la carte proposé');
+  check((await app(() => window.__polarite.session.sim.time)) === t0 && /Carte des missions/i.test(await page.locator('#screen').innerText()), 'Pause de mission : temps figé, retour à la carte proposé');
   await page.click('[data-action="resume"]');
   await page.waitForFunction(() => window.__polarite.session.phase === 'running', null, { timeout: 8000 });
   check(true, 'Reprise de mission après le compte à rebours');
   await finish(50);
   await page.waitForSelector('.panel--dialogue', { timeout: 8000 });
-  check(/Écho-7/.test(await page.locator('.dialogue__text').innerText()) || (await page.locator('.dialogue__text').count()) === 1, 'Transmission de fin affichée après la réussite');
+  check(/Écho-7/i.test(await page.locator('.dialogue__text').innerText()) || (await page.locator('.dialogue__text').count()) === 1, 'Transmission de fin affichée après la réussite');
   await page.click('[data-action="dialogue-skip"]');
   await page.waitForSelector('.title--cyan', { timeout: 5000 });
   const res1 = await page.locator('#screen').innerText();
-  check(/Mission accomplie/.test(res1) && /Première réussite/.test(res1), 'Bilan : mission accomplie, première réussite');
+  check(/Mission accomplie/i.test(res1) && /Première réussite/i.test(res1), 'Bilan : mission accomplie, première réussite');
   await page.screenshot({ path: 'screenshots/85-bilan-mission.png' });
   const c1 = await stored();
   check(c1.campaign.missions['1']?.main === true && c1.wallet.shards >= 40 && c1.version === 5, `Progression sauvegardée (mission 1 réussie, solde ${c1.wallet.shards})`);
@@ -937,7 +937,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.waitForSelector('.title--cyan', { timeout: 8000 });
   const res2 = await page.locator('#screen').innerText();
   const bal2 = (await stored()).wallet.shards;
-  check(!/Première réussite/.test(res2) && /Réussite répétée/.test(res2) && bal2 === bal1 + 5, `Réussite répétée : +5 seulement (solde ${bal1} → ${bal2})`);
+  check(!/Première réussite/i.test(res2) && /Réussite répétée/i.test(res2) && bal2 === bal1 + 5, `Réussite répétée : +5 seulement (solde ${bal1} → ${bal2})`);
   // Mission suivante débloquée
   await go('chapter');
   check((await page.locator('.mission-node:disabled').count()) === 8, 'Mission 2 débloquée par la réussite de la mission 1');
@@ -952,15 +952,15 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.waitForSelector('.title--coral', { timeout: 8000 });
   const failText = await page.locator('#screen').innerText();
   const afterFail = await stored();
-  check(/Collision|Temps écoulé/.test(failText) && !/Éclats gagnés/.test(failText) && afterFail.wallet.shards === 500 && !afterFail.campaign.missions['2']?.main, 'Échec : aucun gain, progression inchangée');
+  check(/Collision|Temps écoulé/i.test(failText) && !/Éclats gagnés/i.test(failText) && afterFail.wallet.shards === 500 && !afterFail.campaign.missions['2']?.main, 'Échec : aucun gain, progression inchangée');
   await page.screenshot({ path: 'screenshots/86-echec-mission.png' });
 
   // Hangar : achat du bouclier (présenté après la mission 3), activation, absorption d'une collision
   await go('hangar');
-  check(!/Bouclier de secours/.test(await page.locator('#screen').innerText()), 'Hangar : le bouclier n’est pas présenté avant la mission 3');
+  check(!/Bouclier de secours/i.test(await page.locator('#screen').innerText()), 'Hangar : le bouclier n’est pas présenté avant la mission 3');
   await app(() => { const a = window.__polarite; for (const id of ['1', '2', '3']) a.save.campaign.missions[id] = { main: true, challenge: false, noShield: false, clears: 1, bestTime: 30 }; a.save.wallet.shards = 130; a.persist(); a.showScreen('hangar'); });
   await page.waitForTimeout(250);
-  check(/Bouclier de secours/.test(await page.locator('#screen').innerText()) && !/Collecteur amélioré/.test(await page.locator('#screen').innerText()), 'Hangar : bouclier présenté après la mission 3 (collecteur plus tard)');
+  check(/Bouclier de secours/i.test(await page.locator('#screen').innerText()) && !/Collecteur amélioré/i.test(await page.locator('#screen').innerText()), 'Hangar : bouclier présenté après la mission 3 (collecteur plus tard)');
   await page.screenshot({ path: 'screenshots/87-hangar.png' });
   await page.click('[data-action="buy-upgrade"][data-upgrade="shield"]');
   check((await app(() => window.__polarite.save.wallet.shards)) === 130, 'Hangar : confirmation demandée, rien n’est débité');
@@ -974,7 +974,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await go('chapter');
   await app(() => window.__polarite.launchMission(4));
   await page.waitForTimeout(700);
-  check((await app(() => window.__polarite.session.campaign.shieldCharges)) === 1 && /Bouclier prêt/.test(await page.locator('#hud-sub').innerText()), 'Mission avec bouclier : charge disponible et indiquée au HUD');
+  check((await app(() => window.__polarite.session.campaign.shieldCharges)) === 1 && /Bouclier prêt/i.test(await page.locator('#hud-sub').innerText()), 'Mission avec bouclier : charge disponible et indiquée au HUD');
   await page.screenshot({ path: 'screenshots/88-bouclier-pret.png' });
   const absorbed = await app(() => {
     const c = window.__polarite.session.campaign;
@@ -984,7 +984,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check(absorbed.used && absorbed.state === 'running' && absorbed.invulnerable && absorbed.charges === 0, 'Bouclier : la collision est absorbée, la partie continue (invulnérabilité brève)');
   await page.waitForTimeout(200);
   await page.screenshot({ path: 'screenshots/89-bouclier-actif.png' });
-  check(/Bouclier actif/.test(await page.locator('#hud-sub').innerText()), 'HUD : bouclier actif');
+  check(/Bouclier actif/i.test(await page.locator('#hud-sub').innerText()), 'HUD : bouclier actif');
   // Les autres modes ignorent les améliorations
   for (const [name, sel, extra] of [['Survie', '[data-action="survival"]', null], ['défi quotidien', '[data-action="daily"]', '[data-action="play-daily"]']]) {
     await go('home');
@@ -1005,7 +1005,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   // Cosmétique Écho : verrouillé jusqu'à la fin du chapitre
   await go('cosmetics');
   await page.click('[data-item="echo"]');
-  check(/Campagne requise/.test(await page.locator('.skin-info').innerText()) && (await page.locator('.skin-info [data-action="buy"]').isDisabled()), 'Écho : « Campagne requise » avant la fin du chapitre');
+  check(/Campagne requise/i.test(await page.locator('.skin-info').innerText()) && (await page.locator('.skin-info [data-action="buy"]').isDisabled()), 'Écho : « Campagne requise » avant la fin du chapitre');
   await page.screenshot({ path: 'screenshots/90-echo-verrouille.png' });
   await app(() => { const a = window.__polarite; for (let i = 1; i <= 9; i++) a.save.campaign.missions[String(i)] = { main: true, challenge: false, noShield: false, clears: 1, bestTime: 30 }; a.persist(); a.launchMission(10); });
   await page.waitForTimeout(400);
@@ -1016,7 +1016,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   for (let i = 0; i < 6 && (await page.locator('[data-action="dialogue-next"]').count()) > 0; i++) await page.click('[data-action="dialogue-next"]');
   await page.waitForSelector('.title--cyan', { timeout: 5000 });
   const endText = await page.locator('#screen').innerText();
-  check(/Chapitre terminé/.test(endText) && /à venir/.test(endText), 'Fin du chapitre : « Chapitre terminé », suite « à venir »');
+  check(/Chapitre terminé/i.test(endText) && /à venir/i.test(endText), 'Fin du chapitre : « Chapitre terminé », suite « à venir »');
   await page.screenshot({ path: 'screenshots/91-fin-chapitre.png' });
   const endSave = await stored();
   check(endSave.campaign.chapterComplete === true && endSave.campaign.missions['10'].main, 'Fin du chapitre sauvegardée');
