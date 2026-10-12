@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "sampleRate": 44100,
+  "channels": 2,
+  "format": "mp3",
+  "bitrateKbps": 112,
+  "crossfadeOutroSeconds": 1.2,
+  "files": {
+    "intro": {
+      "file": "polarity-intro.mp3",
+      "fileBytes": 340890,
+      "decodedSamples": 1070968,
+      "decodedDurationSeconds": 24.284988662131518,
+      "playStartSeconds": 0,
+      "playEndSeconds": 24.284988662131518
+    },
+    "loop": {
+      "file": "polarity-loop.mp3",
+      "fileBytes": 2148615,
+      "decodedSamples": 6765382,
+      "decodedDurationSeconds": 153.41002267573697,
+      "playStartSeconds": 0.12,
+      "playEndSeconds": 153.29002267573696,
+      "loopStartSamples": 5292,
+      "loopEndSamples": 6760090,
+      "loopStartSeconds": 0.12,
+      "loopEndSeconds": 153.29002267573696,
+      "loopDurationSeconds": 153.17002267573696,
+      "edgeGuardSeconds": 0.12
+    },
+    "outro": {
+      "file": "polarity-outro.mp3",
+      "fileBytes": 220570,
+      "decodedSamples": 692149,
+      "decodedDurationSeconds": 15.69498866213152,
+      "playStartSeconds": 0,
+      "playEndSeconds": 15.69498866213152
+    }
+  },
+  "notes": [
+    "La boucle contient 120 ms de garde de chaque côté : lire exclusivement la région loopStartSeconds/loopEndSeconds en boucle.",
+    "Le MP3 utilise une compression avec perte : réencodage modéré, sans promesse de fidélité mathématique au fichier source.",
+    "Les limites temporelles correspondent aux échantillons PCM, pas à la durée des trames MP3 donnée par ffprobe."
+  ],
+  "crossfadeIntroSeconds": 0.02
+}

@@ -1055,6 +1055,180 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await context.close();
 }
 
+// ————————————————————————————————————————————— Musique : intro → boucle → outro (vrai navigateur, vrais MP3)
+{
+  const { page, context, errors } = await newPage({ width: 1280, height: 800 });
+  const mp3 = [];
+  page.on('request', (r) => { if (/\.mp3(\?|$)/.test(r.url())) mp3.push(r.url().split('/').pop()); });
+  const m = (fn, arg) => page.evaluate(fn, arg);
+  const mode = () => m(() => window.__polarite.music.mode);
+  const voices = () => m(() => window.__polarite.music.activeVoices);
+  const sleep = (ms) => page.waitForTimeout(ms);
+  const waitMode = (want, timeout = 15000) => page.waitForFunction((w) => window.__polarite.music.mode === w, want, { timeout });
+  const kill = () => m(() => {
+    const s = window.__polarite.session.sim;
+    s.invincible = false;
+    s.hazards.push({ kind: 'sector', id: 99997, pattern: 'test', warnStart: s.time, activeStart: s.time, end: s.time + 5, threatEnd: s.time + 5, center: s.angle, half: 1, warned: true, activated: true });
+  });
+  const waitReplay = () => page.waitForFunction(() => { const b = document.querySelector('[data-replay]'); return b && !b.disabled; }, null, { timeout: 12000 });
+
+  // Premier geste : débloque l'audio, démarre le décodage ; rien n'est chargé avant
+  check(mp3.length === 0, 'Musique : aucun MP3 chargé avant le premier geste du joueur');
+  await page.click('[data-action="survival"]');
+  await m(() => window.__polarite.music.preload());
+  await waitMode('playing');
+  check((await m(() => window.__polarite.music.ready)) && (await m(() => window.__polarite.sfx.context.state)) === 'running', 'Musique : buffers décodés, contexte audio de l’application partagé et en marche');
+  check((await voices()) === 2, 'Au lancement : intro + boucle programmée (deux nœuds, un seul nœud en boucle)');
+  check(mp3.length === 3 && new Set(mp3).size === 3, `Les trois MP3 sont chargés une seule fois (${mp3.join(', ')})`);
+
+  // Défaite pendant l'intro : outro aussitôt, résultat et Rejouer disponibles pendant l'outro
+  await sleep(2500);
+  await kill();
+  await waitMode('outro', 5000);
+  check(true, 'Défaite pendant l’intro : l’outro démarre, la boucle programmée est annulée');
+  await page.waitForSelector('[data-replay]', { timeout: 8000 });
+  check((await mode()) === 'outro' && (await voices()) === 1, 'Résultat affiché pendant l’outro (un seul morceau actif)');
+  await waitReplay();
+  check((await mode()) === 'outro', 'Rejouer est actif pendant l’outro');
+
+  // Rejouer tout de suite : l'outro s'arrête (fondu court) et l'intro repart, sans superposition
+  await page.click('[data-replay]');
+  await sleep(500);
+  check((await mode()) === 'playing' && (await voices()) <= 2, 'Rejouer immédiatement : intro relancée, sans superposition avec l’outro');
+  check(mp3.length === 3, 'Aucun rechargement des MP3 à la nouvelle partie');
+
+  // Redémarrages rapides
+  let maxVoices = 0;
+  for (let i = 0; i < 4; i++) {
+    await sleep(700);
+    await kill();
+    await page.waitForSelector('[data-replay]', { timeout: 8000 });
+    await waitReplay();
+    maxVoices = Math.max(maxVoices, await voices());
+    await page.click('[data-replay]');
+    await sleep(250);
+    maxVoices = Math.max(maxVoices, await voices());
+  }
+  check(maxVoices <= 2 && (await mode()) === 'playing' && mp3.length === 3, `Redémarrages rapides ×4 : jamais plus de deux nœuds, aucun rechargement (max ${maxVoices})`);
+
+  // Pause, arrière-plan, sourdine
+  await sleep(600);
+  await page.click('#btn-pause');
+  await sleep(200);
+  check((await mode()) === 'paused', 'Pause : la musique est en pause avec la partie');
+  await page.click('[data-action="resume"]');
+  await page.waitForFunction(() => window.__polarite.session.phase === 'running', null, { timeout: 8000 });
+  await sleep(300);
+  check((await mode()) === 'playing', 'Reprise : la musique repart après le compte à rebours');
+  await m(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
+  await sleep(300);
+  check((await mode()) === 'paused' && (await m(() => window.__polarite.session.phase)) === 'paused', 'Arrière-plan : partie et musique en pause');
+  await m(() => { Object.defineProperty(document, 'hidden', { value: false, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
+  await sleep(300);
+  check((await mode()) === 'paused', 'Retour au premier plan : la reprise reste volontaire');
+  await page.click('[data-action="resume"]');
+  await page.waitForFunction(() => window.__polarite.session.phase === 'running', null, { timeout: 8000 });
+  await sleep(300);
+  // Sourdine : la musique passe par la sortie du jeu
+  await m(() => { const a = window.__polarite; a.save.options.muted = true; a.sfx.setMuted(true); });
+  await sleep(300);
+  const mutedGain = await m(() => window.__polarite.sfx.output.gain.value);
+  await m(() => { const a = window.__polarite; a.save.options.muted = false; a.sfx.setMuted(false); });
+  await sleep(300);
+  const liveGain = await m(() => window.__polarite.sfx.output.gain.value);
+  check(mutedGain < 0.001 && liveGain > 0.05, `Sourdine et volume existants appliqués à la musique (${mutedGain.toFixed(3)} → ${liveGain.toFixed(3)})`);
+
+  // Temps réel : intro terminée → un seul nœud (la boucle), la partie continue
+  await m(() => { window.__polarite.session.sim.invincible = true; });
+  const t = await m(() => window.__polarite.sfx.context.currentTime);
+  await page.waitForFunction((t0) => window.__polarite.sfx.context.currentTime - t0 > 0, t);
+  await page.waitForFunction(() => window.__polarite.music.activeVoices === 1, null, { timeout: 40000 });
+  check((await mode()) === 'playing', 'Après l’intro : la boucle seule joue (raccord sur l’horloge audio, sans minuteur)');
+  // Partie quittée : fondu, aucune musique résiduelle
+  await page.click('#btn-pause');
+  await page.click('[data-action="quit"]');
+  await sleep(900);
+  check((await mode()) === 'idle' && (await voices()) === 0, 'Partie quittée : la musique s’arrête en fondu, sans outro');
+
+  // Rendu hors ligne avec les vrais fichiers : raccords, fins, relances rapides, pause/reprise
+  const R = await m(async () => {
+    const SR = 44100;
+    const Music = window.__polarite.music.constructor;
+    const T = 0.06 + 24.284988662131518;
+    const render = async (length, events) => {
+      const off = new OfflineAudioContext(2, Math.ceil(length * SR), SR);
+      const mu = new Music({ context: () => off, output: () => off.destination });
+      await mu.preload();
+      for (const e of [...events].sort((a, b) => a.t - b.t)) {
+        if (e.t === 0) mu[e.op]();
+        else off.suspend(e.t).then(() => { mu[e.op](); off.resume(); });
+      }
+      const buf = await off.startRendering();
+      return [buf.getChannelData(0), buf.getChannelData(1)];
+    };
+    const rms = (o, a, b) => { let s = 0, n = 0; for (const ch of o) for (let i = Math.floor(a * SR); i < Math.floor(b * SR); i++) { s += ch[i] * ch[i]; n++; } return Math.sqrt(s / n); };
+    const maxStep = (o, a, b) => { let mx = 0; for (const ch of o) for (let i = Math.floor(a * SR) + 1; i < Math.floor(b * SR); i++) mx = Math.max(mx, Math.abs(ch[i] - ch[i - 1])); return mx; };
+    const joinRatio = (o, at) => Math.max(maxStep(o, at - 0.03, at + 0.03) / Math.max(maxStep(o, at - 1.0, at - 0.2), maxStep(o, at + 0.2, at + 1.0)), 0);
+    const out = {};
+    // 1. intro → boucle
+    const r1 = await render(40, [{ t: 0, op: 'startGame' }]);
+    out.joinRatio = joinRatio(r1, T);
+    out.rmsAroundJoin = [rms(r1, T - 0.5, T - 0.05), rms(r1, T + 0.05, T + 0.5)];
+    out.silentGap = rms(r1, T - 0.015, T + 0.015);
+    // 2. défaite pendant l'intro (3 s) : outro seule, puis silence jusqu'à la fin (la boucle ne démarre jamais)
+    const r2 = await render(45, [{ t: 0, op: 'startGame' }, { t: 3, op: 'endGame' }]);
+    out.introDeath = { outro: rms(r2, 5, 15), afterOutro: rms(r2, 20.5, 45), aroundT: rms(r2, T - 0.5, T + 3) };
+    // 3. défaite pendant la boucle (40 s)
+    const r3 = await render(70, [{ t: 0, op: 'startGame' }, { t: 40, op: 'endGame' }]);
+    out.loopDeath = { before: rms(r3, 30, 39), outro: rms(r3, 42, 50), afterOutro: rms(r3, 57.5, 70) };
+    // 4. relances rapides : le résultat final est identique à une seule partie lancée au dernier instant
+    const r4 = await render(40, [{ t: 0, op: 'startGame' }, { t: 0.9, op: 'endGame' }, { t: 1.0, op: 'startGame' }, { t: 1.2, op: 'startGame' }, { t: 1.4, op: 'startGame' }, { t: 5, op: 'endGame' }]);
+    const r4ref = await render(40, [{ t: 1.4, op: 'startGame' }, { t: 5, op: 'endGame' }]);
+    let diff = 0;
+    for (let c = 0; c < 2; c++) for (let i = Math.floor(3 * SR); i < Math.floor(30 * SR); i++) diff = Math.max(diff, Math.abs(r4[c][i] - r4ref[c][i]));
+    out.rapidRestartMaxDiff = diff;
+    // 5. pause / reprise : la musique reprend exactement là où elle s'était arrêtée
+    const r5 = await render(40, [{ t: 0, op: 'startGame' }, { t: 5, op: 'pause' }, { t: 8, op: 'resume' }]);
+    const seg = (o, a, n) => o[0].subarray(Math.floor(a * SR), Math.floor(a * SR) + n);
+    const a5 = seg(r5, 9, 22050);
+    let best = -1, bestLag = 0;
+    for (let lag = -2000; lag <= 2000; lag += 1) {
+      const b1 = r1[0].subarray(Math.floor((9 - 3.06) * SR) + lag, Math.floor((9 - 3.06) * SR) + lag + 22050);
+      let dot = 0, na = 0, nb = 0;
+      for (let i = 0; i < 22050; i += 2) { dot += a5[i] * b1[i]; na += a5[i] * a5[i]; nb += b1[i] * b1[i]; }
+      const cc = dot / Math.sqrt(na * nb + 1e-12);
+      if (cc > best) { best = cc; bestLag = lag; }
+    }
+    out.resume = { corr: best, lagMs: (bestLag / SR) * 1000, silentDuringPause: rms(r5, 5.3, 7.9) };
+    return out;
+  });
+  check(R.joinRatio < 2 && R.silentGap > 0.001, `Raccord intro → boucle (rendu réel) : saut max ${R.joinRatio.toFixed(2)}× le pas normal, aucun silence (rms ${R.silentGap.toFixed(3)})`);
+  check(R.rmsAroundJoin[0] > 0.002 && R.rmsAroundJoin[1] > 0.002, `Raccord : musique présente de part et d’autre (rms ${R.rmsAroundJoin.map((x) => x.toFixed(3)).join(' / ')})`);
+  check(R.introDeath.outro > 0.003 && R.introDeath.afterOutro < 1e-5 && R.introDeath.aroundT < 0.2, `Défaite pendant l’intro (rendu réel) : l’outro seule, puis silence — la boucle ne démarre jamais (${R.introDeath.afterOutro.toExponential(1)})`);
+  check(R.loopDeath.before > 0.002 && R.loopDeath.outro > 0.003 && R.loopDeath.afterOutro < 1e-5, 'Défaite pendant la boucle (rendu réel) : fondu vers l’outro, puis silence');
+  check(R.rapidRestartMaxDiff < 1e-4, `Relances rapides (rendu réel) : résultat identique à une seule partie, aucune superposition (écart max ${R.rapidRestartMaxDiff.toExponential(1)})`);
+  check(R.resume.corr > 0.98 && Math.abs(R.resume.lagMs) < 6 && R.resume.silentDuringPause < 1e-5, `Pause / reprise (rendu réel) : même position musicale (corrélation ${R.resume.corr.toFixed(3)}, décalage ${R.resume.lagMs.toFixed(1)} ms), silence pendant la pause`);
+
+  // Retour de boucle (≈ 177,5 s) : rendu long en une passe
+  const W = await m(async () => {
+    const SR = 44100;
+    const Music = window.__polarite.music.constructor;
+    const off = new OfflineAudioContext(2, SR * 181, SR);
+    const mu = new Music({ context: () => off, output: () => off.destination });
+    await mu.preload();
+    mu.startGame();
+    const buf = await off.startRendering();
+    const o = [buf.getChannelData(0), buf.getChannelData(1)];
+    const at = 0.06 + 24.284988662131518 + 153.17002267573696;
+    const maxStep = (a, b) => { let mx = 0; for (const ch of o) for (let i = Math.floor(a * SR) + 1; i < Math.floor(b * SR); i++) mx = Math.max(mx, Math.abs(ch[i] - ch[i - 1])); return mx; };
+    const rms = (a, b) => { let s = 0, n = 0; for (const ch of o) for (let i = Math.floor(a * SR); i < Math.floor(b * SR); i++) { s += ch[i] * ch[i]; n++; } return Math.sqrt(s / n); };
+    return { ratio: maxStep(at - 0.03, at + 0.03) / Math.max(maxStep(at - 1, at - 0.2), maxStep(at + 0.2, at + 1)), before: rms(at - 0.5, at - 0.05), after: rms(at + 0.05, at + 0.5), gap: rms(at - 0.015, at + 0.015) };
+  });
+  check(W.ratio < 2 && W.gap > 0.001 && W.before > 0.002 && W.after > 0.002, `Retour de boucle (rendu réel, ≈ 177 s) : saut max ${W.ratio.toFixed(2)}× le pas normal, sans silence`);
+  check(errors.length === 0, `Aucune erreur console (musique)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
+  await context.close();
+}
+
 // ————————————————————————————————————————————— Mobile paysage et petite tablette
 for (const [w, h, name] of [[844, 390, '30-paysage-mobile'], [768, 1024, '31-tablette'], [320, 568, '32-petit-ecran']]) {
   const { page, context, errors } = await newPage({ width: w, height: h }, { touch: true, dpr: 2 });

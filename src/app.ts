@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { Music } from './audio/music';
 import { Sfx } from './audio/sfx';
 import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
@@ -10,7 +11,7 @@ import { eventDef } from './config/events';
 import { BALANCE_VERSION } from './config/version';
 import { randomSeed } from './core/rng';
 import { InputController } from './game/input';
-import { GameSession } from './game/session';
+import { GameSession, type Phase } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
@@ -74,6 +75,8 @@ export class App {
   private lbNickMessage: string | null = null;
   save: SaveData;
   private readonly sfx = new Sfx();
+  /** Musique de partie : partage le contexte audio, le volume et la sourdine de `sfx`. */
+  readonly music = new Music({ context: () => this.sfx.context, output: () => this.sfx.output });
   private readonly hud = new Hud();
   private renderer: ArenaRenderer | null = null;
   private game: Phaser.Game | null = null;
@@ -136,7 +139,7 @@ export class App {
       action: () => this.onAction(),
       pauseKey: () => this.onPauseKey(),
       inGame: () => this.session !== null && ['running', 'countdown', 'ending'].includes(this.session.phase),
-      firstInteraction: () => this.sfx.unlock(),
+      firstInteraction: () => this.unlockAudio(),
     }).attach();
     document.getElementById('btn-pause')!.addEventListener('click', () => this.pause());
     document.getElementById('btn-pause')!.addEventListener('pointerdown', (e) => e.preventDefault());
@@ -311,10 +314,12 @@ export class App {
     const session = new GameSession(cfg, {
       onBeforeStep: demo ? () => this.demoBot?.tick() : undefined,
       onEvent: (e, s) => this.onSimEvent(e, s),
+      onPhase: (p, s) => this.onSessionPhase(p, s),
       onCampaignEvent: (e, s) => this.onCampaignEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
     });
     this.session = session;
+    this.music.startGame();
     this.demoBot = demo ? new Bot(session.sim) : null;
 
     this.tutorialActive = false;
@@ -347,7 +352,23 @@ export class App {
     s.sim.events.length = 0;
   }
 
+  /** Déverrouille l'audio (geste du joueur) et lance, une seule fois, le décodage de la musique. */
+  private unlockAudio(): void {
+    this.sfx.unlock();
+    void this.music.preload();
+  }
+
+  /** Musique et phases de la partie : pause, reprise (après le compte à rebours), fin (outro). */
+  private onSessionPhase(p: Phase, s: GameSession): void {
+    if (s !== this.session) return;
+    if (p === 'paused') this.music.pause();
+    else if (p === 'running') this.music.resume();
+    else if (p === 'ending') this.music.endGame();
+  }
+
   private endSession(): void {
+    // Partie quittée en cours de route (menu, recommencer) : la musique s'arrête ; après la fin de partie, l'outro continue
+    if (this.session && ['running', 'paused', 'countdown'].includes(this.session.phase)) this.music.stop();
     if (this.session) this.session.abort();
     this.session = null;
     this.countdownEl.classList.add('hidden');
@@ -716,7 +737,7 @@ export class App {
   private readonly onScreenClick = (e: MouseEvent): void => {
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
     if (!target || (target as HTMLButtonElement).disabled) return;
-    this.sfx.unlock();
+    this.unlockAudio();
     const action = target.dataset.action!;
     if (action !== 'replay' && action !== 'resume') this.sfx.play('ui');
     switch (action) {
