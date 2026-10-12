@@ -100,6 +100,8 @@ export class App {
   private pendingPurchase: string | null = null;
   private selectedMission = 1;
   private story: StoryState | null = null;
+  /** Vitesse du texte des scènes (caractères/s) ; réglable par les tests de bout en bout. */
+  storyCharsPerSecond: number = STORY_UI.charsPerSecond;
   /** Éclats déjà crédités pendant la partie en cours (chaque éclat n'est crédité qu'une fois). */
   private creditedShards = new Set<number>();
   private eventKey = '';
@@ -589,7 +591,7 @@ export class App {
     const d = this.story;
     if (!d || d.full) return;
     const text = d.seq.lines[d.index].text;
-    d.shown += realDt * STORY_UI.charsPerSecond;
+    d.shown += realDt * this.storyCharsPerSecond;
     if (d.shown >= text.length) {
       this.revealStoryLine();
       return;

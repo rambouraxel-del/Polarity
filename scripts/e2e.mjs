@@ -928,6 +928,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.screenshot({ path: 'screenshots/82-fiche-niveau.png' });
 
   // Niveau 1 : scène d'introduction (illustration au-dessus, dialogue au-dessous, portrait)
+  await app(() => { window.__polarite.storyCharsPerSecond = 4; }); // texte lent : le test du premier toucher ne dépend pas de la vitesse de la machine
   await page.tap('[data-action="play-mission"]');
   await waitStory();
   const early = await storyState();
@@ -950,6 +951,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   st = await storyState();
   check(st.name === 'Nora' && /^3 \//.test(st.count) && st.portrait.src === norPortrait, 'Toucher dans l’illustration : révèle puis avance (une réplique à la fois)');
   check((await app(() => window.__polarite.session)) === null, 'Les touchers de la scène ne déclenchent aucune commande de jeu');
+  await app(() => { window.__polarite.storyCharsPerSecond = 48; });
   // Passer la scène : le niveau démarre une seule fois, sans récompense
   await page.tap('[data-action="story-skip"]');
   await sleep(500);
