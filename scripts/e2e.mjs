@@ -300,13 +300,13 @@ const state = (page) =>
   if (diff > Math.PI) diff = 2 * Math.PI - diff;
   check(Math.abs(diff - Math.PI) < 0.45, `Inversion : le vaisseau se retourne immédiatement (Δ ≈ ${(diff / Math.PI).toFixed(2)} π)`);
 
-  // Agrandissement des visuels de 15 % : taille affichée du sprite = 2 × rayon visuel / 0,9375 × échelle
+  // Visuels agrandis : taille affichée du sprite = 2 × rayon visuel (11 × 1,15 × 1,45) / 0,9375 × échelle
   const dims = await page.evaluate(() => {
     const r = window.__polarite.renderer;
     return { w: r.shipSprite.displayWidth, scale: r.scale };
   });
-  const expected = (2 * 11 * 1.15) / (120 / 128) * dims.scale;
-  check(Math.abs(dims.w - expected) < 0.5, `Vaisseau +15 % (${dims.w.toFixed(1)} px ≈ ${expected.toFixed(1)} px)`);
+  const expected = (2 * 11 * 1.15 * 1.45) / (120 / 128) * dims.scale;
+  check(Math.abs(dims.w - expected) < 0.5, `Vaisseau +45 % (${dims.w.toFixed(1)} px ≈ ${expected.toFixed(1)} px)`);
 
   // Astéroïde : un projectile actif devient un sprite (sans collision : invincible)
   await page.evaluate(() => {
@@ -319,6 +319,14 @@ const state = (page) =>
   await page.waitForTimeout(250);
   const nAst = await page.evaluate(() => window.__polarite.renderer.asteroidPool.filter((a) => a.img.visible).length);
   check(nAst >= 1, 'Un projectile est dessiné par un sprite d’astéroïde');
+  const ast = await page.evaluate(() => {
+    const r = window.__polarite.renderer;
+    const a = r.asteroidPool.find((x) => x.img.visible);
+    return { w: a.img.displayWidth, glow: a.glow.visible, glowW: a.glow.displayWidth, scale: r.scale };
+  });
+  const expAst = (2 * 10 * 1.15 * 1.35) / (120 / 128) * ast.scale;
+  check(Math.abs(ast.w - expAst) < 0.5, `Astéroïde +35 % (${ast.w.toFixed(1)} px ≈ ${expAst.toFixed(1)} px)`);
+  check(ast.glow && ast.glowW > ast.w, 'Contour lumineux orange présent autour de l’astéroïde');
   await page.evaluate(() => { window.__polarite.session.sim.hazards.length = 0; });
 
   // Collision : impact bref au point de contact (anneaux + éclats), puis résultat

@@ -1,7 +1,8 @@
 # Reprise
 
-**Dernière étape vérifiée :** v1.1 complète (sprites « Néon premium », effets codés, Survie accélérée, hitboxes séparées, sauvegarde v2).
-`npm run check` (97 tests) et `npm run e2e` verts. Branche de sauvegarde de la v1.0 : `sauvegarde-v1.0.0`.
+**Dernière étape vérifiée :** v1.1 complète (sprites « Néon premium », effets codés, Survie accélérée, hitboxes séparées, sauvegarde v2)
++ lisibilité (vaisseau ×1,45, astéroïdes ×1,35, contours orange, flammes plus épaisses ; hitboxes inchangées, à réévaluer séparément).
+`npm run check` (99 tests) et `npm run e2e` verts. Branche de sauvegarde de la v1.0 : `sauvegarde-v1.0.0`.
 
 **Fichiers clés :** `src/render/ArenaRenderer.ts`, `src/render/geometry.ts`, `src/config/{survival,hitbox,visuals,version}.ts`,
 `src/modes/profiles.ts`, `src/sim/director.ts`, `src/save/save.ts`, `tests/{hitbox,survival-tuning,progress}.test.ts`, `docs/ASSETS.md`.

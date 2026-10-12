@@ -9,6 +9,12 @@
 - [x] Sauvegarde v2 : progression préservée, anciens records rangés à part, copie de l'ancienne sauvegarde, information unique à l'écran d'accueil
 - [x] Tests (97), e2e (≈ 55 contrôles), mesure de performance, documentation (README, ASSETS, EQUILIBRAGE)
 
+## Lisibilité des éléments (terminée)
+- [x] Vaisseau ×1,45 et astéroïdes ×1,35 (par rapport à la v1.1) ; contour lumineux orange des astéroïdes renforcé (silhouette orange additive)
+- [x] Flamme (largeur 5 → 6,5) et traînées d'astéroïdes plus épaisses, longueurs inchangées (14 et 52) ; effets toujours codés, sans collision
+- [x] Hitboxes, difficulté, textes, quadrillage, orientation du vaisseau et inversion immédiate : inchangés (tests et e2e)
+- [x] 99 tests, e2e (contrôles de taille +45 % / +35 %, contour orange, inversion), build ; vérifié sur ordinateur (1280×800) et mobile (390×844)
+
 ## Version 1.0 (terminée)
 Jeu complet : 12 niveaux, Survie, défi quotidien, succès, apparences, sauvegarde, sons, interface mobile, GitHub Pages.
 
@@ -20,7 +26,7 @@ Jeu complet : 12 niveaux, Survie, défi quotidien, succès, apparences, sauvegar
 ## Vérifications exécutées (v1.1)
 | Commande | Résultat |
 |---|---|
-| `npm run check` (typecheck + tests + build) | OK — 97 tests |
+| `npm run check` (typecheck + tests + build) | OK — 99 tests |
 | `npm run e2e` (Chromium headless) | tous les contrôles OK : sprites chargés, inversion immédiate, impact, migration v1→v2, menus, 3 modes, pause, tactile, relances, 5 tailles d'écran, aucune erreur console |
 | `npm run sim -- 6` | bots : 12/12 niveaux réussis, Survie 6 min tenue ; d(120 s) = 0,771 ; ≈ 27 → 33 vagues/min après 3 min |
 | `npm run perf` (×4 ralenti, 390×844) | app.frame 1,9 → 2,3 ms (moyenne), p95 5,5 → 6,5 ms ; tas JS stable (≈ 9–10 Mo) ; GPU non mesurable (rendu logiciel) |

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ARENA, PLAYER, SIM } from '../src/config/balance';
 import { getHitboxGrowth, HITBOX, playerHitRadius, projectileHitRadius, setHitboxGrowth } from '../src/config/hitbox';
-import { asteroidMinHalfExtent, asteroidRadius, shipHalfWidth, shipRadius, VISUAL } from '../src/config/visuals';
+import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../src/config/visuals';
 import { survivalDifficulty } from '../src/modes/profiles';
 import { projectileHits } from '../src/sim/collision';
 import type { ProjectileHazard } from '../src/sim/hazards';
@@ -39,12 +39,37 @@ describe('Hitbox : réglage indépendant', () => {
     }
   });
 
-  it('les visuels sont agrandis de 15 % indépendamment des hitboxes', () => {
-    expect(shipRadius()).toBeCloseTo(VISUAL.shipBaseRadius * 1.15, 12);
-    expect(asteroidRadius()).toBeCloseTo(VISUAL.asteroidBaseRadius * 1.15, 12);
+  it('les visuels sont agrandis (vaisseau +45 %, astéroïdes +35 % après le +15 % de la v1.1) sans toucher aux hitboxes', () => {
+    const shipV11 = VISUAL.shipBaseRadius * 1.15;
+    const asteroidV11 = VISUAL.asteroidBaseRadius * 1.15;
+    expect(VISUAL.scale).toBe(1.15);
+    expect(shipRadius()).toBeCloseTo(shipV11 * 1.45, 12);
+    expect(asteroidRadius()).toBeCloseTo(asteroidV11 * 1.35, 12);
     const before = shipRadius();
     setHitboxGrowth(0.08);
     expect(shipRadius()).toBe(before);
+  });
+
+  it('les hitboxes actuelles sont conservées (indépendantes des visuels)', () => {
+    expect(playerHitRadius()).toBeCloseTo(7 * 1.065, 12);
+    expect(projectileHitRadius()).toBeCloseTo(8 * 1.065, 12);
+    // Silhouettes bien plus grandes que les hitboxes : le vaisseau est ~2× la hitbox, l'astéroïde ~1,7×
+    expect(shipHalfWidth() / playerHitRadius()).toBeGreaterThan(1.5);
+    expect(asteroidMinHalfExtent() / projectileHitRadius()).toBeGreaterThan(1.3);
+  });
+
+  it('traînées : plus épaisses mais pas plus longues que la v1.1', () => {
+    expect(FX.thruster.length).toBe(14);
+    expect(FX.thruster.width).toBeGreaterThan(5);
+    expect(FX.thruster.width).toBeLessThanOrEqual(5 * 1.4);
+    expect(FX.asteroidTrail.length).toBe(52);
+    const v11 = [0.95, 0.6, 0.28];
+    FX.asteroidTrail.layers.forEach((w, i) => {
+      expect(w).toBeGreaterThan(v11[i]);
+      expect(w).toBeLessThanOrEqual(1.0); // jamais plus large que la roche
+    });
+    expect(FX.asteroidGlow.alpha).toBeGreaterThan(0);
+    expect(FX.asteroidGlow.grow).toBeGreaterThan(1);
   });
 
   it('un passage à la limite : épargné sans agrandissement, touché avec +5 %…+8 %', () => {

@@ -44,6 +44,13 @@ interface Popup {
   y: number;
 }
 
+interface AsteroidSlot {
+  img: Phaser.GameObjects.Image;
+  /** Contour lumineux : copie teintée de la silhouette, légèrement plus grande, derrière le sprite. */
+  glow: Phaser.GameObjects.Image;
+  tex: string;
+}
+
 interface Ring {
   x: number;
   y: number;
@@ -68,7 +75,7 @@ export class ArenaRenderer {
   private readonly dbg: Phaser.GameObjects.Graphics;
   private readonly flash: Phaser.GameObjects.Rectangle;
   private readonly shipSprite: Phaser.GameObjects.Image;
-  private readonly asteroidPool: { img: Phaser.GameObjects.Image; tex: string }[] = [];
+  private readonly asteroidPool: AsteroidSlot[] = [];
   private readonly scene: Phaser.Scene;
   private readonly rings: Ring[] = [];
   private emitAcc = 0;
@@ -139,16 +146,22 @@ export class ArenaRenderer {
     const shipPx = (2 * shipRadius() * this.scale) / CONTENT;
     this.shipSprite.setDisplaySize(shipPx, shipPx);
     const astPx = (2 * asteroidRadius() * this.scale) / CONTENT;
-    for (const a of this.asteroidPool) a.img.setDisplaySize(astPx, astPx);
+    for (const a of this.asteroidPool) {
+      a.img.setDisplaySize(astPx, astPx);
+      a.glow.setDisplaySize(astPx * FX.asteroidGlow.grow, astPx * FX.asteroidGlow.grow);
+    }
   }
 
-  private asteroidSlot(i: number): { img: Phaser.GameObjects.Image; tex: string } {
+  private asteroidSlot(i: number): AsteroidSlot {
     let slot = this.asteroidPool[i];
     if (!slot) {
+      const g = FX.asteroidGlow;
+      const glow = this.scene.add.image(0, 0, ASTEROID_TEXTURES[0]).setDepth(3.9).setVisible(false).setTintFill(g.tint).setAlpha(g.alpha).setBlendMode(Phaser.BlendModes.ADD);
       const img = this.scene.add.image(0, 0, ASTEROID_TEXTURES[0]).setDepth(4).setVisible(false);
       const px = (2 * asteroidRadius() * this.scale) / CONTENT;
       img.setDisplaySize(px, px);
-      slot = { img, tex: ASTEROID_TEXTURES[0] };
+      glow.setDisplaySize(px * g.grow, px * g.grow);
+      slot = { img, glow, tex: ASTEROID_TEXTURES[0] };
       this.asteroidPool[i] = slot;
     }
     return slot;
@@ -232,7 +245,10 @@ export class ArenaRenderer {
         if (t >= h.launch && t <= h.end) this.drawAsteroid(h, t, asteroids++, emitting, realDt);
       }
     }
-    for (let i = asteroids; i < this.asteroidPool.length; i++) this.asteroidPool[i].img.setVisible(false);
+    for (let i = asteroids; i < this.asteroidPool.length; i++) {
+      this.asteroidPool[i].img.setVisible(false);
+      this.asteroidPool[i].glow.setVisible(false);
+    }
 
     const alive = !sim || sim.state !== 'dead';
     this.updateTrail(angle, realDt);
@@ -458,13 +474,14 @@ export class ArenaRenderer {
     const tex = ASTEROID_TEXTURES[variant];
     if (slot.tex !== tex) {
       slot.img.setTexture(tex);
+      slot.glow.setTexture(tex);
       slot.tex = tex;
     }
     const spin = (hash01(h.id, 2) - 0.5) * 2.6;
-    slot.img
-      .setVisible(true)
-      .setPosition(this.sx(x), this.sy(y))
-      .setRotation(hash01(h.id, 3) * TAU + spin * (t - h.launch));
+    const rot = hash01(h.id, 3) * TAU + spin * (t - h.launch);
+    slot.img.setVisible(true).setPosition(this.sx(x), this.sy(y)).setRotation(rot);
+    // Contour lumineux orange : silhouette teintée, légèrement agrandie, juste derrière la roche
+    slot.glow.setVisible(true).setPosition(this.sx(x), this.sy(y)).setRotation(rot);
 
     const r = asteroidRadius();
     const s = this.scale;
@@ -477,9 +494,9 @@ export class ArenaRenderer {
     const nx = -uy;
     const ny = ux;
     const layers: [number, number, number][] = [
-      [0.95, 0.09, tr.glowColor],
-      [0.6, 0.18, tr.glowColor],
-      [0.28, 0.36, tr.coreColor],
+      [tr.layers[0], 0.09, tr.glowColor],
+      [tr.layers[1], 0.18, tr.glowColor],
+      [tr.layers[2], 0.36, tr.coreColor],
     ];
     for (const [w, a, col] of layers) {
       g.fillStyle(col, a);
@@ -489,11 +506,9 @@ export class ArenaRenderer {
         this.sx(x - nx * r * w), this.sy(y - ny * r * w),
       );
     }
-    // Lueur orangée autour de la roche (fissures incandescentes)
+    // Lueur orangée diffuse autour de la roche (le contour net est le sprite teinté ci-dessus)
     g.fillStyle(tr.glowColor, 0.05);
-    g.fillCircle(this.sx(x), this.sy(y), r * 1.55 * s);
-    g.fillStyle(tr.glowColor, 0.07);
-    g.fillCircle(this.sx(x), this.sy(y), r * 1.2 * s);
+    g.fillCircle(this.sx(x), this.sy(y), r * 1.5 * s);
 
     if (emitting && !this.reducedEffects) {
       const n = Math.floor(dt * FX.asteroidEmbers.rate + Math.random());
@@ -691,7 +706,10 @@ export class ArenaRenderer {
     this.trailCount = 0;
     this.emitAcc = 0;
     this.shipSprite.setVisible(false);
-    for (const a of this.asteroidPool) a.img.setVisible(false);
+    for (const a of this.asteroidPool) {
+      a.img.setVisible(false);
+      a.glow.setVisible(false);
+    }
   }
 
   /**

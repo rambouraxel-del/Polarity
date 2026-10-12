@@ -11,10 +11,11 @@ Les valeurs sont des **points de départ** à confirmer par des essais humains.
 ## Joueur et hitboxes
 - Vitesse angulaire constante 2,0 rad/s (un tour ≈ 3,1 s), ne change jamais : ce sont les menaces qui évoluent.
 - **Hitboxes** (`src/config/hitbox.ts`, réglage indépendant des visuels et de la difficulté) : rayons d'origine 7 (vaisseau) et 8 (projectile)
-  **+ 6,5 %** par défaut (plage prévue 5–8 %) → 7,46 et 8,52. Elles restent **en retrait des silhouettes** : le vaisseau fait
-  ≈ 10,4 de demi-largeur, le plus petit astéroïde ≈ 9,0 de demi-dimension (tests : valable de +5 % à +8 %).
+  **+ 6,5 %** par défaut (plage prévue 5–8 %) → 7,46 et 8,52. Elles restent **en retrait des silhouettes** : avec les visuels actuels
+  (vaisseau ×1,45, astéroïdes ×1,35 depuis la v1.1.x), le vaisseau fait ≈ 15,1 de demi-largeur et le plus petit astéroïde ≈ 12,2 de demi-dimension
+  (tests : valable de +5 % à +8 %). Les hitboxes n'ont pas été modifiées par ce changement visuel, pour pouvoir l'évaluer séparément.
   Secteurs : 0,03 rad de tolérance à chaque bord. `setHitboxGrowth()` permet de tester une autre valeur (tests, outils).
-- **Visuels** (`src/config/visuals.ts`) : +15 % par rapport à la v1.0. Les modifier ne change aucune collision.
+- **Visuels** (`src/config/visuals.ts`) : +15 % par rapport à la v1.0, puis vaisseau ×1,45 et astéroïdes ×1,35. Les modifier ne change aucune collision.
 - Collision continue : distance minimale exacte entre le mouvement du vaisseau et celui du projectile sur chaque pas ;
   balayage angulaire pour les secteurs. Testé avec un projectile à 20 000 unités/s, y compris hitbox +8 %.
 - Point d'impact : à la mort, la simulation fournit le point de contact (frontière des deux hitboxes, ou position du vaisseau
