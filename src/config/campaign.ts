@@ -204,6 +204,12 @@ export const MISSIONS: MissionDef[] = [
   },
 ];
 
+/**
+ * Clé de progression d'un niveau dans la sauvegarde (`save.campaign.missions`). Volontairement distincte de celles de la première campagne
+ * (« Écho-7 », clés « 1 » à « 10 », scènes `m*-before|after`) : d'anciennes missions terminées ne peuvent jamais compter pour la nouvelle histoire.
+ */
+export const missionKey = (id: number): string => `n${id}`;
+
 export function missionById(id: number): MissionDef | undefined {
   return MISSIONS.find((m) => m.id === id);
 }

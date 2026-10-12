@@ -103,6 +103,8 @@ export class App {
   private pendingPurchase: string | null = null;
   private selectedMission = 1;
   private story: StoryState | null = null;
+  /** Une version plus récente est publiée (la page affichée vient du cache du navigateur). */
+  private updateAvailable = false;
   /** Vitesse du texte des scènes (caractères/s) ; réglable par les tests de bout en bout. */
   storyCharsPerSecond: number = STORY_UI.charsPerSecond;
   /** Éclats déjà crédités pendant la partie en cours (chaque éclat n'est crédité qu'une fois). */
@@ -170,7 +172,9 @@ export class App {
     });
     void this.lb.flush();
     void this.lb.ensureTickets();
+    void this.checkForUpdate();
     document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void this.checkForUpdate();
       if (document.hidden) {
         this.pause();
         this.sfx.suspend();
@@ -185,6 +189,25 @@ export class App {
     this.layout();
     this.lastFrame = performance.now();
     this.showScreen('home');
+  }
+
+  /**
+   * Compare la version affichée à celle publiée (`version.json`, lu sans cache) : si la page vient d'un cache ancien,
+   * l'accueil propose « Recharger ». Aucune erreur réseau ne bloque le jeu.
+   */
+  private async checkForUpdate(): Promise<void> {
+    if (__BUILD_ID__ === 'dev') return;
+    try {
+      const res = await fetch(`${new URL('version.json', document.baseURI).href}?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const info = (await res.json()) as { build?: unknown };
+      if (typeof info.build === 'string' && info.build !== __BUILD_ID__ && !this.updateAvailable) {
+        this.updateAvailable = true;
+        if (this.screen === 'home') this.showScreen('home', false);
+      }
+    } catch {
+      /* hors ligne ou fichier absent : rien à faire */
+    }
   }
 
   /** Taille du canvas : pixels réels plafonnés (×2 max) pour préserver les performances mobiles. */
@@ -758,7 +781,7 @@ export class App {
     const today = utcDateString();
     let html = '';
     switch (id) {
-      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary()); break;
+      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable); break;
       case 'campaign': html = C.campaignScreen(this.save); break;
       case 'chapter': html = C.chapterScreen(this.save); break;
       case 'mission': html = C.missionScreen(this.save, this.selectedMission); break;
@@ -809,6 +832,7 @@ export class App {
     if (action !== 'replay' && action !== 'resume') this.sfx.play('ui');
     switch (action) {
       case 'home': this.showScreen('home'); break;
+      case 'reload-app': location.reload(); break;
       case 'campaign': this.showScreen('campaign'); break;
       case 'chapter': this.showScreen('chapter'); break;
       case 'journal': this.showScreen('journal'); break;

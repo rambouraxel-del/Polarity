@@ -5,7 +5,7 @@
  */
 
 import { ACHIEVEMENT_CONFIG } from '../config/achievements';
-import { MISSIONS, UPGRADES } from '../config/campaign';
+import { MISSIONS, UPGRADES, missionKey } from '../config/campaign';
 import { LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
@@ -340,7 +340,8 @@ export function sanitize(raw: unknown): SaveData {
 function sanitizeCampaign(raw: Record<string, unknown>): CampaignSave {
   const out = defaultCampaign();
   if (isObj(raw.missions)) {
-    const known = new Set(MISSIONS.map((m) => String(m.id)));
+    // Seules les clés de la nouvelle histoire (n1…) sont reconnues : les anciennes clés « 1 »…« 10 » de la première campagne sont ignorées
+    const known = new Set(MISSIONS.map((m) => missionKey(m.id)));
     for (const [k, v] of Object.entries(raw.missions)) {
       if (!known.has(k) || !isObj(v)) continue;
       const main = bool(v.main, false);

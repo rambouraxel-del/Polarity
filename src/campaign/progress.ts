@@ -1,4 +1,4 @@
-import { CAMPAIGN_REWARDS, HANGAR_ENABLED, MISSIONS, STARS_PER_MISSION, UPGRADES, missionById, upgradeById, type UpgradeDef } from '../config/campaign';
+import { CAMPAIGN_REWARDS, HANGAR_ENABLED, MISSIONS, STARS_PER_MISSION, UPGRADES, missionById, missionKey, upgradeById, type UpgradeDef } from '../config/campaign';
 import { storyById } from '../config/story';
 import type { MissionRecord, SaveData } from '../save/save';
 import type { ActiveUpgrades, MissionReport } from './simulation';
@@ -13,7 +13,7 @@ import type { ActiveUpgrades, MissionReport } from './simulation';
  */
 
 export function missionRecord(save: SaveData, id: number): MissionRecord {
-  return save.campaign.missions[String(id)] ?? { main: false, challenge: false, clears: 0, bestTime: 0 };
+  return save.campaign.missions[missionKey(id)] ?? { main: false, challenge: false, clears: 0, bestTime: 0 };
 }
 
 export function missionStars(save: SaveData, id: number): number {
@@ -79,7 +79,7 @@ export function applyMission(save: SaveData, report: MissionReport): MissionResu
   const def = missionById(report.missionId);
   if (!def || report.outcome !== 'success') return result;
 
-  const key = String(def.id);
+  const key = missionKey(def.id);
   const before = missionRecord(save, def.id);
   const nextId = MISSIONS.find((m) => m.id === def.id + 1)?.id;
   const nextWasLocked = nextId !== undefined && !isMissionUnlocked(save, nextId);

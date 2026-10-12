@@ -80,6 +80,9 @@ describe('écrans : données réelles', () => {
     expect(idx.every((i) => i >= 0)).toBe(true);
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);
     expect(html).toContain('alt="Polarity"');
+    expect(html).toContain('home__version');
+    expect(html).not.toContain('reload-app');
+    expect(S.homeScreen(save, '2026-10-12', false, true)).toContain('data-action="reload-app"');
     expect(html).toContain(`0/${ACHIEVEMENTS.length}`);
   });
 

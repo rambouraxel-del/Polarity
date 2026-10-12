@@ -36,7 +36,7 @@ export function nextLevelId(save: SaveData): number {
 
 // ————————————————————————————————————————————— Accueil
 
-export function homeScreen(save: SaveData, today: string, touch = false): string {
+export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false): string {
   const legacy = legacySurvivalBest(save);
   const surv =
     save.survival.bestTime > 0
@@ -54,6 +54,9 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
           'cyan',
         ).replace('<div class="notice', '<div role="status" class="notice')
       : '';
+  const update = updateAvailable
+    ? `<div role="status" class="notice notice--cyan">Une nouvelle version du jeu est disponible. ${button({ action: 'reload-app', label: 'Recharger', variant: 'primary', size: 'sm' })}</div>`
+    : '';
   const rewardNotice = save.rewardNotice
     ? `<div role="status" class="notice">Récompenses de succès : <strong>+${formatScore(save.rewardNotice.shards)} Éclats</strong> pour ${save.rewardNotice.count} succès. ${button({ action: 'dismiss-reward-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
     : '';
@@ -73,6 +76,7 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
       <p class="sub">Un vaisseau, une orbite, une seule commande : inverser.</p>
     </div>
     <div class="home__menu">
+      ${update}
       ${banner}
       ${rewardNotice}
       ${walletBar(save.wallet)}
@@ -88,6 +92,7 @@ export function homeScreen(save: SaveData, today: string, touch = false): string
         ${button({ action: 'options', label: 'Options', icon: 'gear', variant: 'secondary', size: 'compact' })}
       </div>
       <p class="small home__help">${homeHelp(touch)}</p>
+      <p class="small home__version" data-build="${__BUILD_ID__}">${escapeHtml(GAME_NAME)} v${__APP_VERSION__} · ${__BUILD_ID__}</p>
     </div>
   </div>`;
 }
@@ -511,7 +516,7 @@ export function optionsScreen(save: SaveData): string {
     ${setting('help', 'Astuce de départ', 'Réafficher l’explication des commandes', button({ action: 'reset-tutorial', label: 'Réafficher', variant: 'secondary', size: 'sm' }))}
     <h3 class="section-title">Progression</h3>
     ${button({ action: 'ask-reset', label: 'Effacer toute la progression…', icon: 'trash', variant: 'danger' })}
-    <p class="small" style="margin-top:14px">Sauvegarde locale (cet appareil, ce navigateur). ${escapeHtml(GAME_NAME)} v${__APP_VERSION__}</p>
+    <p class="small" style="margin-top:14px">Sauvegarde locale (cet appareil, ce navigateur). ${escapeHtml(GAME_NAME)} v${__APP_VERSION__} · version ${__BUILD_ID__}</p>
   </div>`;
 }
 

@@ -180,11 +180,23 @@ describe('sauvegarde v6', () => {
     expect(data.campaign.reserve).toBe(0);
   });
 
+  it('anciennes missions terminées (clés 1 à 10, scènes m*) : la nouvelle histoire n’est ni terminée ni sautée, même sans migration', () => {
+    const old = { ...v5, version: 6, campaign: { missions: Object.fromEntries(Array.from({ length: 10 }, (_, i) => [String(i + 1), { main: true, challenge: true, clears: 2, bestTime: 30 }])), seen: ['m1-before', 'm1-after', 'm10-after'], reserve: 0, upgrades: { owned: [], enabled: [] }, chapterComplete: true } };
+    const d = sanitize(old);
+    expect(Object.keys(d.campaign.missions)).toEqual([]);
+    expect(isMissionUnlocked(d, 1)).toBe(true);
+    expect(isMissionUnlocked(d, 2)).toBe(false);
+    expect(totalStars(d)).toBe(0);
+    // Les anciens identifiants de scène ne comptent pas pour les nouvelles scènes : l'introduction du niveau 1 sera jouée
+    expect(d.campaign.seen.includes('n1-before')).toBe(false);
+    expect(markSeen(d, 'n1-before')).toBe(true);
+  });
+
   it('une sauvegarde v6 est relue telle quelle', () => {
     const s = defaultSave();
     s.campaign.reserve = 40;
     s.campaign.seen = ['n1-before'];
-    s.campaign.missions['1'] = { main: true, challenge: false, clears: 1, bestTime: 33 };
+    s.campaign.missions.n1 = { main: true, challenge: false, clears: 1, bestTime: 33 };
     const store = new MemoryStore();
     store.set(SAVE_KEY, JSON.stringify(s));
     const r = loadSave(store);
@@ -197,16 +209,18 @@ describe('sauvegarde v6', () => {
       ...v5,
       version: 6,
       campaign: {
-        missions: { '1': { main: true, challenge: true, clears: 3, bestTime: 20 }, '99': { main: true }, '2': { main: false, challenge: true } },
+        missions: { n1: { main: true, challenge: true, clears: 3, bestTime: 20 }, n99: { main: true }, n2: { main: false, challenge: true }, '1': { main: true, challenge: true, clears: 9, bestTime: 1 } },
         seen: ['a', 3, 'a', 'b'],
         reserve: 55.9,
         upgrades: { owned: ['shield', 'inconnue'], enabled: ['shield', 'collector'] },
         chapterComplete: 'oui',
       },
     });
-    expect(data.campaign.missions['1']).toEqual({ main: true, challenge: true, clears: 3, bestTime: 20 });
-    expect(data.campaign.missions['99']).toBeUndefined();
-    expect(data.campaign.missions['2'].challenge).toBe(false);
+    expect(data.campaign.missions.n1).toEqual({ main: true, challenge: true, clears: 3, bestTime: 20 });
+    expect(data.campaign.missions.n99).toBeUndefined();
+    expect(data.campaign.missions.n2.challenge).toBe(false);
+    // Ancienne clé de la première campagne : ignorée
+    expect(data.campaign.missions['1']).toBeUndefined();
     expect(data.campaign.seen).toEqual(['a', 'b']);
     expect(data.campaign.reserve).toBe(55);
     expect(data.campaign.upgrades).toEqual({ owned: ['shield'], enabled: ['shield'] });
