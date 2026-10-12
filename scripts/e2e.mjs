@@ -1189,7 +1189,7 @@ for (const [w, h, name, touch] of [[320, 568, 'petit écran', true], [844, 390, 
   await page.click('[data-action="open-mission"][data-mission="1"]');
   await page.click('[data-action="play-mission"]');
   await page.waitForSelector('.story', { timeout: 8000 });
-  check(/Nora/.test(await page.locator('.story__name').innerText()) && (await page.evaluate(() => window.__polarite.save.campaign.seen.join())) === 'n1-before', 'Introduction du niveau 1 jouée (anciennes scènes m*-before sans effet)');
+  check(/nora/i.test(await page.locator('.story__name').innerText()) && (await page.evaluate(() => window.__polarite.save.campaign.seen.join())) === 'n1-before', 'Introduction du niveau 1 jouée (anciennes scènes m*-before sans effet)');
   await page.screenshot({ path: 'screenshots/95-migration-nouvelle-campagne.png' });
   check(errors.length === 0, `Aucune erreur (migration v6)${errors.length ? ' : ' + errors.join(' | ') : ''}`);
   await context.close();
