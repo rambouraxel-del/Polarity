@@ -21,29 +21,35 @@ describe('missions de campagne : faisabilité (joueur automatique)', () => {
 });
 
 describe('missions de campagne : structure', () => {
-  it('dix missions consécutives, durées ≤ 90 s', () => {
-    expect(MISSIONS.map((m) => m.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  it('cinq niveaux consécutifs, durées ≤ 90 s', () => {
+    expect(MISSIONS.map((m) => m.id)).toEqual([1, 2, 3, 4, 5]);
     for (const m of MISSIONS) expect(m.limit).toBeLessThanOrEqual(90);
   });
 
-  it('les transmissions en partie tombent dans une respiration (moment sûr)', () => {
+  it('astéroïdes seulement : ni secteur électrique ni laser avant les niveaux suivants', () => {
+    const asteroids = new Set(['shot', 'diameter', 'parallel', 'cross', 'burst', 'fragment', 'convoy']);
     for (const m of MISSIONS) {
-      for (const l of m.script.lines) {
-        const ok = m.script.breaths.some(([a, b]) => l.at >= a + 0.9 && l.at < b);
-        expect(ok, `mission ${m.id} : ligne à ${l.at} s`).toBe(true);
-      }
+      const all = [...m.script.phases.map((p) => p.weights), ...(m.script.phaseByCycles ?? [])];
+      for (const w of all) for (const k of Object.keys(w)) expect(asteroids.has(k), `niveau ${m.id} : motif ${k}`).toBe(true);
+    }
+  });
+
+  it('aucune transmission en pleine esquive : la narration se joue avant et après le niveau', () => {
+    for (const m of MISSIONS) {
+      expect(m.script.lines).toEqual([]);
+      expect(m.script.announces).toEqual([]);
     }
   });
 
   it('la vitesse est celle de la mission (pas de courbe de Survie)', () => {
-    const sim = CampaignSimulation.create(MISSIONS[5], 3);
+    const sim = CampaignSimulation.create(MISSIONS[2], 3);
     const a = sim.speedFn(0);
     const b = sim.speedFn(60);
     expect(a).toBeCloseTo(b, 9);
   });
 
   it('une même graine donne la même tentative, une autre graine une autre trajectoire', () => {
-    const m = MISSIONS[8];
+    const m = MISSIONS[2];
     const run = (seed: number): string => {
       const sim = CampaignSimulation.create(m, seed);
       for (let i = 0; i < 120 * 30; i++) sim.step();
@@ -62,7 +68,7 @@ describe('missions de campagne : structure', () => {
 describe('améliorations de campagne', () => {
   /** Fait collisionner le vaisseau avec un danger placé exactement sur lui. */
   function runUntilFirstHit(upgrades = NO_UPGRADES, seed = 11): CampaignSimulation {
-    const sim = CampaignSimulation.create(MISSIONS[3], seed, upgrades);
+    const sim = CampaignSimulation.create(MISSIONS[2], seed, upgrades);
     for (let i = 0; i < 120 * 60 && sim.state === 'running'; i++) sim.step(); // aucun pilote : il finit par être touché
     return sim;
   }
@@ -74,7 +80,7 @@ describe('améliorations de campagne', () => {
   });
 
   it('le bouclier absorbe une collision puis protège brièvement ; la deuxième collision tue', () => {
-    const sim = CampaignSimulation.create(MISSIONS[3], 11, { ...NO_UPGRADES, shield: true });
+    const sim = CampaignSimulation.create(MISSIONS[2], 11, { ...NO_UPGRADES, shield: true });
     let shieldAt = -1;
     let deathAt = -1;
     for (let i = 0; i < 120 * 60 && sim.state === 'running'; i++) {
@@ -86,24 +92,19 @@ describe('améliorations de campagne', () => {
     expect(shieldAt).toBeGreaterThan(0);
     expect(sim.shieldUsed).toBe(true);
     expect(deathAt).toBeGreaterThan(shieldAt + UPGRADE_EFFECTS.shield.invulnerable - 0.01);
-    expect(sim.report().stars.noShield).toBe(false);
   });
 
   it('le bouclier est rechargé à chaque tentative', () => {
-    const a = CampaignSimulation.create(MISSIONS[3], 11, { ...NO_UPGRADES, shield: true });
-    const b = CampaignSimulation.create(MISSIONS[3], 11, { ...NO_UPGRADES, shield: true });
+    const a = CampaignSimulation.create(MISSIONS[2], 11, { ...NO_UPGRADES, shield: true });
+    const b = CampaignSimulation.create(MISSIONS[2], 11, { ...NO_UPGRADES, shield: true });
     expect(a.shieldCharges).toBe(1);
     expect(b.shieldCharges).toBe(1);
   });
 
-  it('étoile « sans bouclier » : acquise sans bouclier possédé, perdue si le bouclier a servi', () => {
-    const plain = playMission(CampaignSimulation.create(MISSIONS[0], 21));
-    expect(plain.report().stars.noShield).toBe(true);
-  });
 
   it('stabilisateur : répit supplémentaire borné, jamais en dehors des cycles', () => {
     const run = (stab: boolean): number => {
-      const sim = CampaignSimulation.create(MISSIONS[4], 31, { ...NO_UPGRADES, stabilizer: stab });
+      const sim = CampaignSimulation.create(MISSIONS[1], 31, { ...NO_UPGRADES, stabilizer: stab });
       const bot = new MissionBot(sim);
       let max = 0;
       for (let i = 0; i < 120 * 60 && sim.state === 'running'; i++) {
@@ -120,8 +121,8 @@ describe('améliorations de campagne', () => {
   });
 
   it('collecteur : objets de mission plus faciles à ramasser, hitbox des dangers inchangée', () => {
-    const base = CampaignSimulation.create(MISSIONS[2], 1);
-    const col = CampaignSimulation.create(MISSIONS[2], 1, { ...NO_UPGRADES, collector: true });
+    const base = CampaignSimulation.create(MISSIONS[3], 1);
+    const col = CampaignSimulation.create(MISSIONS[3], 1, { ...NO_UPGRADES, collector: true });
     expect(col.objectRadius).toBeGreaterThan(base.objectRadius);
   });
 

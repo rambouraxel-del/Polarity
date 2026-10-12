@@ -58,8 +58,8 @@ export interface MissionReport {
   shieldUsed: boolean;
   objectsCollected: number;
   objectsMissed: number;
-  /** Étoiles obtenues dans cette tentative (si l'objectif principal est atteint). */
-  stars: { main: boolean; challenge: boolean; noShield: boolean };
+  /** Étoiles obtenues dans cette tentative (si l'objectif principal est atteint) : objectif et défi secondaire. */
+  stars: { main: boolean; challenge: boolean };
 }
 
 interface Runtime {
@@ -438,7 +438,7 @@ export class CampaignSimulation extends Simulation {
       shieldUsed: this.shieldUsed,
       objectsCollected: this.objectsCollected,
       objectsMissed: this.objectsMissed,
-      stars: { main: success, challenge: success && challenge, noShield: success && !this.shieldUsed },
+      stars: { main: success, challenge: success && challenge },
     };
   }
 }

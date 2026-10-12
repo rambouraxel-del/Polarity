@@ -89,14 +89,20 @@ export const SKINS: SkinDef[] = [
     colors: { hull: 0xe9e1ff, wings: 0x7a4dff, cockpit: 0xc9a8ff, thruster: { core: 0xf3edff, glow: 0x9b6bff }, orbit: 0x9b6bff, beacon: 0xffd84a, trail: 0xc7a8ff },
   },
   {
-    id: 'echo', name: 'Écho', asset: 'classic',
-    colors: { hull: 0xffffff, wings: 0xa98bff, cockpit: 0xe4d9ff, thruster: { core: 0xf6f1ff, glow: 0xa98bff }, orbit: 0xa98bff, beacon: 0xffd84a, trail: 0xd5c6ff },
-  },
-  {
     id: 'neon', name: 'Néon', asset: 'classic',
     colors: { hull: 0xffffff, wings: 0xff4fd8, cockpit: 0x00e5ff, thruster: { core: 0xeafcff, glow: 0x00e5ff }, orbit: 0x00e5ff, beacon: 0xfff2a8, trail: 0x7df3ff },
   },
 ];
+
+/**
+ * Vaisseau de la campagne : la Traverse, vieux vaisseau de travail d'Élias (coque sable usée, ailes bleu-vert, verrière ambre).
+ * Volontairement HORS de `SKINS` : ni catalogue, ni boutique, ni équipement ; les cosmétiques de la Survie ne s'y appliquent pas.
+ * Réacteur bleu-vert (à plus de 30° des teintes de danger).
+ */
+export const CAMPAIGN_SKIN: SkinDef = {
+  id: 'traverse', name: 'La Traverse', asset: 'classic',
+  colors: { hull: 0xd6c7a1, wings: 0x3f8f9d, cockpit: 0xffb347, thruster: { core: 0xe8fffb, glow: 0x4fd6c8 }, orbit: 0x4fd6c8, beacon: 0xffd84a, trail: 0xa6f0e6 },
+};
 
 /** Teinte (0–360) et saturation (0–1) d'une couleur 0xRRGGBB. */
 export function hueSat(color: number): { hue: number; sat: number } {

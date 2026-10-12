@@ -1,0 +1,68 @@
+{
+  "assets": [
+    {
+      "path": "illustrations/01_de_quoi_rentrer.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "transparent": false
+    },
+    {
+      "path": "illustrations/02_une_bonne_journee.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "transparent": false
+    },
+    {
+      "path": "illustrations/03_tenir.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "transparent": false
+    },
+    {
+      "path": "illustrations/04_ce_que_la_tempete_a_laisse.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "transparent": false
+    },
+    {
+      "path": "illustrations/05a_capsule_exterieur.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "transparent": false
+    },
+    {
+      "path": "illustrations/05b_capsule_interieur.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "transparent": false
+    },
+    {
+      "path": "portraits/elias.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true
+    },
+    {
+      "path": "portraits/nora.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true
+    },
+    {
+      "path": "portraits/transmission_inconnue.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true
+    }
+  ],
+  "rule": "Resolve assets by path, never upload order."
+}

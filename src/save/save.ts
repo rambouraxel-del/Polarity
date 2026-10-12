@@ -22,10 +22,12 @@ import { BALANCE_VERSION } from '../config/version';
  *  4 — v1.6 : succès récompensés (registre `rewarded`, notification `rewardNotice`) et statistiques cumulées (Éclats collectés,
  *      événements traversés, meilleur score, meilleur multiplicateur). Migration : les succès déjà obtenus sont récompensés une
  *      seule fois (Éclats ajoutés au solde, notification à l'accueil).
- *  5 — v2.0 : campagne (étoiles et récompenses des missions, transmissions lues, améliorations du hangar, fin du chapitre).
- *      Migration : champ `campaign` vide ; tout le reste (records, monnaies, succès, cosmétiques, identité du classement) est inchangé.
+ *  5 — première campagne (10 missions « Écho-7 » ; jamais diffusée au-delà de la branche de développement).
+ *  6 — campagne « Douze ans de silence » (niveaux 1 à 5) : étoiles, réserve d'Éclats de campagne SÉPARÉE du portefeuille, scènes vues,
+ *      améliorations prévues pour la suite. Migration : champ `campaign` remis à neuf (le contenu de la v5 ne correspond plus à l'histoire ;
+ *      copie `polarite.save.avant-v5` conservée) ; tout le reste (records, monnaies, succès, cosmétiques, identité du classement) est inchangé.
  */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -74,14 +76,12 @@ export interface LevelPayout {
   stars: number;
 }
 
-/** Progression d'une mission de campagne. Les trois étoiles ne se perdent jamais ; chaque passage à vrai est rémunéré une seule fois. */
+/** Progression d'un niveau de campagne. Les étoiles ne se perdent jamais ; chaque passage à vrai est rémunéré une seule fois. */
 export interface MissionRecord {
-  /** Objectif principal atteint au moins une fois (1re étoile, mission suivante débloquée). */
+  /** Objectif principal atteint au moins une fois (1re étoile, niveau suivant débloqué). */
   main: boolean;
-  /** Défi propre à la mission réussi. */
+  /** Défi propre au niveau réussi (2e étoile). */
   challenge: boolean;
-  /** Réussi sans déclencher le bouclier. */
-  noShield: boolean;
   /** Réussites au total. */
   clears: number;
   /** Meilleur temps de réussite (s), 0 si aucune. */
@@ -91,16 +91,18 @@ export interface MissionRecord {
 /** Données de la campagne (hors cosmétiques et monnaies, qui restent dans les champs communs). */
 export interface CampaignSave {
   missions: Record<string, MissionRecord>;
-  /** Séquences narratives déjà vues (config/story.ts) : ne se rejouent pas, restent consultables au journal. */
+  /** Scènes déjà vues (config/story.ts) : jouées automatiquement une seule fois, toujours relisibles. */
   seen: string[];
-  /** Améliorations achetées, et celles activées (campagne uniquement). */
+  /** Réserve d'Éclats de campagne : SÉPARÉE du portefeuille de la Survie et des cosmétiques (jamais convertie). */
+  reserve: number;
+  /** Améliorations prévues pour la suite (hangar désactivé pour les niveaux 1 à 5). */
   upgrades: { owned: string[]; enabled: string[] };
-  /** Chapitre 1 terminé : débloque l'apparence « Écho ». */
+  /** Tous les niveaux livrés sont terminés (« Suite du chapitre à venir »). */
   chapterComplete: boolean;
 }
 
 export function defaultCampaign(): CampaignSave {
-  return { missions: {}, seen: [], upgrades: { owned: [], enabled: [] }, chapterComplete: false };
+  return { missions: {}, seen: [], reserve: 0, upgrades: { owned: [], enabled: [] }, chapterComplete: false };
 }
 
 export interface SaveData {
@@ -344,9 +346,8 @@ function sanitizeCampaign(raw: Record<string, unknown>): CampaignSave {
       const main = bool(v.main, false);
       out.missions[k] = {
         main,
-        // Les étoiles secondaires n'ont de sens qu'avec l'objectif principal
+        // L'étoile secondaire n'a de sens qu'avec l'objectif principal
         challenge: main && bool(v.challenge, false),
-        noShield: main && bool(v.noShield, false),
         clears: Math.floor(num(v.clears, main ? 1 : 0, 0, 1e6)),
         bestTime: num(v.bestTime, 0, 0, 1e4),
       };
@@ -362,6 +363,7 @@ function sanitizeCampaign(raw: Record<string, unknown>): CampaignSave {
     // On ne peut activer qu'une amélioration possédée
     out.upgrades.enabled = pick(raw.upgrades.enabled).filter((id) => out.upgrades.owned.includes(id));
   }
+  out.reserve = Math.floor(num(raw.reserve, 0, 0, WALLET_MAX));
   out.chapterComplete = bool(raw.chapterComplete, false);
   return out;
 }
@@ -391,6 +393,8 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
     }
     out.paid = paid;
   }
+  // Avant la v6 : la campagne « Écho-7 » (v5) ne correspond plus à l'histoire : champ remis à neuf (copie avant-v5 conservée).
+  if (v < 6) delete out.campaign;
   // Avant la v4 : succès sans récompense. Les succès déjà obtenus sont récompensés UNE fois à la migration.
   if (v < 4) {
     const ach = isObj(raw.achievements) ? raw.achievements : {};
@@ -466,7 +470,7 @@ export function writeSave(store: KeyValueStore, data: SaveData): void {
 
 /** Effacement explicite et confirmé : supprime aussi les copies de sauvegarde conservées lors des migrations. */
 export function eraseAll(store: KeyValueStore): void {
-  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}4`, `${BACKUP_PREFIX}3`, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
+  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}5`, `${BACKUP_PREFIX}4`, `${BACKUP_PREFIX}3`, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
   for (let b = 1; b <= 20; b++) keys.push(`${BALANCE_BACKUP_PREFIX}${b}`);
   for (const key of keys) store.remove(key);
 }

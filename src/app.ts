@@ -3,8 +3,8 @@ import { Sfx } from './audio/sfx';
 import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
 import { MISSIONS, missionById, type MissionDef } from './config/campaign';
-import { storyById, type StorySequence } from './config/story';
-import { activeUpgrades, applyMission, buyUpgrade, isMissionUnlocked, markSeen, toggleUpgrade, type MissionResult } from './campaign/progress';
+import { STORY_UI, storyAsset, storyById, type StorySequence } from './config/story';
+import { activeUpgrades, applyMission, isMissionUnlocked, markSeen, type MissionResult } from './campaign/progress';
 import type { CampaignEvent } from './campaign/simulation';
 import { eventDef } from './config/events';
 import { BALANCE_VERSION } from './config/version';
@@ -16,7 +16,8 @@ import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
 import { reconcileAchievements } from './progression/achievements';
 import { creditShards, equip, isOwned, purchase } from './progression/shop';
-import { resolveEquipped, skinById } from './progression/skins';
+import { resolveEquipped, skinById, type Skin } from './progression/skins';
+import { CAMPAIGN_SKIN } from './config/skins';
 import { DEFAULT_TRAIL_ID } from './config/trails';
 import { ArenaRenderer, COLORS } from './render/ArenaRenderer';
 import { BrowserStore, defaultSave, eraseAll, loadSave, writeSave, type KeyValueStore, type SaveData } from './save/save';
@@ -33,24 +34,28 @@ import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 import * as C from './ui/campaignScreens';
 
-type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'hangar' | 'journal' | 'dialogue' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
 
 /** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
 const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
   campaign: 'home',
   chapter: 'campaign',
   mission: 'chapter',
-  hangar: 'campaign',
   journal: 'campaign',
   levels: 'campaign',
 };
 
-/** Séquence en cours d'affichage (dialogue) : réplique courante et suite à donner. */
-interface DialogueState {
+/** Scène en cours d'affichage : réplique courante, avancement du texte progressif et suite à donner. */
+interface StoryState {
   seq: StorySequence;
   index: number;
+  /** Libellé de la dernière réplique (« Lancer le niveau », « Voir le bilan », « Fermer »). */
   finish: string;
   then: () => void;
+  /** Caractères déjà révélés de la réplique courante (flottant : avance avec le temps réel). */
+  shown: number;
+  /** Réplique entièrement révélée : le prochain toucher avance. */
+  full: boolean;
 }
 
 /**
@@ -94,8 +99,7 @@ export class App {
   private selectedItem: string | null = null;
   private pendingPurchase: string | null = null;
   private selectedMission = 1;
-  private pendingUpgrade: string | null = null;
-  private dialogue: DialogueState | null = null;
+  private story: StoryState | null = null;
   /** Éclats déjà crédités pendant la partie en cours (chaque éclat n'est crédité qu'une fois). */
   private creditedShards = new Set<number>();
   private eventKey = '';
@@ -138,6 +142,13 @@ export class App {
       inGame: () => this.session !== null && ['running', 'countdown', 'ending'].includes(this.session.phase),
       firstInteraction: () => this.sfx.unlock(),
     }).attach();
+    // Scène illustrée : Entrée ou Espace = révéler / avancer (mêmes règles que le toucher) ; un bouton focalisé garde son propre rôle
+    document.addEventListener('keydown', (e) => {
+      if (this.screen !== 'story' || (e.key !== 'Enter' && e.key !== ' ')) return;
+      if ((e.target as HTMLElement | null)?.closest?.('button')) return;
+      e.preventDefault();
+      this.advanceStory();
+    });
     document.getElementById('btn-pause')!.addEventListener('click', () => this.pause());
     document.getElementById('btn-pause')!.addEventListener('pointerdown', (e) => e.preventDefault());
     this.screenEl.addEventListener('click', this.onScreenClick);
@@ -238,8 +249,10 @@ export class App {
     // Fond spatial : menus seulement (pendant une partie, le décor reste sobre)
     this.space?.setVisible(this.session === null);
     this.space?.update(realDt);
-    if (this.renderer) this.renderer.trailId = this.save.trail;
-    this.renderer?.draw(this.session, skinById(this.save.skin), realDt, this.clock);
+    this.updateStoryText(realDt);
+    // Campagne : le vaisseau est celui d'Élias (la Traverse) ; les cosmétiques de la Survie ne s'y appliquent pas
+    if (this.renderer) this.renderer.trailId = this.isCampaignRun() ? DEFAULT_TRAIL_ID : this.save.trail;
+    this.renderer?.draw(this.session, this.activeSkin(), realDt, this.clock);
   }
 
   private updateInGameUi(session: GameSession): void {
@@ -372,13 +385,8 @@ export class App {
       this.showScreen('cosmetics');
       return;
     }
-    if (this.screen === 'dialogue') {
-      this.finishDialogue();
-      return;
-    }
-    if (this.screen === 'hangar' && this.pendingUpgrade) {
-      this.pendingUpgrade = null;
-      this.showScreen('hangar', false);
+    if (this.screen === 'story') {
+      this.finishStory();
       return;
     }
     if (this.screen && this.screen !== 'home' && this.screen !== 'result' && this.screen !== 'campaign-result') this.showScreen(PARENT[this.screen] ?? 'home');
@@ -409,13 +417,13 @@ export class App {
         const a = s.sim.beacons.angles[e.index];
         const x = ARENA.orbitRadius * Math.cos(a);
         const y = ARENA.orbitRadius * Math.sin(a);
-        r?.burst(x, y, skinById(this.save.skin).colors.beacon, 8, 140, 0.45);
+        r?.burst(x, y, this.activeSkin().colors.beacon, 8, 140, 0.45);
         r?.popup(x, y, `+${e.points}`);
         break;
       }
       case 'cycle':
         this.sfx.play('cycle');
-        r?.ring(skinById(this.save.skin).colors.orbit);
+        r?.ring(this.activeSkin().colors.orbit);
         r?.popup(0, -40 / 0.82, `Cycle +${e.points}`, '#9ff9ff');
         break;
       case 'multiplier':
@@ -516,7 +524,7 @@ export class App {
     if (!m || !isMissionUnlocked(this.save, id)) return;
     if (m.before && markSeen(this.save, m.before)) {
       this.persist();
-      this.openDialogue(m.before, () => this.startMission(m), 'Lancer la mission');
+      this.openStory(m.before, () => this.startMission(m), 'Lancer le niveau');
     } else {
       this.startMission(m);
     }
@@ -527,45 +535,101 @@ export class App {
     this.startRun({ mode: 'campaign', seed: randomSeed(), mission: m, upgrades: activeUpgrades(this.save) });
   }
 
-  /** Affiche une séquence (une réplique à la fois). `then` est appelé à la fin ou si le joueur passe. */
-  private openDialogue(id: string, then: () => void, finish: string): void {
+  private isCampaignRun(): boolean {
+    return this.session?.config.mode === 'campaign';
+  }
+
+  /** Apparence affichée : la Traverse en campagne, sinon l'apparence équipée. */
+  private activeSkin(): Skin {
+    return this.isCampaignRun() ? CAMPAIGN_SKIN : skinById(this.save.skin);
+  }
+
+  // ————————————————————————————————————————————— scènes illustrées (récit)
+
+  /**
+   * Affiche une scène (illustration au-dessus, dialogue au-dessous, une réplique à la fois). `then` est appelé à la fin ou si le joueur
+   * passe. Aucune partie n'est en cours pendant une scène : le jeu, le chrono et les commandes de jeu sont à l'arrêt.
+   */
+  private openStory(id: string, then: () => void, finish: string): void {
     const seq = storyById(id);
-    if (!seq) {
+    if (!seq || seq.lines.length === 0) {
       then();
       return;
     }
-    this.dialogue = { seq, index: 0, finish, then };
-    this.renderDialogue();
+    this.story = { seq, index: 0, finish, then, shown: 0, full: false };
+    this.renderStory(true);
   }
 
-  private renderDialogue(): void {
-    const d = this.dialogue;
+  private renderStory(fresh: boolean): void {
+    const d = this.story;
     if (!d) return;
-    this.screen = 'dialogue';
+    this.screen = 'story';
     this.screenEl.classList.remove('hidden');
-    // Après une mission, l'arène reste visible derrière ; depuis un menu, fond normal
-    this.screenEl.classList.toggle('dim', this.session !== null);
+    this.screenEl.classList.remove('dim');
     this.screenEl.classList.add('no-anim');
-    this.screenEl.innerHTML = C.dialogueScreen(d.seq, d.index, d.finish);
+    this.screenEl.classList.add('screen--story');
+    this.screenEl.innerHTML = C.storyScreen(d.seq, d.index, d.finish);
     this.screenEl.scrollTop = 0;
-    this.screenEl.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true });
+    d.shown = 0;
+    d.full = false;
+    // Précharge l'illustration de la scène suivante du même niveau
+    if (fresh) this.preloadStory(d.seq);
+    if (this.reducedMotion) this.revealStoryLine();
   }
 
-  private nextDialogueLine(): void {
-    const d = this.dialogue;
+  private preloadStory(seq: StorySequence): void {
+    const nextSeq = storyById(seq.phase === 'before' ? `n${seq.level}-after` : `n${seq.level + 1}-before`);
+    if (!nextSeq) return;
+    const url = storyAsset(nextSeq.illustration);
+    if (url) new Image().src = url;
+  }
+
+  /** Texte progressif : avance avec le temps réel (la scène n'est pas une partie ; rien ne dépend de la pause). */
+  private updateStoryText(realDt: number): void {
+    const d = this.story;
+    if (!d || d.full) return;
+    const text = d.seq.lines[d.index].text;
+    d.shown += realDt * STORY_UI.charsPerSecond;
+    if (d.shown >= text.length) {
+      this.revealStoryLine();
+      return;
+    }
+    const live = document.getElementById('story-live');
+    if (live) live.textContent = text.slice(0, Math.floor(d.shown));
+  }
+
+  private revealStoryLine(): void {
+    const d = this.story;
     if (!d) return;
+    d.full = true;
+    d.shown = d.seq.lines[d.index].text.length;
+    const live = document.getElementById('story-live');
+    if (live) live.textContent = d.seq.lines[d.index].text;
+    this.screenEl.querySelector('.story__box')?.classList.add('story__box--done');
+  }
+
+  /** Premier toucher : révèle toute la réplique ; toucher suivant : réplique suivante (ou fin de la scène). */
+  private advanceStory(): void {
+    const d = this.story;
+    if (!d) return;
+    if (!d.full) {
+      this.revealStoryLine();
+      return;
+    }
     if (d.index >= d.seq.lines.length - 1) {
-      this.finishDialogue();
+      this.finishStory();
       return;
     }
     d.index++;
-    this.renderDialogue();
+    this.renderStory(false);
   }
 
-  private finishDialogue(): void {
-    const d = this.dialogue;
+  /** Ferme la scène (fin ou « Passer ») : ne donne jamais ni victoire ni récompense. */
+  private finishStory(): void {
+    const d = this.story;
     if (!d) return;
-    this.dialogue = null;
+    this.story = null;
+    this.screenEl.classList.remove('screen--story');
     d.then();
   }
 
@@ -580,7 +644,7 @@ export class App {
     const after = rep.outcome === 'success' ? s.config.mission?.after : undefined;
     if (after && markSeen(this.save, after)) {
       this.persist();
-      this.openDialogue(after, () => this.showMissionResult(res), 'Voir le bilan');
+      this.openStory(after, () => this.showMissionResult(res), 'Voir le bilan');
     } else {
       this.showMissionResult(res);
     }
@@ -656,6 +720,8 @@ export class App {
 
   showScreen(id: ScreenId, animate = true): void {
     this.screen = id;
+    this.story = null;
+    this.screenEl.classList.remove('screen--story');
     if (id === null) {
       this.screenEl.classList.add('hidden');
       this.screenEl.innerHTML = '';
@@ -673,7 +739,6 @@ export class App {
       case 'campaign': html = C.campaignScreen(this.save); break;
       case 'chapter': html = C.chapterScreen(this.save); break;
       case 'mission': html = C.missionScreen(this.save, this.selectedMission); break;
-      case 'hangar': html = C.hangarScreen(this.save, this.pendingUpgrade); break;
       case 'journal': html = C.journalScreen(this.save); break;
       case 'levels': html = S.levelsScreen(this.save); break;
       case 'daily': html = S.dailyScreen(this.save, today); break;
@@ -723,7 +788,6 @@ export class App {
       case 'home': this.showScreen('home'); break;
       case 'campaign': this.showScreen('campaign'); break;
       case 'chapter': this.showScreen('chapter'); break;
-      case 'hangar': this.pendingUpgrade = null; this.showScreen('hangar'); break;
       case 'journal': this.showScreen('journal'); break;
       case 'open-mission': {
         const id = Number(target.dataset.mission);
@@ -736,29 +800,14 @@ export class App {
       case 'play-mission': this.launchMission(Number(target.dataset.mission)); break;
       case 'next-mission': this.launchMission((this.lastConfig?.mission?.id ?? 0) + 1); break;
       case 'read-seq': {
+        // Relecture : depuis la fiche de niveau ou le journal ; on y revient à la fin (ou en passant)
         const seq = storyById(target.dataset.seq ?? '');
-        if (seq && this.save.campaign.seen.includes(seq.id)) this.openDialogue(seq.id, () => this.showScreen('journal'), 'Fermer');
+        const back = target.dataset.from === 'mission' ? 'mission' : 'journal';
+        if (seq && this.save.campaign.seen.includes(seq.id)) this.openStory(seq.id, () => this.showScreen(back), 'Fermer');
         break;
       }
-      case 'dialogue-next': this.nextDialogueLine(); break;
-      case 'dialogue-skip': this.finishDialogue(); break;
-      case 'buy-upgrade': this.pendingUpgrade = target.dataset.upgrade ?? null; this.showScreen('hangar', false); break;
-      case 'cancel-upgrade': this.pendingUpgrade = null; this.showScreen('hangar', false); break;
-      case 'confirm-upgrade': {
-        // Solde vérifié, débit et possession dans la même modification, puis une seule écriture
-        const res = buyUpgrade(this.save, target.dataset.upgrade ?? '');
-        if (res.ok) {
-          this.persist();
-          this.sfx.play('success');
-        }
-        this.pendingUpgrade = null;
-        this.showScreen('hangar', false);
-        break;
-      }
-      case 'toggle-upgrade':
-        if (toggleUpgrade(this.save, target.dataset.upgrade ?? '') !== null) this.persist();
-        this.showScreen('hangar', false);
-        break;
+      case 'story-advance': this.advanceStory(); break;
+      case 'story-skip': this.finishStory(); break;
       case 'levels': this.showScreen('levels'); break;
       case 'daily': this.showScreen('daily'); break;
       case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); break;

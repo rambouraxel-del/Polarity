@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyMission } from '../src/campaign/progress';
 import type { MissionReport } from '../src/campaign/simulation';
-import { MISSIONS, UPGRADES } from '../src/config/campaign';
+import { MISSIONS } from '../src/config/campaign';
 import { STORY } from '../src/config/story';
 import { defaultSave } from '../src/save/save';
 import * as C from '../src/ui/campaignScreens';
@@ -17,7 +17,7 @@ const win = (id: number, over: Partial<MissionReport['stars']> = {}): MissionRep
   shieldUsed: false,
   objectsCollected: 0,
   objectsMissed: 0,
-  stars: { main: true, challenge: false, noShield: true, ...over },
+  stars: { main: true, challenge: false, ...over },
 });
 
 describe('écrans de campagne', () => {
@@ -28,100 +28,108 @@ describe('écrans de campagne', () => {
     const camp = C.campaignScreen(defaultSave());
     expect(camp).toContain('data-action="levels"');
     expect(camp).toContain('Défis classiques');
-    expect(camp).toContain('data-action="hangar"');
     expect(camp).toContain('data-action="journal"');
+    expect(camp).not.toContain('data-action="hangar"');
   });
 
-  it('carte des chapitres : Écho-7 disponible, chapitre 2 « À venir » sans bouton', () => {
+  it('carte des chapitres : chapitre 1 ouvert, suite « À venir » sans bouton', () => {
     const html = C.campaignScreen(defaultSave());
-    expect(html).toContain('Le signal impossible');
+    expect(html).toContain('Douze ans de silence');
     expect(html).toContain('Commencer');
     const soon = html.slice(html.indexOf('chapter-card--soon'));
     expect(soon).toContain('À venir');
     expect(soon.slice(0, soon.indexOf('</article>'))).not.toContain('<button');
   });
 
-  it('carte des missions : 10 missions, seule la première ouverte', () => {
+  it('carte des niveaux : 5 niveaux, un seul ouvert, puis « Suite du chapitre à venir » (information, pas un bouton)', () => {
     const html = C.chapterScreen(defaultSave());
     expect(html.match(/<button class="mission-node[ "]/g)?.length).toBe(MISSIONS.length);
     expect(html.match(/disabled/g)?.length).toBe(MISSIONS.length - 1);
+    expect(html).toContain('Suite du chapitre à venir');
+    expect(html.slice(html.indexOf('coming-soon'))).not.toMatch(/^[^]*?<button/);
     const s = defaultSave();
     applyMission(s, win(1));
     expect(C.chapterScreen(s).match(/disabled/g)?.length).toBe(MISSIONS.length - 2);
   });
 
-  it('fiche de mission : objectif, deux défis secondaires, récompenses, bouton Lancer', () => {
-    const html = C.missionScreen(defaultSave(), 1);
+  it('fiche de niveau : objectif, défi secondaire, récompenses, Lancer ; relecture seulement des scènes vues', () => {
+    const s = defaultSave();
+    const html = C.missionScreen(s, 1);
     expect(html).toContain(MISSIONS[0].objectiveText);
     expect(html).toContain(MISSIONS[0].challenge.text);
-    expect(html).toContain('Réussir sans déclencher le bouclier');
-    expect(html).toContain('+30 Éclats');
+    expect(html).toContain('+30');
     expect(html).toContain('data-action="play-mission"');
-    // mission verrouillée : pas de bouton Lancer
+    expect(html).not.toContain('Revoir l’introduction');
+    s.campaign.seen.push('n1-before', 'n1-after');
+    const seen = C.missionScreen(s, 1);
+    expect(seen).toContain('Revoir l’introduction');
+    expect(seen).toContain('Revoir la conclusion');
     expect(C.missionScreen(defaultSave(), 5)).not.toContain('play-mission');
   });
 
-  it('hangar : améliorations présentées après la mission requise, états achat / possédé', () => {
+  it('journal : seules les scènes découvertes sont listées', () => {
     const s = defaultSave();
-    expect(C.hangarScreen(s)).not.toContain('Bouclier de secours');
-    for (let i = 1; i <= 3; i++) applyMission(s, win(i));
-    s.wallet.shards = 500;
-    const html = C.hangarScreen(s);
-    expect(html).toContain('Bouclier de secours');
-    expect(html).not.toContain('Collecteur amélioré');
-    expect(html).toContain('data-action="buy-upgrade"');
-    expect(C.hangarScreen(s, 'shield')).toContain('data-action="confirm-upgrade"');
-    s.campaign.upgrades.owned.push('shield');
-    s.campaign.upgrades.enabled.push('shield');
-    const owned = C.hangarScreen(s);
-    expect(owned).toContain('role="switch"');
-    expect(owned).toContain('Activée');
-    for (const u of UPGRADES) expect(u.name.length).toBeGreaterThan(0);
-  });
-
-  it('journal : seules les transmissions découvertes sont listées', () => {
-    const s = defaultSave();
-    expect(C.journalScreen(s)).toContain('Aucune transmission');
+    expect(C.journalScreen(s)).toContain('Aucune scène');
     s.campaign.seen.push(STORY[0].id);
     const html = C.journalScreen(s);
     expect(html).toContain(STORY[0].title);
     expect(html).not.toContain(STORY[1].title);
-    expect(html).toContain(`${STORY.length - 1} transmissions encore à découvrir`);
+    expect(html).toContain(`${STORY.length - 1} scènes encore à découvrir`);
   });
 
-  it('dialogue : une réplique à la fois, passable', () => {
-    const seq = STORY[0];
-    const first = C.dialogueScreen(seq, 0, 'Lancer');
-    expect(first).toContain(seq.lines[0].text.replace(/’/g, '’'));
-    expect(first).toContain('data-action="dialogue-skip"');
-    const last = C.dialogueScreen(seq, seq.lines.length - 1, 'Lancer');
-    expect(last).toContain('Lancer');
-    expect(last).not.toContain('dialogue-skip');
+  it('récit : illustration au-dessus, boîte de dialogue au-dessous, portrait du bon locuteur, passer la scène', () => {
+    const seq = STORY.find((x) => x.id === 'n1-before')!;
+    const first = C.storyScreen(seq, 0, 'Lancer le niveau');
+    expect(first.indexOf('story__scene')).toBeLessThan(first.indexOf('story__box'));
+    expect(first).toContain('data-action="story-advance"');
+    expect(first).toContain('data-action="story-skip"');
+    expect(first).toContain('Passer la scène');
+    expect(first).toContain('story__name">Nora<');
+    expect(first).toContain(seq.lines[0].text);
+    expect(first).toContain('story__portrait');
+    const second = C.storyScreen(seq, 1, 'Lancer le niveau');
+    expect(second).toContain('story__name">Élias<');
+    const last = C.storyScreen(seq, seq.lines.length - 1, 'Lancer le niveau');
+    expect(last).toContain('Lancer le niveau');
   });
 
-  it('résultat : étoiles et gains détaillés ; échec sans récompense', () => {
+  it('récit : message système sans portrait ni locuteur humain, voix enregistrée anonyme', () => {
+    const seq = STORY.find((x) => x.id === 'n5-after')!;
+    const iSys = seq.lines.findIndex((l) => l.system);
+    expect(iSys).toBeGreaterThan(-1);
+    const sys = C.storyScreen(seq, iSys, 'Fermer');
+    expect(sys).toContain('story__box--system');
+    expect(sys).not.toContain('story__portrait');
+    expect(sys).toContain('Système');
+    const iVoice = seq.lines.findIndex((l) => l.who === 'transmission_inconnue');
+    const voice = C.storyScreen(seq, iVoice, 'Fermer');
+    expect(voice).toContain('Voix enregistrée');
+    expect(voice.toLowerCase()).not.toContain(' ia');
+  });
+
+  it('bilan : étoiles et gains détaillés ; échec sans récompense', () => {
     const s = defaultSave();
     const res = applyMission(s, win(1, { challenge: true }));
     const html = C.campaignResultScreen(s, res, true);
-    expect(html).toContain('Mission accomplie');
+    expect(html).toContain('Niveau réussi');
     expect(html).toContain('Première réussite');
+    expect(html).toContain('Éclats de campagne gagnés');
     expect(html).toContain('data-action="next-mission"');
     expect(html).toContain('data-replay');
-    const fail = applyMission(s, { ...win(2), outcome: 'failure', stars: { main: false, challenge: false, noShield: false } });
+    const fail = applyMission(s, { ...win(2), outcome: 'failure', stars: { main: false, challenge: false } });
     const fh = C.campaignResultScreen(s, fail, false);
     expect(fh).toContain('Collision');
-    expect(fh).not.toContain('Éclats gagnés');
+    expect(fh).not.toContain('gagnés');
+    expect(fh).toContain('data-replay');
   });
 
-  it('chapitre terminé : mention de la suite « à venir » et de l’apparence Écho', () => {
+  it('fin des cinq niveaux : « Suite du chapitre à venir » et possibilité de rejouer, sans niveau suivant', () => {
     const s = defaultSave();
-    let last = applyMission(s, win(10));
-    expect(last.chapterCompleted).toBe(true);
+    for (let i = 1; i < 5; i++) applyMission(s, win(i));
+    const last = applyMission(s, win(5));
     const html = C.campaignResultScreen(s, last, false);
-    expect(html).toContain('Chapitre terminé');
-    expect(html).toContain('à venir');
-    expect(html).toContain('Écho');
-    last = applyMission(s, win(10));
-    expect(C.campaignResultScreen(s, last, false)).not.toContain('Chapitre terminé');
+    expect(html).toContain('Suite du chapitre à venir');
+    expect(html).toContain('data-replay');
+    expect(html).not.toContain('next-mission');
   });
 });

@@ -205,7 +205,6 @@ function itemBadge(state: ItemState, item: CatalogItem): string {
     case 'equipped': return `<span class="chip chip--equipped">${ICONS.check}Équipé</span>`;
     case 'owned': return '<span class="chip chip--owned">Possédé</span>';
     case 'achievement': return `<span class="chip chip--locked">${ICONS.lock}Succès requis</span>`;
-    case 'campaign': return `<span class="chip chip--locked">${ICONS.lock}Campagne requise</span>`;
     case 'soon': return `<span class="chip chip--soon">Bientôt disponible</span>${p ? price(p.currency, p.amount) : ''}`;
     default: return p ? price(p.currency, p.amount) : '';
   }
@@ -214,7 +213,7 @@ function itemBadge(state: ItemState, item: CatalogItem): string {
 function itemCard(save: SaveData, item: CatalogItem, selected: boolean): string {
   const st = itemState(save, item);
   return `<button class="skin item item--${st}${selected ? ' skin--selected' : ''}" data-action="select-item" data-item="${item.id}" aria-pressed="${selected}" aria-label="${escapeHtml(item.name)}">
-    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'achievement' || st === 'campaign' || st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'achievement' || st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
     <span class="skin__name">${escapeHtml(item.name)}</span>
     <span class="item__badge">${itemBadge(st, item)}</span>
   </button>`;
@@ -240,11 +239,6 @@ function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: s
         button: button({ action: 'buy', label: 'Succès requis', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
       };
     }
-    case 'campaign':
-      return {
-        note: 'Récompense de la campagne : terminez le chapitre 1, « Le signal impossible » (Écho-7).',
-        button: button({ action: 'buy', label: 'Campagne requise', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
-      };
     case 'soon':
       return {
         note: 'Article premium (Prismes), destiné aux futurs achats. Aucun paiement n’est actif dans cette version.',
@@ -304,7 +298,7 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
   const packNote = ownedParts > 0 && st !== 'owned' ? `<p class="shop-note">Contient ${ownedParts} article${ownedParts > 1 ? 's' : ''} que vous possédez déjà.</p>` : '';
   return `<div class="panel panel--wide">${head}
     <div class="skin-stage">
-      <div class="skin-preview${st === 'achievement' || st === 'campaign' || st === 'soon' ? ' skin-preview--locked' : ''}">
+      <div class="skin-preview${st === 'achievement' || st === 'soon' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
       </div>
       <div class="skin-info">

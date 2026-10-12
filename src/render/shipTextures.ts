@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { SHIP_MODELS, SKINS, type SkinDef } from '../config/skins';
+import { CAMPAIGN_SKIN, SHIP_MODELS, SKINS, type SkinDef } from '../config/skins';
 import { recolorShip } from './shipPalette';
 import { setSkinCanvas } from './skinSprites';
 
@@ -11,7 +11,7 @@ export const skinTextureKey = (id: string): string => `ship-${id}`;
 
 /** Génère les textures de toutes les apparences (une fois, au démarrage de la scène). */
 export function registerSkinTextures(scene: Phaser.Scene): void {
-  for (const skin of SKINS) {
+  for (const skin of [...SKINS, CAMPAIGN_SKIN]) {
     const model = SHIP_MODELS[skin.asset];
     if (!model || !scene.textures.exists(model.texture)) continue;
     const src = scene.textures.get(model.texture).getSourceImage() as CanvasImageSource & { width: number; height: number };

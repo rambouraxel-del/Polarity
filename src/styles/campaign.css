@@ -273,73 +273,6 @@
   margin-top: 14px;
 }
 
-/* ———————————————————————————— Hangar */
-.hangar-stage {
-  margin-top: 12px;
-}
-
-.upgrades {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.upgrade {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--r-md);
-  border: 1.5px solid var(--line);
-  background: rgb(var(--c-panel-rgb) / 0.6);
-}
-
-.upgrade--owned {
-  border-color: var(--line-strong);
-}
-
-.upgrade__text {
-  flex: 1;
-  min-width: 0;
-}
-
-.upgrade__name {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.upgrade__effect {
-  margin: 3px 0 6px;
-  font-size: 13px;
-  color: var(--c-muted);
-  line-height: 1.35;
-}
-
-.upgrade__state {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.upgrade__action {
-  flex: none;
-}
-
-.upgrade__confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.hangar-note {
-  margin-top: 12px;
-}
-
 /* ———————————————————————————— Journal */
 .journal {
   list-style: none;
@@ -391,88 +324,240 @@
   margin-top: 12px;
 }
 
-/* ———————————————————————————— Dialogue */
-.panel--dialogue {
-  max-width: 520px;
-}
-
-.dialogue__head {
+/* ———————————————————————————— Suite à venir (information, pas un bouton) */
+.coming-soon {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1.5px dashed rgb(var(--c-white-rgb) / 0.16);
+  color: var(--c-muted);
+  font-size: 14px;
 }
 
-.dialogue__title {
+.coming-soon .icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* ———————————————————————————— Récit : illustration au-dessus, dialogue au-dessous */
+#screen.screen--story {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  background: var(--c-night-deep);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.story {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: radial-gradient(120% 90% at 50% 0%, rgb(var(--c-night-rgb) / 1) 0%, var(--c-night-deep) 100%);
+  animation: story-in var(--t-base) ease-out both;
+}
+
+@keyframes story-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Illustration fixe : toute l'image est visible (contain), jamais étirée ni recadrée */
+.story__scene {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--sat) + 8px) calc(var(--sar) + 8px) 6px calc(var(--sal) + 8px);
+  cursor: pointer;
+}
+
+.story__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--r-md);
+  pointer-events: none;
+}
+
+.story__box {
+  flex: 0 0 auto;
+  max-height: 48%;
+  min-height: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 calc(var(--sar) + 8px) calc(var(--sab) + 8px) calc(var(--sal) + 8px);
+  padding: 12px 14px 10px;
+  border-radius: var(--r-lg);
+  border: 1.5px solid var(--line-strong);
+  background: rgb(var(--c-panel-rgb) / 0.94);
+  box-shadow: 0 -6px 28px rgb(var(--c-night-deep-rgb) / 0.7);
+  cursor: pointer;
+}
+
+.story__row {
+  display: flex;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.story__portrait {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--line-strong);
+  background: rgb(var(--c-night-deep-rgb) / 0.8);
+  overflow: hidden;
+}
+
+.story__portrait img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.story__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.story__name {
   font-family: var(--font-display);
   font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--c-muted);
-}
-
-.dialogue__line {
-  margin: 18px 0 12px;
-  padding: 14px 16px;
-  min-height: 112px;
-  border-radius: var(--r-md);
-  border-left: 4px solid var(--c-cyan);
-  background: rgb(var(--c-night-deep-rgb) / 0.7);
-}
-
-.dialogue__line--signal {
-  border-left-color: var(--c-signal);
-}
-
-.dialogue__line--defense {
-  border-left-color: var(--c-coral);
-}
-
-.dialogue__line--system {
-  border-left-color: var(--c-muted);
-}
-
-.dialogue__who {
-  font-family: var(--font-display);
-  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--c-cyan);
 }
 
-.dialogue__line--signal .dialogue__who {
+.story__box--nora .story__name {
+  color: var(--c-gold);
+}
+
+.story__box--transmission_inconnue .story__name {
   color: var(--c-signal);
 }
 
-.dialogue__line--defense .dialogue__who {
+/* Messages du système : cadre et teinte distincts, sans portrait */
+.story__box--system {
+  border-style: dashed;
+  border-color: var(--c-coral);
+  background: rgb(var(--c-night-deep-rgb) / 0.96);
+}
+
+.story__box--system .story__name {
   color: var(--c-coral);
 }
 
-.dialogue__line--system .dialogue__who {
-  color: var(--c-muted);
+.story__box--system .story__text {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  font-size: 15px;
 }
 
-.dialogue__text {
-  margin-top: 6px;
+.story__text {
+  position: relative;
+  margin-top: 4px;
   font-size: 17px;
   line-height: 1.45;
   color: var(--c-text);
+  overflow-wrap: anywhere;
 }
 
-.dialogue__dots {
+/* Le texte complet fixe la taille ; le texte progressif s'y superpose */
+.story__ghost {
+  visibility: hidden;
+}
+
+.story__live {
+  position: absolute;
+  inset: 0;
+}
+
+.story__bar {
+  flex: none;
   display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 14px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--c-muted);
 }
 
-.dialogue__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--r-pill);
-  background: rgb(var(--c-white-rgb) / 0.2);
+.story__count {
+  font-variant-numeric: tabular-nums;
 }
 
-.dialogue__dot--on {
-  background: var(--c-cyan);
+.story__hint {
+  flex: 1;
+  text-align: center;
+  opacity: 0;
+  transition: opacity var(--t-base);
+}
+
+.story__box--done .story__hint {
+  opacity: 1;
+}
+
+.story__bar .btn {
+  min-height: 40px;
+}
+
+/* Petit écran en hauteur : boîte plus compacte */
+@media (max-height: 640px) and (orientation: portrait) {
+  .story__box {
+    min-height: 150px;
+    max-height: 52%;
+  }
+  .story__portrait {
+    width: 56px;
+    height: 56px;
+  }
+  .story__text {
+    font-size: 15px;
+  }
+}
+
+/* Paysage bas (téléphone couché) : illustration à gauche, dialogue à droite */
+@media (orientation: landscape) and (max-height: 520px) {
+  .story {
+    flex-direction: row;
+  }
+  .story__scene {
+    flex: 1 1 56%;
+    padding: calc(var(--sat) + 6px) 4px calc(var(--sab) + 6px) calc(var(--sal) + 6px);
+  }
+  .story__box {
+    flex: 1 1 44%;
+    max-height: none;
+    min-height: 0;
+    margin: calc(var(--sat) + 6px) calc(var(--sar) + 6px) calc(var(--sab) + 6px) 4px;
+  }
+  .story__text {
+    font-size: 15px;
+  }
+  .story__portrait {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story {
+    animation: none;
+  }
 }

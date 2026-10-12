@@ -1,13 +1,15 @@
 import type { PatternWeights } from '../sim/patterns';
 
 /**
- * Campagne — chapitre 1 « Le signal impossible » (Écho-7). Toutes les missions, leurs objectifs, leur difficulté, leurs
+ * Campagne — chapitre 1, « Douze ans de silence » (niveaux 1 à 5 livrés ; la suite est à venir). Toutes les missions, leurs objectifs, leur difficulté, leurs
  * récompenses et les améliorations du hangar sont décrits ICI, en données typées : ajouter un chapitre ou une mission =
  * ajouter des entrées, sans toucher à la simulation.
  *
  * Règles :
  * - Durées = temps de jeu actif (la pause les arrête). Les missions de collecte se terminent dès l'objectif atteint.
  * - La vitesse du vaisseau est réglée PAR MISSION (`speed`, fraction de 2,0 rad/s) : la courbe temporelle de la Survie ne s'applique pas.
+ * - Niveaux 1 à 5 : les astéroïdes sont les seuls dangers (aucun secteur électrique ni laser avant les niveaux suivants).
+ * - Aucune transmission n'est affichée pendant une esquive : la narration se joue avant et après chaque niveau (config/story.ts).
  * - Les trajectoires sont tirées de la graine de la tentative (reproductibles) ; les phases importantes sont scénarisées
  *   (fenêtres de motifs, respirations) mais toujours validées par le validateur d'évitement du directeur de vagues.
  * - Toutes les missions sont réalisables avec le vaisseau de base ; les améliorations sont exclusives à la campagne.
@@ -17,8 +19,10 @@ export type ObjectKind = 'fragment' | 'blackbox' | 'data';
 
 /** Objets narratifs : distincts des Éclats (cristal violet), des balises (losanges dorés) et des dangers. */
 export const OBJECT_KINDS: Record<ObjectKind, { name: string; plural: string }> = {
-  fragment: { name: 'fragment de coordonnées', plural: 'fragments' },
-  blackbox: { name: 'boîte noire', plural: 'boîtes noires' },
+  /** Fragments d'épave (niveau 4). */
+  fragment: { name: 'fragment d’épave', plural: 'fragments d’épave' },
+  /** Balise de la capsule : le téléchargement se fait en trois passages (niveau 5). */
+  blackbox: { name: 'balise de la capsule', plural: 'balises de la capsule' },
   data: { name: 'donnée', plural: 'données' },
 };
 
@@ -89,241 +93,114 @@ export interface MissionDef {
   after: string;
 }
 
-const NONE: PatternWeights = {};
-
 /** Fenêtre de motifs depuis `from` jusqu'à `to`. */
 const phase = (from: number, to: number, weights: PatternWeights, intervalScale = 1): ScriptPhase => ({ from, to, weights, intervalScale });
 
+/**
+ * Les cinq premiers niveaux. Choix d'équilibrage (à valider avec de vrais joueurs) : vitesse et difficulté croissent doucement,
+ * tous les niveaux sont faisables avec le vaisseau de base (tests de faisabilité par joueur automatique).
+ * « Éclats » = les balises de l'orbite, présentées comme les éclats que récolte Élias.
+ */
 export const MISSIONS: MissionDef[] = [
   {
     id: 1,
-    title: 'Réveil en orbite',
-    summary: 'NOVA redémarre. Évitez les astéroïdes le temps qu’elle comprenne où vous êtes.',
-    objective: { type: 'survive', seconds: 45 },
-    objectiveText: 'Survivre 45 secondes',
-    limit: 45,
+    title: 'De quoi rentrer',
+    summary: 'Une journée normale : récoltez de quoi payer le circuit de la Traverse, dans un champ peu dense.',
+    objective: { type: 'beacons', count: 6 },
+    objectiveText: 'Récolter 6 éclats',
+    limit: 90,
     speed: 0.45,
     script: {
-      difficulty: [0.03, 0.14],
-      firstWave: 2.2,
-      phases: [phase(0, 45, { shot: 1, diameter: 0.3 })],
-      breaths: [[18, 21]],
-      lines: [{ at: 19, text: 'NOVA : « Systèmes à 60 %… continuez. »' }],
+      difficulty: [0.02, 0.1],
+      firstWave: 2.4,
+      phases: [phase(0, 90, { shot: 1 })],
+      breaths: [[22, 25]],
+      lines: [],
       announces: [],
     },
-    challenge: { kind: 'beacons', target: 12, text: 'Collecter au moins 12 balises' },
-    before: 'm1-before',
-    after: 'm1-after',
+    challenge: { kind: 'time', target: 40, text: 'Terminer en moins de 40 secondes' },
+    before: 'n1-before',
+    after: 'n1-after',
   },
   {
     id: 2,
-    title: 'Remettre le relais en ligne',
-    summary: 'Le relais abandonné réagit à vos balises. Rétablissez la liaison avant qu’elle ne se coupe.',
-    objective: { type: 'beacons', count: 6 },
-    objectiveText: 'Collecter les six balises en moins de 60 secondes',
-    limit: 60,
-    speed: 0.5,
-    script: {
-      difficulty: [0.06, 0.18],
-      firstWave: 2,
-      phases: [phase(0, 60, { shot: 1, diameter: 0.4 })],
-      breaths: [[25, 28]],
-      lines: [],
-      announces: [],
-    },
-    challenge: { kind: 'time', target: 25, text: 'Terminer en moins de 25 secondes' },
-    after: 'm2-after',
-  },
-  {
-    id: 3,
-    title: 'Des coordonnées effacées',
-    summary: 'Des fragments de coordonnées apparaissent un à un sur l’orbite. Récupérez-les avant qu’ils ne s’effacent.',
-    objective: { type: 'objects', kind: 'fragment', count: 3, lifetime: 7, first: 4, gap: { min: 1.5, max: 2.5 }, respawn: 1.5 },
-    objectiveText: 'Récupérer 3 fragments de coordonnées',
+    title: 'Une bonne journée',
+    summary: 'La récolte est anormalement riche, mais le champ se densifie et les trajectoires deviennent imprévisibles.',
+    objective: { type: 'beacons', count: 12 },
+    objectiveText: 'Récolter 12 éclats',
     limit: 90,
     speed: 0.5,
     script: {
-      difficulty: [0.08, 0.2],
-      firstWave: 2.5,
-      phases: [phase(0, 90, { shot: 1, diameter: 0.5 })],
-      breaths: [[12, 14.5], [30, 33]],
+      difficulty: [0.06, 0.2],
+      firstWave: 2.2,
+      phases: [phase(0, 40, { shot: 1, diameter: 0.5 }), phase(40, 90, { shot: 1, diameter: 0.8, parallel: 0.4 }, 0.92)],
+      breaths: [[28, 31], [55, 58]],
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 35, text: 'Terminer en moins de 35 secondes' },
-    before: 'm3-before',
-    after: 'm3-after',
+    challenge: { kind: 'combo', target: 3, text: 'Atteindre le multiplicateur ×3' },
+    before: 'n2-before',
+    after: 'n2-after',
   },
   {
-    id: 4,
-    title: 'Le passage des convois',
-    summary: 'Des convois d’astéroïdes traversent l’orbite. Anticipez le suivant avant d’éviter le premier.',
+    id: 3,
+    title: 'Tenir',
+    summary: 'La première tempête d’astéroïdes ferme le passage. Survivez et sortez de la zone ; rien d’autre ne compte.',
     objective: { type: 'survive', seconds: 60 },
-    objectiveText: 'Survivre 60 secondes',
+    objectiveText: 'Survivre à la tempête (60 secondes)',
     limit: 60,
     speed: 0.55,
     script: {
       difficulty: [0.14, 0.3],
-      firstWave: 2.2,
-      phases: [phase(0, 60, { convoy: 1.4, shot: 0.5 })],
-      breaths: [[20, 23], [40, 43]],
-      lines: [{ at: 21, text: 'NOVA : « Ils arrivent par vagues… restez attentif. »' }],
+      firstWave: 2,
+      phases: [phase(0, 20, { shot: 1, diameter: 0.7, parallel: 0.4 }), phase(20, 60, { shot: 1, diameter: 0.8, parallel: 0.6, cross: 0.4, convoy: 0.5 }, 0.85)],
+      breaths: [[26, 29], [44, 47]],
+      lines: [],
       announces: [],
     },
-    challenge: { kind: 'combo', target: 3, text: 'Atteindre le multiplicateur ×3' },
-    after: 'm4-after',
+    challenge: { kind: 'beacons', target: 6, text: 'Récolter au moins 6 éclats en chemin' },
+    before: 'n3-before',
+    after: 'n3-after',
+  },
+  {
+    id: 4,
+    title: 'Ce que la tempête a laissé',
+    summary: 'Le calme revient. Traversez les débris, récoltez ce qui reste et suivez les fragments d’épave.',
+    objective: { type: 'objects', kind: 'fragment', count: 3, lifetime: 8, first: 5, gap: { min: 2, max: 3 }, respawn: 1.5 },
+    objectiveText: 'Suivre 3 fragments d’épave',
+    limit: 90,
+    speed: 0.5,
+    script: {
+      difficulty: [0.1, 0.22],
+      firstWave: 3,
+      phases: [phase(0, 90, { shot: 1, fragment: 0.7, diameter: 0.3 }, 1.1)],
+      breaths: [[14, 17], [34, 37], [56, 59]],
+      lines: [],
+      announces: [],
+    },
+    challenge: { kind: 'time', target: 45, text: 'Terminer en moins de 45 secondes' },
+    before: 'n4-before',
+    after: 'n4-after',
   },
   {
     id: 5,
-    title: 'La boîte noire',
-    summary: 'Complétez deux cycles de balises : la boîte noire du relais se révélera sur l’orbite.',
-    objective: { type: 'cyclesThenObject', cycles: 2, kind: 'blackbox' },
-    objectiveText: 'Compléter 2 cycles puis récupérer la boîte noire',
+    title: 'Douze ans de silence',
+    summary: 'Atteignez la capsule à travers les débris et restez près de sa balise le temps de télécharger ses données.',
+    objective: { type: 'objects', kind: 'blackbox', count: 3, lifetime: 9, first: 6, gap: { min: 2.5, max: 3.5 }, respawn: 1.5 },
+    objectiveText: 'Télécharger les données de la balise (3 passages)',
     limit: 90,
     speed: 0.55,
     script: {
-      difficulty: [0.16, 0.3],
+      difficulty: [0.14, 0.3],
       firstWave: 2.4,
-      phases: [phase(0, 90, { shot: 1, diameter: 0.5, arc: 0.35 })],
-      breaths: [[16, 19], [36, 39]],
-      lines: [],
-      announces: [],
-    },
-    challenge: { kind: 'time', target: 50, text: 'Terminer en moins de 50 secondes' },
-    before: 'm5-before',
-    after: 'm5-after',
-  },
-  {
-    id: 6,
-    title: 'Tempête ionique',
-    summary: 'Trois séquences de secteurs électriques balaient l’orbite. Quittez les zones avant qu’elles ne s’allument.',
-    objective: { type: 'survive', seconds: 75 },
-    objectiveText: 'Survivre aux 3 séquences électriques (75 s)',
-    limit: 75,
-    speed: 0.6,
-    script: {
-      difficulty: [0.2, 0.38],
-      firstWave: 2.5,
-      phases: [
-        phase(0, 10, { shot: 1, diameter: 0.3 }),
-        phase(10, 22, { arc: 1, twinArcs: 0.6, chase: 0.4, shot: 0.25 }, 0.9),
-        phase(22, 32, { shot: 0.8, diameter: 0.3 }),
-        phase(32, 44, { arc: 1, twinArcs: 0.7, chase: 0.5, shot: 0.25 }, 0.85),
-        phase(44, 54, { shot: 0.8, diameter: 0.3 }),
-        phase(54, 66, { arc: 1, twinArcs: 0.8, chase: 0.6, shot: 0.25 }, 0.8),
-        phase(66, 75, { shot: 0.6 }),
-      ],
-      breaths: [[22, 24.5], [44, 46.5], [66, 69]],
-      lines: [
-        { at: 23, text: 'NOVA : « Première séquence franchie. »' },
-        { at: 45, text: 'NOVA : « Encore une. Le signal se renforce. »' },
-        { at: 67, text: 'NOVA : « Plus qu’à tenir jusqu’au bout. »' },
-      ],
-      announces: [
-        { at: 8, text: 'Séquence électrique 1/3' },
-        { at: 30, text: 'Séquence électrique 2/3' },
-        { at: 52, text: 'Séquence électrique 3/3' },
-      ],
-      sequences: [[10, 22], [32, 44], [54, 66]],
-    },
-    challenge: { kind: 'beacons', target: 14, text: 'Collecter au moins 14 balises' },
-    after: 'm6-after',
-  },
-  {
-    id: 7,
-    title: 'Débris instables',
-    summary: 'Des astéroïdes se fragmentent près de l’orbite. Récupérez trois données au milieu des éclats.',
-    objective: { type: 'objects', kind: 'data', count: 3, lifetime: 8, first: 5, gap: { min: 2, max: 3 }, respawn: 1.5 },
-    objectiveText: 'Récupérer 3 données',
-    limit: 90,
-    speed: 0.6,
-    script: {
-      difficulty: [0.24, 0.4],
-      firstWave: 2.5,
-      phases: [phase(0, 90, { fragment: 1, shot: 0.6, diameter: 0.3 })],
-      breaths: [[14, 17], [34, 37]],
+      phases: [phase(0, 90, { shot: 1, diameter: 0.7, parallel: 0.4, cross: 0.3, fragment: 0.4, convoy: 0.3 })],
+      breaths: [[16, 19], [36, 39], [58, 61]],
       lines: [],
       announces: [],
     },
     challenge: { kind: 'time', target: 55, text: 'Terminer en moins de 55 secondes' },
-    after: 'm7-after',
-  },
-  {
-    id: 8,
-    title: 'Les défenses d’Écho-7',
-    summary: 'Trois verrous protègent la station : chacun cède après un cycle complet. Attention au laser balayeur.',
-    objective: { type: 'cycles', count: 3 },
-    objectiveText: 'Désactiver 3 verrous (1 cycle complet chacun)',
-    limit: 90,
-    speed: 0.65,
-    script: {
-      difficulty: [0.28, 0.46],
-      firstWave: 2.5,
-      phases: [phase(0, 12, { shot: 1, diameter: 0.4 }), phase(12, 90, { laser: 1, shot: 0.8, arc: 0.3 })],
-      breaths: [[10, 12.5], [30, 33], [52, 55]],
-      lines: [{ at: 11, text: 'NOVA : « Laser balayeur détecté. Restez hors du faisceau. »' }],
-      announces: [],
-    },
-    challenge: { kind: 'time', target: 55, text: 'Terminer en moins de 55 secondes' },
-    before: 'm8-before',
-    after: 'm8-after',
-  },
-  {
-    id: 9,
-    title: 'Une voix derrière la porte',
-    summary: 'Tenez 90 secondes : la voix vous guide à travers deux événements, avec des moments de répit.',
-    objective: { type: 'survive', seconds: 90 },
-    objectiveText: 'Survivre 90 secondes',
-    limit: 90,
-    speed: 0.7,
-    script: {
-      difficulty: [0.32, 0.5],
-      firstWave: 2.4,
-      phases: [
-        phase(0, 25, { shot: 1, diameter: 0.5, parallel: 0.4, arc: 0.4 }),
-        phase(25, 37, { shot: 1, diameter: 0.6, convoy: 1.5 }, 0.85), // pluie de météores
-        phase(37, 55, { shot: 1, diameter: 0.5, arc: 0.5, parallel: 0.4 }),
-        phase(55, 67, { arc: 1, twinArcs: 0.7, chase: 0.6, shot: 0.3 }, 0.8), // tempête électrique
-        phase(67, 90, { shot: 0.9, diameter: 0.4, laser: 0.4 }),
-      ],
-      breaths: [[37, 40], [67, 70], [80, 82]],
-      lines: [
-        { at: 38.5, text: '« …pas par là… accès secondaire… »' },
-        { at: 68.5, text: 'NOVA : « La voix veut nous guider. »' },
-      ],
-      announces: [
-        { at: 23, text: 'Pluie de météores !' },
-        { at: 53, text: 'Tempête électrique !' },
-      ],
-    },
-    challenge: { kind: 'cycles', target: 5, text: 'Compléter au moins 5 cycles' },
-    after: 'm9-after',
-  },
-  {
-    id: 10,
-    title: 'Ouvrir le sas',
-    summary: 'Trois verrous, trois phases : astéroïdes, électricité, puis combinaison. Le troisième ouvre le sas.',
-    objective: { type: 'cycles', count: 3 },
-    objectiveText: 'Désactiver 3 verrous (1 cycle par phase)',
-    limit: 90,
-    speed: 0.7,
-    script: {
-      difficulty: [0.36, 0.52],
-      firstWave: 2.4,
-      phases: [phase(0, 90, NONE)],
-      phaseByCycles: [
-        { shot: 1, diameter: 0.6, convoy: 0.5 },
-        { arc: 1, twinArcs: 0.6, chase: 0.4, shot: 0.3 },
-        { shotArc: 1, pincer: 0.5, parallel: 0.6, cross: 0.5, burst: 0.3, shot: 0.4 },
-      ],
-      breaths: [],
-      phaseCalm: 2.5,
-      lines: [],
-      announces: [],
-    },
-    challenge: { kind: 'time', target: 55, text: 'Terminer en moins de 55 secondes' },
-    before: 'm10-before',
-    after: 'm10-after',
+    before: 'n5-before',
+    after: 'n5-after',
   },
 ];
 
@@ -331,16 +208,18 @@ export function missionById(id: number): MissionDef | undefined {
   return MISSIONS.find((m) => m.id === id);
 }
 
-/** Récompenses (Éclats) : bonus uniques à la première réussite et par étoile secondaire nouvelle ; montant réduit aux répétitions. */
+/** Récompenses en Éclats de campagne (réserve séparée du portefeuille de la Survie et des cosmétiques) : uniques, jamais répétées. */
 export const CAMPAIGN_REWARDS = {
+  /** Première réussite d'un niveau. */
   firstClear: 30,
-  /** Dernière mission du chapitre. */
-  finalFirstClear: 60,
-  /** Par étoile secondaire nouvellement obtenue (défi, et « sans bouclier »). */
+  /** Défi secondaire réussi pour la première fois. */
   star: 10,
-  /** Réussites suivantes (aucun bonus unique répété). */
-  repeat: 5,
+  /** Réussites suivantes : aucun gain (pas de répétition en boucle). */
+  repeat: 0,
 } as const;
+
+/** Présentation de l'écran « Hangar » (améliorations). Désactivé pour les niveaux 1 à 5 : le vaisseau reste celui de départ. */
+export const HANGAR_ENABLED = false as boolean;
 
 export interface UpgradeDef {
   id: 'shield' | 'collector' | 'stabilizer';
@@ -352,6 +231,7 @@ export interface UpgradeDef {
   unlockAfter: number;
 }
 
+/** Améliorations prévues pour la suite de la campagne (données conservées, non proposées tant que le hangar est désactivé). */
 export const UPGRADES: UpgradeDef[] = [
   { id: 'shield', name: 'Bouclier de secours', effect: 'Absorbe une collision par mission, puis ≈ 1 s d’invulnérabilité.', price: 100, unlockAfter: 3 },
   { id: 'collector', name: 'Collecteur amélioré', effect: 'Collecte des balises et des objets de mission un peu plus tolérante.', price: 75, unlockAfter: 5 },
@@ -394,15 +274,13 @@ export const MISSION_OBJECTS = {
   attempts: 16,
 } as const;
 
-/** Étoiles : objectif principal, défi secondaire, « sans bouclier ». */
-export const STARS_PER_MISSION = 3;
+/** Étoiles : objectif principal et défi secondaire. */
+export const STARS_PER_MISSION = 2;
 
 export const CHAPTER = {
-  id: 'echo7',
-  title: 'Le signal impossible',
-  place: 'Écho-7',
+  id: 'douze-ans',
+  title: 'Douze ans de silence',
+  /** Niveaux livrés ; la suite du chapitre est annoncée « à venir ». */
+  place: 'Chapitre 1',
   number: 1,
 };
-
-/** Cosmétique débloqué en terminant le chapitre (catalogue : config/catalog.ts). */
-export const CHAPTER_REWARD_COSMETIC = 'echo';

@@ -1,19 +1,40 @@
-/**
- * Histoire du chapitre 1 — « Le signal impossible ». Dialogues complets, courts (2 à 4 répliques par séquence).
- * Chaque séquence est montrée automatiquement UNE fois (passable), puis consultable dans le journal des transmissions ;
- * rejouer une mission ne la répète pas. Les identifiants sont enregistrés dans la sauvegarde : ne jamais les changer.
- */
-export type Speaker = 'nova' | 'signal' | 'defense' | 'system';
+import data from '../data/campagne_niveaux_01_05.fr.json';
 
-export const SPEAKERS: Record<Speaker, string> = {
-  nova: 'NOVA',
-  signal: 'SIGNAL',
-  defense: 'DÉFENSES',
-  system: 'SYSTÈME',
+/**
+ * Histoire de la campagne : « Douze ans de silence » (début du chapitre 1, niveaux 1 à 5).
+ *
+ * - Les textes sont dans `src/data/campagne_niveaux_01_05.fr.json` (source éditable, séparée de la logique, transcription fournie telle quelle).
+ *   Ce module n'en fait que des séquences prêtes à afficher : une séquence « avant » et une « après » par niveau, identifiants stables
+ *   (`n1-before`, `n1-after`…) enregistrés dans la sauvegarde : ne jamais les changer.
+ * - Les didascalies (`direction`) sont des intentions de mise en scène : elles ne sont jamais affichées comme du texte parlé.
+ * - Les images sont des assets WebP (src/assets/story) résolus par nom ; elles ne sont chargées qu'à l'affichage de la scène.
+ *   Les masters PNG sont dans art/campagne/ (hors bundle).
+ * - Ajouter un niveau : ajouter une entrée au JSON (ou un nouveau fichier de chapitre) et l'image correspondante.
+ */
+
+/** Personnages et sources de messages. `system` : message du vaisseau, sans portrait. */
+export type SpeakerId = 'elias' | 'nora' | 'transmission_inconnue' | 'system';
+
+export interface SpeakerDef {
+  name: string;
+  /** Clé du portrait (src/assets/story/<clé>.webp), ou null (pas de portrait). */
+  portrait: string | null;
+}
+
+/** Mapping explicite locuteur → nom affiché et portrait. */
+export const SPEAKERS: Record<SpeakerId, SpeakerDef> = {
+  elias: { name: 'Élias', portrait: 'elias' },
+  nora: { name: 'Nora', portrait: 'nora' },
+  transmission_inconnue: { name: 'Voix enregistrée', portrait: 'transmission_inconnue' },
+  system: { name: 'Système', portrait: null },
 };
 
 export interface StoryLine {
-  who: Speaker;
+  who: SpeakerId;
+  /** Nom affiché (celui du JSON si présent). */
+  name: string;
+  /** Message du système (style distinct, jamais incrusté dans l'image). */
+  system: boolean;
   text: string;
 }
 
@@ -21,138 +42,84 @@ export interface StorySequence {
   id: string;
   /** Titre dans le journal. */
   title: string;
+  level: number;
+  phase: 'before' | 'after';
+  /** Clé de l'illustration (src/assets/story/<clé>.webp). */
+  illustration: string;
   lines: StoryLine[];
-  /** Dernière séquence du chapitre : affiche « Fin du chapitre — la suite : À venir ». */
+  /** Dernière séquence livrée : affiche « Suite du chapitre à venir ». */
   chapterEnd?: boolean;
 }
 
-export const STORY: StorySequence[] = [
-  {
-    id: 'm1-before',
-    title: 'Redémarrage',
-    lines: [
-      { who: 'nova', text: 'Systèmes en cours de redémarrage… Pilote, vous m’entendez ?' },
-      { who: 'nova', text: 'Une anomalie nous retient sur cette orbite. Vos propulseurs n’obéissent plus qu’à une commande : l’inversion.' },
-      { who: 'nova', text: 'Évitons les débris. Le temps que je comprenne où nous sommes.' },
-    ],
-  },
-  {
-    id: 'm1-after',
-    title: 'Un signal',
-    lines: [
-      { who: 'nova', text: 'Orbite stable. Pilote… je capte une transmission.' },
-      { who: 'signal', text: '…liaison… maintenez… la liaison…' },
-      { who: 'nova', text: 'La source se nomme Écho-7. Cette station a été déclarée détruite il y a vingt ans.' },
-    ],
-  },
-  {
-    id: 'm2-after',
-    title: 'Le relais',
-    lines: [
-      { who: 'signal', text: 'Ne coupez pas la transmission.' },
-      { who: 'nova', text: 'Le relais est en ligne. Le signal répond à nos balises, comme s’il les attendait.' },
-    ],
-  },
-  {
-    id: 'm3-before',
-    title: 'Coordonnées effacées',
-    lines: [
-      { who: 'nova', text: 'Des fragments de coordonnées s’affichent un à un, puis s’effacent.' },
-      { who: 'nova', text: 'Attrapez-les avant qu’ils disparaissent. Un fragment manqué reviendra.' },
-    ],
-  },
-  {
-    id: 'm3-after',
-    title: 'Les coordonnées',
-    lines: [
-      { who: 'nova', text: 'Les coordonnées sont reconstituées.' },
-      { who: 'nova', text: 'Elles désignent Écho-7. Exactement là où la station est censée avoir disparu.' },
-    ],
-  },
-  {
-    id: 'm4-after',
-    title: 'Archives de destruction',
-    lines: [
-      { who: 'nova', text: 'D’après mes archives, Écho-7 a été détruite. Aucun survivant, aucun signal.' },
-      { who: 'signal', text: '…pourtant, vous m’entendez.' },
-      { who: 'nova', text: 'Quelque chose ne colle pas, pilote.' },
-    ],
-  },
-  {
-    id: 'm5-before',
-    title: 'La boîte noire',
-    lines: [
-      { who: 'nova', text: 'Terminez deux cycles de balises : le relais devrait libérer sa boîte noire.' },
-    ],
-  },
-  {
-    id: 'm5-after',
-    title: 'Projet « Polarity »',
-    lines: [
-      { who: 'nova', text: 'Boîte noire récupérée. L’enregistrement mentionne un projet : « Polarity ».' },
-      { who: 'nova', text: 'Ce nom figure aussi dans mes propres registres. Je ne sais pas pourquoi.' },
-    ],
-  },
-  {
-    id: 'm6-after',
-    title: 'Une signature',
-    lines: [
-      { who: 'signal', text: 'Cette signature… je la reconnais.' },
-      { who: 'nova', text: 'Elle parle de notre vaisseau, pilote. Comme si elle l’attendait depuis longtemps.' },
-    ],
-  },
-  {
-    id: 'm7-after',
-    title: 'Un souvenir',
-    lines: [
-      { who: 'nova', text: 'Un souvenir… des couloirs blancs, une lumière violette. J’étais déjà là.' },
-      { who: 'nova', text: 'C’est impossible. Et pourtant, je connais ces couloirs.' },
-    ],
-  },
-  {
-    id: 'm8-before',
-    title: 'Verrous et défenses',
-    lines: [
-      { who: 'nova', text: 'Trois verrous protègent la station. Chacun cède après un cycle complet.' },
-      { who: 'nova', text: 'Je détecte un laser balayeur : un faisceau mobile. Restez hors de sa trajectoire.' },
-    ],
-  },
-  {
-    id: 'm8-after',
-    title: 'Menace identifiée',
-    lines: [
-      { who: 'defense', text: 'Intrus identifié. Menace confirmée.' },
-      { who: 'nova', text: 'Les défenses d’Écho-7 nous prennent pour un ennemi. Pourquoi ?' },
-    ],
-  },
-  {
-    id: 'm9-after',
-    title: 'Un accès secondaire',
-    lines: [
-      { who: 'signal', text: 'Pas par là… Il existe un accès secondaire.' },
-      { who: 'nova', text: 'Cette voix cherche à nous guider. Je la suis, pilote.' },
-    ],
-  },
-  {
-    id: 'm10-before',
-    title: 'Le sas',
-    lines: [
-      { who: 'nova', text: 'Le sas est verrouillé trois fois. Un verrou par phase : astéroïdes, électricité, puis tout à la fois.' },
-      { who: 'nova', text: 'On y est presque.' },
-    ],
-  },
-  {
-    id: 'm10-after',
-    title: 'Écho-7',
-    chapterEnd: true,
-    lines: [
-      { who: 'system', text: 'Sas ouvert. Écho-7 : aucun signe vital détecté. Station vide.' },
-      { who: 'nova', text: 'Rien. Pas un mouvement.' },
-      { who: 'signal', text: 'NOVA… tu es revenue.' },
-    ],
-  },
-];
+// ————————————————————————————————————————————— assets (WebP, résolus par nom, chargés à l'affichage)
+
+const urls = import.meta.glob('../assets/story/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+
+const byKey = new Map<string, string>();
+for (const [path, url] of Object.entries(urls)) {
+  const key = path.slice(path.lastIndexOf('/') + 1).replace(/\.webp$/, '');
+  byKey.set(key, url);
+}
+
+/** URL d'une illustration ou d'un portrait par clé (chaîne vide si absent : l'écran de récit masque alors le cadre). */
+export function storyAsset(key: string | null): string {
+  return key ? (byKey.get(key) ?? '') : '';
+}
+
+/** Toutes les clés d'assets présentes (tests d'intégrité). */
+export const STORY_ASSET_KEYS: string[] = [...byKey.keys()];
+
+// ————————————————————————————————————————————— séquences
+
+interface RawEntry {
+  type: string;
+  speaker?: string;
+  display_name?: string;
+  portrait?: string | null;
+  text: string;
+}
+
+interface RawLevel {
+  id: string;
+  title: string;
+  before: RawEntry[];
+  after: RawEntry[];
+  illustration_before: string;
+  illustration_after: string;
+}
+
+/** `illustrations/01_de_quoi_rentrer.png` → `01_de_quoi_rentrer`. */
+const keyOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1).replace(/\.[a-z]+$/i, '');
+
+const isSpeaker = (s: string | undefined): s is SpeakerId => s !== undefined && s in SPEAKERS;
+
+function lines(entries: RawEntry[]): StoryLine[] {
+  const out: StoryLine[] = [];
+  for (const e of entries) {
+    if (e.type !== 'dialogue' && e.type !== 'system') continue; // didascalies : pas affichées
+    const who: SpeakerId = e.type === 'system' ? 'system' : isSpeaker(e.speaker) ? e.speaker : 'system';
+    out.push({ who, name: e.display_name ?? SPEAKERS[who].name, system: who === 'system', text: e.text });
+  }
+  return out;
+}
+
+const raw = (data as { levels: RawLevel[] }).levels;
+
+export const STORY: StorySequence[] = raw.flatMap((lv, i) => {
+  const level = i + 1;
+  const last = level === raw.length;
+  return [
+    { id: `n${level}-before`, title: `Niveau ${level} · ${lv.title} · Introduction`, level, phase: 'before' as const, illustration: keyOf(lv.illustration_before), lines: lines(lv.before) },
+    { id: `n${level}-after`, title: `Niveau ${level} · ${lv.title} · Conclusion`, level, phase: 'after' as const, illustration: keyOf(lv.illustration_after), lines: lines(lv.after), chapterEnd: last || undefined },
+  ];
+});
 
 export function storyById(id: string): StorySequence | undefined {
   return STORY.find((s) => s.id === id);
 }
+
+/** Réglages de l'écran de récit. */
+export const STORY_UI = {
+  /** Vitesse d'apparition du texte (caractères par seconde) ; instantané avec « effets réduits ». */
+  charsPerSecond: 48,
+} as const;
