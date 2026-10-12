@@ -1,5 +1,10 @@
 # Suivi d'avancement
 
+## Musique de partie (livrée sur `main`)
+- [x] Intro une fois → boucle native (`loopStart`/`loopEnd` du JSON) → outro en fondu 1,2 s à la fin de partie, annulation de la boucle programmée, relance rapide sans superposition, pause/reprise, arrière-plan, volume/sourdine existants, buffers décodés une seule fois
+- [x] Tests unitaires (faux contexte) + e2e réel (MP3, rendus hors ligne des raccords)
+- [ ] **Écoute sur Safari iPhone à effectuer** (décodage MP3, raccords, déverrouillage)
+
 ## Campagne v2.0 : chapitre 1 « Le signal impossible » (livré, à valider en jeu réel)
 - [x] `config/campaign.ts` (10 missions typées, récompenses, améliorations) et `config/story.ts` (15 séquences)
 - [x] `CampaignSimulation` (sous-classe, `src/sim/` intact) : objectifs (survivre, balises, objets temporaires, cycles, boîte noire), phases scénarisées, respirations, bouclier, collecteur, stabilisateur, transmissions en partie

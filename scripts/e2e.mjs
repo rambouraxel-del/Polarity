@@ -1184,8 +1184,13 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
     // 4. relances rapides : le résultat final est identique à une seule partie lancée au dernier instant
     const r4 = await render(40, [{ t: 0, op: 'startGame' }, { t: 0.9, op: 'endGame' }, { t: 1.0, op: 'startGame' }, { t: 1.2, op: 'startGame' }, { t: 1.4, op: 'startGame' }, { t: 5, op: 'endGame' }]);
     const r4ref = await render(40, [{ t: 1.4, op: 'startGame' }, { t: 5, op: 'endGame' }]);
+    // La dernière intro démarre `restartFade + 20 ms` après la relance (fondu court de l'ancienne musique) au lieu de 60 ms : décalage 0,11 s
+    const shift = Math.round(0.11 * SR);
     let diff = 0;
-    for (let c = 0; c < 2; c++) for (let i = Math.floor(3 * SR); i < Math.floor(30 * SR); i++) diff = Math.max(diff, Math.abs(r4[c][i] - r4ref[c][i]));
+    for (let c = 0; c < 2; c++) {
+      for (let i = Math.floor(2 * SR); i < Math.floor(4.9 * SR); i++) diff = Math.max(diff, Math.abs(r4[c][i] - r4ref[c][i - shift]));
+      for (let i = Math.floor(7.5 * SR); i < Math.floor(30 * SR); i++) diff = Math.max(diff, Math.abs(r4[c][i] - r4ref[c][i]));
+    }
     out.rapidRestartMaxDiff = diff;
     // 5. pause / reprise : la musique reprend exactement là où elle s'était arrêtée
     const r5 = await render(40, [{ t: 0, op: 'startGame' }, { t: 5, op: 'pause' }, { t: 8, op: 'resume' }]);
