@@ -1,3 +1,5 @@
+import { ICONS } from './icons';
+
 /** Temps au format m:ss,d (virgule décimale française). */
 export function formatTime(seconds: number, decimals = 1): string {
   const s = Math.max(0, seconds);
@@ -32,8 +34,9 @@ export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 }
 
+/** Étoiles de progression (SVG dorées ; les étoiles non obtenues sont atténuées). */
 export function starsHtml(n: number, total = 3): string {
   let out = '';
-  for (let i = 0; i < total; i++) out += i < n ? '★' : '<span class="off">★</span>';
+  for (let i = 0; i < total; i++) out += i < n ? ICONS.star : ICONS.star.replace('icon icon--star', 'icon icon--star star-off');
   return out;
 }

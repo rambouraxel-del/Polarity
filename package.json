@@ -19,6 +19,7 @@
     "cost": "vite-node scripts/cost.ts"
   },
   "dependencies": {
+    "@fontsource/orbitron": "5.3.0",
     "phaser": "3.90.0"
   },
   "devDependencies": {

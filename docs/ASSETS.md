@@ -58,3 +58,6 @@ Astuce : ouvrez le jeu avec `?debug` pour afficher hitboxes (traits pleins) et s
   donc plus épaisses en valeur absolue puisque le rayon a grandi de 35 %.
 - Contour lumineux orange des astéroïdes : silhouette remplie d'orange, légèrement agrandie (×1,16), en additif derrière le sprite
   (`FX.asteroidGlow`), plus un halo diffus. Purement décoratif, sans collision.
+
+## Interface
+Logo, thème, police Orbitron (OFL), fond spatial : voir `docs/INTERFACE.md`. Le logo `src/assets/ui/logo.png` est le PNG transparent fourni pour le projet (utilisé tel quel).

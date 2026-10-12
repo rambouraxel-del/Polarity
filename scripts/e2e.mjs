@@ -475,6 +475,57 @@ const state = (page) =>
   await context.close();
 }
 
+// ————————————————————————————————————————————— Interface « Néon premium » : chaque écran, transitions, effets réduits
+for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mobile portrait', true], [844, 390, 'mobile paysage', true], [320, 568, 'petit écran', true]]) {
+  const { page, context, errors } = await newPage({ width: w, height: h }, { touch, dpr: 1 });
+  const slug = label.replace(/ /g, '-');
+  const noOverflow = async () => !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1));
+  const go = async (action) => { await page.evaluate((a) => window.__polarite.showScreen(a), action); await page.waitForTimeout(350); };
+  if (label === 'bureau') {
+    check((await page.title()) === 'Polarity', 'Titre de la page : Polarity');
+    check(await page.evaluate(() => document.querySelector('.home__logo')?.complete && document.querySelector('.home__logo').naturalWidth > 0), 'Logo affiché (image chargée)');
+    check(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Orbitron') || getComputedStyle(document.querySelector('.btn')).fontFamily.includes('Orbitron')), 'Police Orbitron appliquée aux boutons');
+    check(await page.evaluate(() => !document.querySelector('#space').classList.contains('hidden')), 'Fond spatial visible dans les menus');
+    const order = await page.evaluate(() => [...document.querySelectorAll('#screen .home__menu [data-action]')].map((b) => b.dataset.action));
+    check(order.join() === 'survival,levels,daily,skins,achievements,options', `Accueil : ordre des boutons (${order.join(', ')})`);
+  }
+  for (const id of ['home', 'levels', 'daily', 'skins', 'achievements', 'options']) {
+    if (id === 'achievements') { await go('skins'); await page.click('[data-action="tab-achievements"]'); await page.waitForTimeout(250); } else await go(id);
+    check(await noOverflow(), `Écran ${id} sans débordement horizontal (${label})`);
+    const ok = await page.evaluate(() => {
+      const btns = [...document.querySelectorAll('#screen button:not(:disabled)')];
+      return btns.every((b) => { const r = b.getBoundingClientRect(); return r.width >= 40 && r.height >= 40; });
+    });
+    check(ok, `Écran ${id} : boutons d'au moins 40 px (${label})`);
+    if (label !== 'petit écran' || id === 'home') await page.screenshot({ path: `screenshots/50-${id}-${slug}.png` });
+  }
+  // Les boutons de collection basculent bien entre Apparences et Succès
+  await go('skins');
+  await page.click('[data-action="tab-achievements"]');
+  check((await page.locator('.ach').count()) >= 9, `Onglet Succès : liste réelle (${label})`);
+  await page.click('[data-action="tab-skins"]');
+  check((await page.locator('.skin').count()) >= 1, `Onglet Apparences : liste réelle (${label})`);
+  // Effets réduits : attribut posé, persistant, fond statique
+  await go('options');
+  await page.click('#opt-fx');
+  check((await page.evaluate(() => document.documentElement.dataset.fx)) === 'reduced', `Effets réduits : attribut data-fx posé (${label})`);
+  check((await page.evaluate(() => JSON.parse(localStorage.getItem('polarite.save')).options.reducedEffects)) === true, `Effets réduits : enregistré sous la clé polarite.save (${label})`);
+  await page.click('#opt-fx');
+  check((await page.evaluate(() => document.documentElement.dataset.fx)) !== 'reduced', `Effets réduits : désactivation (${label})`);
+  // Transition : l'écran change sans rester vide, et pendant la partie le fond spatial est masqué
+  await go('home');
+  await page.click('[data-action="survival"]');
+  await page.waitForTimeout(300);
+  check(await page.evaluate(() => document.querySelector('#space').classList.contains('hidden')), `Partie : fond spatial des menus masqué (${label})`);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(250);
+  check((await page.locator('[data-action="resume"]').count()) === 1, `Pause : bouton Reprendre accessible (${label})`);
+  await page.screenshot({ path: `screenshots/51-pause-${slug}.png` });
+  check(await noOverflow(), `Pause sans débordement (${label})`);
+  check(errors.length === 0, `Aucune erreur console (interface ${label})${errors.length ? ' : ' + errors.join(' | ') : ''}`);
+  await context.close();
+}
+
 // ————————————————————————————————————————————— Mobile portrait (tactile)
 {
   const { page, context, errors } = await newPage({ width: 390, height: 844 }, { touch: true, dpr: 3 });

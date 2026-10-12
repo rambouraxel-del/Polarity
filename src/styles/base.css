@@ -1,0 +1,125 @@
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --hud-h: 64px;
+  --line: rgb(var(--c-cyan-rgb) / 0.28);
+  --line-strong: rgb(var(--c-cyan-rgb) / 0.6);
+  --panel-bg: rgb(var(--c-panel-rgb) / 0.78);
+  --glow-cyan: 0 0 22px rgb(var(--c-cyan-rgb) / 0.32);
+  font-family: var(--font-text, system-ui, sans-serif);
+  color: var(--c-text, #eaf6ff);
+  background: var(--c-bg-deep, #070b1f);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--c-bg-deep, #070b1f);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+#game {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: pointer;
+}
+
+#game canvas {
+  display: block;
+}
+
+/* Fond spatial des menus (canvas 2D dessiné par le code) : au-dessus de l'arène, sous les écrans */
+#space {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#arena-box {
+  position: absolute;
+  top: calc(var(--sat) + var(--hud-h));
+  bottom: calc(var(--sab) + 10px);
+  left: calc(var(--sal) + 6px);
+  right: calc(var(--sar) + 6px);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+p {
+  line-height: 1.45;
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-white);
+  outline-offset: 2px;
+}
+
+/* Effets réduits (option) et préférence système : aucune animation, aucune transition */
+html[data-fx='reduced'] *,
+html[data-fx='reduced'] *::before,
+html[data-fx='reduced'] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Texte réservé aux lecteurs d'écran */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,21 +1,22 @@
 import Phaser from 'phaser';
-import { ARENA, BEACONS, PLAYER } from '../config/balance';
+import { ARENA, BEACONS } from '../config/balance';
 import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
 import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import { TAU } from '../core/math';
 import type { GameSession } from '../game/session';
 import { laserAngle, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
 import type { Skin } from '../progression/skins';
+import { hexNum, THEME } from '../ui/theme';
 import { heading, spriteRotation } from './geometry';
 
 /** Couleurs fixes des menaces : jamais reprises par les apparences. */
 export const COLORS = {
-  background: 0x070b1f,
-  grid: 0x16204a,
-  projectile: 0xff6b6b,
-  sector: 0xff3df0,
+  background: hexNum(THEME.color.bgDeep),
+  grid: hexNum(THEME.color.grid),
+  projectile: hexNum(THEME.color.hazardProjectile),
+  sector: hexNum(THEME.color.hazardSector),
   danger: 0xffffff,
-  gold: 0xffd84a,
+  gold: hexNum(THEME.color.gold),
 };
 
 const R = ARENA.orbitRadius;
@@ -109,7 +110,6 @@ export class ArenaRenderer {
   private readonly psize = new Float32Array(MAX_PARTICLES);
   private pnext = 0;
   private readonly popups: Popup[] = [];
-  private idleAngle: number = PLAYER.startAngle;
   reducedEffects = false;
 
   constructor(scene: Phaser.Scene) {
@@ -201,7 +201,27 @@ export class ArenaRenderer {
 
   // ————————————————————————————————————————————— dessin principal
 
+  /** Menus : le décor spatial est celui du DOM (ui/space.ts) ; l'arène ne dessine rien. */
+  private idle(): void {
+    this.g.clear();
+    this.trailG.clear();
+    this.shipG.clear();
+    this.fx.clear();
+    this.dbg.clear();
+    this.shipSprite.setVisible(false);
+    for (const a of this.asteroidPool) {
+      a.img.setVisible(false);
+      a.glow.setVisible(false);
+    }
+    this.flashAlpha = 0;
+    this.flash.setFillStyle(0xffffff, 0);
+  }
+
   draw(session: GameSession | null, skin: Skin, realDt: number, clock: number): void {
+    if (!session) {
+      this.idle();
+      return;
+    }
     const g = this.g;
     g.clear();
     this.trailG.clear();
@@ -217,24 +237,13 @@ export class ArenaRenderer {
       this.oy = 0;
     }
 
-    const sim = session?.sim ?? null;
-    let angle: number;
-    let dir: 1 | -1;
-    let t: number;
-    if (sim && session) {
-      const extra = session.phase === 'running' ? session.acc : 0;
-      dir = sim.dir;
-      angle = sim.angle + (sim.state === 'running' ? dir * sim.omega * extra : 0);
-      t = sim.time + extra;
-    } else {
-      // Menu : le vaisseau tourne tranquillement
-      this.idleAngle += realDt * 0.7;
-      angle = this.idleAngle;
-      dir = 1;
-      t = clock;
-    }
+    const sim = session.sim;
+    const extra = session.phase === 'running' ? session.acc : 0;
+    const dir: 1 | -1 = sim.dir;
+    const angle = sim.angle + (sim.state === 'running' ? dir * sim.omega * extra : 0);
+    const t = sim.time + extra;
     // Les émissions de particules s'arrêtent en pause et pendant le compte à rebours
-    const emitting = !session || session.phase === 'running';
+    const emitting = session.phase === 'running';
     this.emitAcc = Math.min(0.1, this.emitAcc + (emitting ? realDt : 0));
 
     this.drawOrbit(skin);

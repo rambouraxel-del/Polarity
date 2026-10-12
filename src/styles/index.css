@@ -1,0 +1,8 @@
+/*
+ * Styles de l'interface. Toutes les couleurs, polices, rayons et durées viennent des variables écrites par
+ * `applyTheme()` (src/ui/theme.ts) : aucune couleur n'est écrite en dur dans ces fichiers.
+ */
+@import './base.css';
+@import './components.css';
+@import './screens.css';
+@import './hud.css';

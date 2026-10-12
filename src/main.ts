@@ -1,7 +1,15 @@
 import Phaser from 'phaser';
 import { App } from './app';
 import { GameScene } from './render/GameScene';
-import './style.css';
+import '@fontsource/orbitron/latin-700.css';
+import '@fontsource/orbitron/latin-800.css';
+import './styles/index.css';
+import { GAME_NAME } from './config/brand';
+import { applyTheme } from './ui/theme';
+
+// Thème (couleurs, polices, rayons) écrit avant tout affichage ; nom d'affichage centralisé dans config/brand.ts
+applyTheme();
+document.title = GAME_NAME;
 
 const app = new App();
 const parent = document.getElementById('game')!;

@@ -1,4 +1,6 @@
-# Polarité
+# Polarity
+
+(nom provisoire ; le dépôt et les clés de sauvegarde gardent l'identifiant historique « polarite »)
 
 Jeu d'arcade web au néon, jouable sur ordinateur et mobile. Un petit vaisseau tourne seul sur une orbite :
 **un clic, un toucher ou Espace inverse sa direction**. Évitez les tirs et les secteurs électriques, collectez
@@ -13,6 +15,10 @@ les six balises pour enchaîner les cycles et faire monter le multiplicateur.
 
 Style graphique « Néon premium » (v1.1) : vrai vaisseau blanc/argent à cockpit cyan et astéroïdes rocheux aux fissures orange,
 en sprites ; réacteur, traînées, étincelles et impact sont générés par code (voir `docs/ASSETS.md`).
+
+Interface « Néon premium » (v1.3) : logo, thème centralisé (`src/ui/theme.ts`), police Orbitron locale, fond spatial discret dans les menus
+(masqué pendant les parties, statique avec l'option « Effets réduits »), écrans accueil / niveaux / pause / résultat / options / apparences / succès
+harmonisés. Voir `docs/INTERFACE.md`. Pour renommer le jeu : `src/config/brand.ts` (`GAME_NAME`) ; ne pas toucher à `STORAGE_NAMESPACE` (progression).
 
 Aucun serveur, aucun compte : les sprites sont des fichiers locaux, les sons sont générés (Web Audio).
 Les records sont enregistrés localement (navigateur) ; il n'existe pas de classement en ligne.
@@ -96,7 +102,7 @@ effacement de la progression (avec confirmation). Les options sont sauvegardées
 
 ## Structure
 
-Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
+Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, générateur, règles), `docs/ASSETS.md` (sprites et effets), `docs/INTERFACE.md` (direction artistique, thème, écrans), `docs/ROADMAP.md` (évolutions futures : balise bonus temporaire, secteurs thématiques des niveaux) et
 `docs/MONETISATION.md` (pistes de rentabilité). Suivi : `PROGRESS.md`, reprise : `RESUME.md`.
 
 ## Limites connues

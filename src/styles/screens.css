@@ -1,0 +1,490 @@
+/* ———————————————————————————— Conteneur des écrans */
+#screen {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding: calc(var(--sat) + 16px) calc(var(--sar) + 16px) calc(var(--sab) + 16px) calc(var(--sal) + 16px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* Pause et résultat : l'arène reste visible derrière, assombrie et légèrement floutée */
+#screen.dim {
+  background: rgb(var(--c-night-deep-rgb) / 0.74);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+/* Transitions : entrée en fondu + léger glissement. `no-anim` évite de rejouer l'animation quand seul un réglage change. */
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+#screen:not(.no-anim) > .panel {
+  animation: screen-in var(--t-base) ease-out both;
+}
+
+#screen.dim:not(.no-anim) > .panel {
+  animation: pop-in var(--t-base) ease-out both;
+}
+
+/* ———————————————————————————— Accueil */
+.home {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 520px;
+  margin: auto 0;
+}
+
+.home__logo {
+  width: 100%;
+  max-width: 520px;
+  height: auto;
+  max-height: 24vh;
+  object-fit: contain;
+  filter: drop-shadow(0 0 18px rgb(var(--c-cyan-rgb) / 0.25));
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+.home__menu {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home__help {
+  margin-top: 2px;
+}
+
+/* Paysage bas (téléphone couché) : logo à gauche, menu à droite */
+@media (orientation: landscape) and (max-height: 560px) {
+  .home {
+    max-width: 920px;
+    flex-direction: row;
+    align-items: center;
+    gap: 28px;
+  }
+  .home__brand {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .home__menu {
+    flex: 1 1 0;
+    gap: 8px;
+  }
+  .home__logo {
+    max-height: 34vh;
+  }
+  .btn--hero {
+    min-height: 72px;
+    font-size: 22px;
+  }
+  .btn--hero .icon {
+    width: 34px;
+    height: 34px;
+  }
+  .btn--row {
+    min-height: 56px;
+  }
+}
+
+/* ———————————————————————————— Niveaux */
+.levels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (min-width: 640px) {
+  .levels {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.level-card {
+  appearance: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 112px;
+  padding: 10px 6px 8px;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--line);
+  background: rgb(var(--c-panel-rgb) / 0.6);
+  color: var(--c-white);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast), box-shadow var(--t-base);
+}
+
+.level-card:hover:not(:disabled),
+.level-card:focus-visible {
+  border-color: var(--c-cyan);
+  background: rgb(var(--c-cyan-rgb) / 0.12);
+}
+
+.level-card:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.level-card__n {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.level-card__name {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--c-muted);
+  min-height: 2.4em;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+@media (max-width: 359px) {
+  .level-card__name {
+    font-size: 10px;
+    letter-spacing: -0.01em;
+  }
+}
+
+.level-card__best {
+  display: none;
+  font-size: 11px;
+  color: var(--c-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 640px) {
+  .level-card__best {
+    display: block;
+  }
+}
+
+/* Terminé : contour cyan franc */
+.level-card--done {
+  border-color: var(--line-strong);
+}
+
+/* Prochain niveau à jouer : rempli cyan, bien distinct */
+.level-card--next {
+  background: linear-gradient(180deg, var(--c-cyan) 0%, rgb(var(--c-cyan-rgb) / 0.78) 100%);
+  border-color: var(--c-white);
+  color: var(--c-ink);
+  box-shadow: var(--glow-cyan);
+}
+
+.level-card--next .level-card__name,
+.level-card--next .level-card__best {
+  color: rgb(var(--c-ink-rgb) / 0.8);
+}
+
+.level-card--next .stars {
+  color: var(--c-ink);
+}
+
+.level-card--next .stars .icon {
+  filter: none;
+}
+
+.level-card--next .stars .star-off {
+  color: rgb(var(--c-ink-rgb) / 0.28);
+}
+
+.level-card--next:hover:not(:disabled),
+.level-card--next:focus-visible {
+  background: linear-gradient(180deg, var(--c-white) -30%, var(--c-cyan) 90%);
+}
+
+/* Verrouillé : pointillés, grisé, cadenas */
+.level-card:disabled {
+  cursor: default;
+  border-style: dashed;
+  background: rgb(var(--c-white-rgb) / 0.03);
+  color: var(--c-muted);
+  border-color: rgb(var(--c-white-rgb) / 0.16);
+}
+
+.level-card__lock {
+  color: var(--c-muted);
+  margin-top: 2px;
+}
+
+.level-card__lock .icon {
+  width: 26px;
+  height: 26px;
+}
+
+/* ———————————————————————————— Défi quotidien */
+.date-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: rgb(var(--c-cyan-rgb) / 0.08);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.date-chip .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--c-cyan);
+}
+
+.center {
+  display: flex;
+  justify-content: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ———————————————————————————— Apparences et succès */
+.skins {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.skin {
+  appearance: none;
+  font: inherit;
+  color: var(--c-white);
+  text-align: left;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--line);
+  background: rgb(var(--c-panel-rgb) / 0.6);
+  padding: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+
+.skin:hover:not(:disabled),
+.skin:focus-visible {
+  border-color: var(--c-cyan);
+}
+
+.skin--selected {
+  border-color: var(--c-cyan);
+  background: rgb(var(--c-cyan-rgb) / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(var(--c-cyan-rgb) / 0.5);
+}
+
+.skin:disabled {
+  cursor: default;
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.skin__preview {
+  display: block;
+  width: 100%;
+  height: 72px;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 40%, rgb(var(--c-night-rgb) / 0.9), rgb(var(--c-bg-deep-rgb)) 75%);
+}
+
+.skin__name {
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skin__name .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--c-cyan);
+}
+
+.skin__req {
+  font-size: 12px;
+  color: var(--c-muted);
+  margin-top: 2px;
+}
+
+.ach {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgb(var(--c-white-rgb) / 0.07);
+}
+
+.ach__medal {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgb(var(--c-white-rgb) / 0.2);
+  color: var(--c-muted);
+  background: rgb(var(--c-white-rgb) / 0.04);
+}
+
+.ach__medal .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.ach--done .ach__medal {
+  border-color: var(--c-gold);
+  color: var(--c-gold);
+  background: rgb(var(--c-gold-rgb) / 0.12);
+  box-shadow: 0 0 12px rgb(var(--c-gold-rgb) / 0.25);
+}
+
+.ach__t {
+  font-weight: 700;
+}
+
+.ach__d {
+  font-size: 13px;
+  color: var(--c-muted);
+  margin-top: 1px;
+}
+
+/* ———————————————————————————— Pause */
+.panel--pause {
+  max-width: 420px;
+}
+
+/* ———————————————————————————— Résultat */
+.result__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.result__badge .icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  color: var(--c-gold);
+}
+
+.result__badge .title {
+  font-size: 19px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.result__hero {
+  margin: 8px 0 2px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 54px;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-white);
+}
+
+.result__hero--gold {
+  color: var(--c-gold);
+  text-shadow: 0 0 18px rgb(var(--c-gold-rgb) / 0.4);
+}
+
+.result__score {
+  text-align: center;
+  font-size: 16px;
+  color: var(--c-muted);
+  margin-bottom: 14px;
+}
+
+.result__score strong {
+  color: var(--c-white);
+  font-family: var(--font-display);
+  font-size: 20px;
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.result__stars {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 4px;
+}
+
+.result__actions {
+  margin-top: 14px;
+}
+
+@media (max-height: 640px) {
+  .result__hero {
+    font-size: 40px;
+  }
+  .result__stars .icon {
+    width: 36px;
+    height: 36px;
+  }
+  .panel {
+    padding: 14px 14px;
+  }
+}
+
+/* ———————————————————————————— Petits écrans */
+@media (max-height: 560px) and (orientation: landscape) {
+  .btn {
+    min-height: 44px;
+    padding: 8px 14px;
+  }
+  .btn--primary {
+    min-height: 50px;
+  }
+}

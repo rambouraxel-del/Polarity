@@ -128,7 +128,7 @@ export const LEVELS: LevelDef[] = [
     stars: [26000, 51000, 89000],
   },
   {
-    id: 12, name: 'Polarité',
+    id: 12, name: 'Polarity',
     hint: 'Tout ce que vous avez appris, sans répit. Bonne chance.',
     dStart: 0.56, dEnd: 0.84, pacing: 'steady',
     speed: LEVEL_SPEED_DEFAULT,

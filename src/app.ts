@@ -18,6 +18,7 @@ import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
 import { escapeHtml } from './ui/format';
 import { Hud } from './ui/hud';
+import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 
 type ScreenId = 'home' | 'levels' | 'daily' | 'skins' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
@@ -42,6 +43,8 @@ export class App {
   private readonly arenaBox = document.getElementById('arena-box')!;
   private bannerTimer = 0;
   private bannerKind: 'event' | 'info' | null = null;
+  private space: SpaceBackground | null = null;
+  private collectionTab: S.CollectionTab = 'skins';
   private eventKey = '';
   private resultLock = 0;
   private clock = 0;
@@ -70,6 +73,8 @@ export class App {
     this.renderer = new ArenaRenderer(scene);
     this.renderer.reducedEffects = this.save.options.reducedEffects;
     this.renderer.debug = new URLSearchParams(location.search).has('debug');
+    this.space = new SpaceBackground(document.getElementById('space') as HTMLCanvasElement);
+    this.applyReducedEffects();
     new InputController(this.gameEl, {
       action: () => this.onAction(),
       pauseKey: () => this.onPauseKey(),
@@ -120,6 +125,16 @@ export class App {
     this.bannerEl.style.top = `${box.top + box.height / 2}px`;
     this.bannerEl.style.maxWidth = `${Math.round(orbitCss * 1.45)}px`;
     this.bannerEl.style.fontSize = orbitCss < 150 ? '13px' : '15px';
+    this.space?.resize(w, h, window.devicePixelRatio || 1);
+  }
+
+  /** Effets réduits : option du joueur ou préférence du système. Coupe secousses, flash, traînées, animations et fond animé. */
+  private applyReducedEffects(): void {
+    const system = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    const reduced = this.save.options.reducedEffects;
+    if (this.renderer) this.renderer.reducedEffects = reduced;
+    document.documentElement.dataset.fx = reduced ? 'reduced' : 'full';
+    this.space?.setReduced(reduced || system);
   }
 
   // ————————————————————————————————————————————— boucle
@@ -150,6 +165,9 @@ export class App {
         }
       }
     }
+    // Fond spatial : menus seulement (pendant une partie, le décor reste sobre)
+    this.space?.setVisible(this.session === null);
+    this.space?.update(realDt);
     this.renderer?.draw(this.session, skinById(this.save.skin), realDt, this.clock);
   }
 
@@ -372,7 +390,7 @@ export class App {
 
   // ————————————————————————————————————————————— écrans
 
-  showScreen(id: ScreenId): void {
+  showScreen(id: ScreenId, animate = true): void {
     this.screen = id;
     if (id === null) {
       this.screenEl.classList.add('hidden');
@@ -390,16 +408,18 @@ export class App {
       case 'home': html = S.homeScreen(this.save, today); break;
       case 'levels': html = S.levelsScreen(this.save); break;
       case 'daily': html = S.dailyScreen(this.save, today); break;
-      case 'skins': html = S.skinsScreen(this.save); break;
+      case 'skins': html = S.collectionScreen(this.save, this.collectionTab); break;
       case 'options': html = S.optionsScreen(this.save); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
       case 'pause': html = S.pauseScreen(this.modeLabel()); break;
       default: break;
     }
+    // Transition d'entrée (fondu + glissement) ; pas rejouée quand seul un réglage ou un onglet change
+    this.screenEl.classList.toggle('no-anim', !animate);
     this.screenEl.innerHTML = html;
     this.screenEl.classList.remove('hidden');
     this.screenEl.classList.toggle('dim', id === 'pause');
-    this.screenEl.scrollTop = 0;
+    if (animate) this.screenEl.scrollTop = 0;
     const focus = this.screenEl.querySelector<HTMLElement>('[data-autofocus]');
     focus?.focus({ preventScroll: true });
   }
@@ -421,7 +441,10 @@ export class App {
       case 'home': this.showScreen('home'); break;
       case 'levels': this.showScreen('levels'); break;
       case 'daily': this.showScreen('daily'); break;
-      case 'skins': this.showScreen('skins'); break;
+      case 'skins': this.collectionTab = 'skins'; this.showScreen('skins'); break;
+      case 'achievements': this.collectionTab = 'achievements'; this.showScreen('skins'); break;
+      case 'tab-skins': this.collectionTab = 'skins'; this.showScreen('skins', false); break;
+      case 'tab-achievements': this.collectionTab = 'achievements'; this.showScreen('skins', false); break;
       case 'options': this.showScreen('options'); break;
       case 'survival': this.startRun({ mode: 'survival', seed: randomSeed() }); break;
       case 'play-daily': {
@@ -451,7 +474,7 @@ export class App {
         if (isSkinUnlocked(skin, this.save.achievements)) {
           this.save.skin = skin.id;
           this.persist();
-          this.showScreen('skins');
+          this.showScreen('skins', false);
         }
         break;
       }
@@ -463,7 +486,7 @@ export class App {
         break;
       case 'toggle-fx':
         this.save.options.reducedEffects = !this.save.options.reducedEffects;
-        if (this.renderer) this.renderer.reducedEffects = this.save.options.reducedEffects;
+        this.applyReducedEffects();
         this.persist();
         this.refreshOptions();
         break;
@@ -471,12 +494,12 @@ export class App {
         this.save.options.tutorialSeen = false;
         this.save.seenIntros = [];
         this.persist();
-        target.textContent = 'Fait ✓';
+        (target.querySelector('.btn__label') ?? target).textContent = 'Fait ✓';
         break;
       case 'dismiss-notice':
         this.save.balanceNoticeSeen = BALANCE_VERSION;
         this.persist();
-        this.showScreen('home');
+        this.showScreen('home', false);
         break;
       case 'ask-reset': this.showScreen('confirm-reset'); break;
       case 'confirm-reset': {
@@ -494,6 +517,7 @@ export class App {
 
   private refreshOptions(): void {
     const scroll = this.screenEl.scrollTop;
+    this.screenEl.classList.add('no-anim');
     this.screenEl.innerHTML = S.optionsScreen(this.save);
     this.screenEl.scrollTop = scroll;
   }
@@ -506,6 +530,7 @@ export class App {
       this.sfx.setVolume(v);
       const label = document.getElementById('opt-volume-val');
       if (label) label.textContent = `${Math.round(v * 100)} %`;
+      el.style.setProperty('--fill', `${Math.round(v * 100)}%`);
       this.persist();
       this.sfx.play('collect', 0);
     }
