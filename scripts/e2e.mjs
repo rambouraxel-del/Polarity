@@ -495,8 +495,8 @@ const state = (page) =>
   const go = async (id) => { await page.evaluate((a) => window.__polarite.showScreen(a), id); await page.waitForTimeout(350); };
   await page.evaluate(() => { const a = window.__polarite; a.save.achievements = { first_cycle: 1 }; a.save.owned = ['aurore']; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; });
   await go('cosmetics');
-  check((await page.locator('.skin').count()) === 9, 'Cosmétiques : 9 vaisseaux (tous les articles de la catégorie)');
-  check((await page.locator('.skin__thumb img').count()) === 9, 'Cosmétiques : une miniature par carte');
+  check((await page.locator('.skin').count()) === 10, 'Cosmétiques : 10 vaisseaux (tous les articles de la catégorie)');
+  check((await page.locator('.skin__thumb img').count()) === 10, 'Cosmétiques : une miniature par carte');
   check((await page.locator('.wallet').count()) === 1, 'Cosmétiques : soldes affichés une seule fois');
   check((await page.locator('.item--equipped').count()) === 1 && (await page.locator('.item--owned').count()) === 1, 'Cosmétiques : 1 équipé, 1 possédé');
   check((await page.locator('canvas[data-skin-preview="classique"]').count()) === 1, 'Aperçu : le vaisseau équipé est affiché en grand');
@@ -504,7 +504,7 @@ const state = (page) =>
   await page.click('[data-action="filter-owned"]');
   check((await page.locator('.skin').count()) === 2, 'Filtre Possédés : 2 vaisseaux');
   await page.click('[data-action="filter-locked"]');
-  check((await page.locator('.skin').count()) === 7, 'Filtre À débloquer : 7 vaisseaux');
+  check((await page.locator('.skin').count()) === 8, 'Filtre À débloquer : 8 vaisseaux');
   await page.click('[data-action="filter-all"]');
   // Aperçu animé : l'image change au cours du temps ; figée en effets réduits
   const frame = () => page.evaluate(() => document.querySelector('canvas[data-skin-preview]').toDataURL());
