@@ -1005,7 +1005,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
 
   // Cosmétique Écho : verrouillé jusqu'à la fin du chapitre
   await go('cosmetics');
-  await page.click('[data-item="echo"]');
+  await page.click('.skin[data-item="echo"]');
   check(/Campagne requise/i.test(await page.locator('.skin-info').innerText()) && (await page.locator('.skin-info [data-action="buy"]').isDisabled()), 'Écho : « Campagne requise » avant la fin du chapitre');
   await page.screenshot({ path: 'screenshots/90-echo-verrouille.png' });
   await app(() => { const a = window.__polarite; for (let i = 1; i <= 9; i++) a.save.campaign.missions[String(i)] = { main: true, challenge: false, noShield: false, clears: 1, bestTime: 30 }; a.persist(); a.launchMission(10); });
@@ -1022,7 +1022,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   const endSave = await stored();
   check(endSave.campaign.chapterComplete === true && endSave.campaign.missions['10'].main, 'Fin du chapitre sauvegardée');
   await go('cosmetics');
-  await page.click('[data-item="echo"]');
+  await page.click('.skin[data-item="echo"]');
   check((await page.locator('.skin-info [data-action="equip-item"]').count()) === 1, 'Écho débloquée dans les cosmétiques');
   await page.screenshot({ path: 'screenshots/92-echo.png' });
   // Journal
