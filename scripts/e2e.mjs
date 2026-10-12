@@ -930,24 +930,21 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   // Niveau 1 : scène d'introduction (illustration au-dessus, dialogue au-dessous, portrait)
   await page.tap('[data-action="play-mission"]');
   await waitStory();
-  await sleep(700);
-  check((await app(() => window.__polarite.session)) === null, 'Scène : aucune partie en cours (jeu, chrono et commandes suspendus)');
+  const early = await storyState();
+  check(early.live.length < early.full.length, 'Texte progressif : la réplique s’affiche peu à peu');
+  // Premier toucher (aussitôt) : révèle toute la réplique sans avancer
+  await page.tap('.story__box .story__text');
   let st = await storyState();
+  check(st.live === st.full && st.name === 'Nora' && /^1 \//.test(st.count), 'Premier toucher : toute la réplique est révélée sans avancer');
+  check((await app(() => window.__polarite.session)) === null, 'Scène : aucune partie en cours (jeu, chrono et commandes suspendus)');
   check(st.imgLoaded && st.imgBox[3] <= st.boxTop + 1 && st.imgBox[0] >= 0 && st.imgBox[2] <= st.vw, 'Scène mobile : illustration entière au-dessus de la boîte, sans débordement');
   check((await app(() => getComputedStyle(document.querySelector('.story__img')).objectFit)) === 'contain', 'Scène mobile : illustration affichée en entier (contain), jamais étirée ni recadrée');
   check(st.boxBottom <= st.vh && st.boxLeft >= 0 && st.boxRight <= st.vw && (await noOverflowNow()), 'Scène mobile : boîte de dialogue dans l’écran, sans débordement');
   check(st.name === 'Nora' && st.portrait?.loaded, 'Scène : première réplique, nom et portrait de Nora');
+  const norPortrait = st.portrait.src;
   await page.screenshot({ path: 'screenshots/83-scene-niveau1-debut.png' });
-  // Premier toucher : révèle toute la réplique ; suivant : avance
-  check(st.live.length < st.full.length, 'Texte progressif : réplique encore en cours d’affichage');
   await page.tap('.story__box .story__text');
-  st = await storyState();
-  check(st.live === st.full && st.name === 'Nora' && /^1 \//.test(st.count), 'Premier toucher : toute la réplique est révélée sans avancer');
-  await page.screenshot({ path: 'screenshots/84-scene-reponse-complete.png' });
-  await page.tap('.story__box .story__text');
-  st = await storyState();
   check(st.name === 'Élias' && /^2 \//.test(st.count) && st.portrait?.loaded, 'Toucher suivant : réplique d’Élias avec son portrait');
-  const norPortrait = await app(() => document.querySelector('.story__portrait img').src);
   await page.tap('.story__scene'); // toucher dans l'illustration : révèle
   await page.tap('.story__scene'); // puis avance
   st = await storyState();

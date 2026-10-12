@@ -535,7 +535,7 @@ export function pauseScreen(modeLabel: string, campaign = false): string {
     <div class="btn-stack">
       ${button({ action: 'resume', label: 'Reprendre', icon: 'play', variant: 'primary', attrs: 'data-autofocus' })}
       ${button({ action: 'restart', label: 'Recommencer', icon: 'replay', variant: 'secondary' })}
-      ${campaign ? button({ action: 'quit', label: 'Carte des missions', icon: 'levels', variant: 'ghost' }) : button({ action: 'quit', label: 'Accueil', icon: 'home', variant: 'ghost' })}
+      ${campaign ? button({ action: 'quit', label: 'Carte des niveaux', icon: 'levels', variant: 'ghost' }) : button({ action: 'quit', label: 'Accueil', icon: 'home', variant: 'ghost' })}
     </div>
     <p class="small" style="margin-top:14px">La reprise commence par un bref compte à rebours. Le temps en pause ne compte pas.</p>
   </div>`;
