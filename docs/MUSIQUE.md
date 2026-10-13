@@ -25,6 +25,9 @@ Intro (une fois) → boucle (aussi longtemps que la partie dure) → outro (à l
 - **Mobile** : le contexte est créé et repris au premier geste du joueur (`Sfx.unlock()`), qui lance aussi le téléchargement et le décodage (intro, boucle, puis outro). Rien n'est chargé avant. Si le décodage n'est pas fini au tout premier lancement, la musique démarre dès qu'il l'est (et seulement si la partie est toujours en cours).
 - **Mémoire** : un seul jeu de buffers décodés, jamais dupliqué ni rechargé (≈ 68 Mo de PCM à 44,1 kHz, dont ≈ 54 Mo pour la boucle ; plus si le contexte tourne à 48 kHz).
 
+## Position de lecture (ambiance visuelle)
+`Music.position(out)` donne la position **entendue** (latence de sortie déduite) : intro, puis boucle (temps dans la région en boucle), puis outro ; figée en pause, nulle sans musique décodée. Lecture seule : elle ne programme rien et ne change pas le son. Utilisée par l'ambiance de la Survie avec la carte `src/data/polar-rift-music-map.json` (voir `docs/AMBIANCE.md`).
+
 ## Vérifications
 - Tests unitaires (`npm test`) : repères exacts du JSON, poids des fichiers, programmation (intro/boucle/rampes), absence de minuteur, un seul nœud en boucle après une heure simulée, buffers uniques, fin pendant l'intro / la boucle, relances rapides, pause/reprise.
 - `npm run e2e` (Chromium, vrais fichiers) : MP3 chargés une fois et seulement après le premier geste, défaite pendant l'intro et la boucle, résultat et Rejouer pendant l'outro, ×4 redémarrages rapides, pause/reprise, arrière-plan, sourdine, passage intro → boucle en temps réel, partie quittée, puis **rendus hors ligne** des raccords : saut maximal au raccord intro → boucle et au retour de boucle (≈ 177,5 s) de l'ordre de 0,4 × le pas normal du signal, aucun silence, outro seule puis silence après une défaite (la boucle ne démarre jamais), relances rapides sans superposition, reprise à la même position (corrélation ≈ 1).

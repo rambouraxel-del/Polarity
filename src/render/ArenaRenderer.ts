@@ -12,6 +12,8 @@ import type { Skin } from '../progression/skins';
 import { shipTextureFor } from './shipTextures';
 import { hexNum, THEME } from '../ui/theme';
 import { heading, spriteRotation } from './geometry';
+import type { AmbienceState } from '../ambience/director';
+import { AmbienceRenderer } from './ambience/AmbienceRenderer';
 
 /** Couleurs fixes des menaces : jamais reprises par les apparences. */
 export const COLORS = {
@@ -110,6 +112,12 @@ interface Ring {
  */
 export class ArenaRenderer {
   private readonly bg: Phaser.GameObjects.Graphics;
+  /** Quadrillage fixe de l'arène (remplacé par celui de l'ambiance quand elle est active). */
+  private readonly gridG: Phaser.GameObjects.Graphics;
+  /** Ambiance évolutive de la Survie (calques derrière l'orbite). */
+  private readonly ambienceLayers: AmbienceRenderer;
+  /** État d'ambiance de l'image (fourni par App en Survie et au défi quotidien ; null ailleurs : décor fixe inchangé). */
+  ambience: AmbienceState | null = null;
   private readonly g: Phaser.GameObjects.Graphics;
   private readonly trailG: Phaser.GameObjects.Graphics;
   private readonly shipG: Phaser.GameObjects.Graphics;
@@ -166,6 +174,8 @@ export class ArenaRenderer {
     this.scene = scene;
     // Profondeurs : fond < textes < arène/annonces < traînées < astéroïdes < réacteur < vaisseau < effets < flash
     this.bg = scene.add.graphics().setDepth(0);
+    this.gridG = scene.add.graphics().setDepth(0.7);
+    this.ambienceLayers = new AmbienceRenderer(scene, COLORS.grid, ASTEROID_TEXTURES);
     this.g = scene.add.graphics().setDepth(2);
     this.trailG = scene.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
     this.shipG = scene.add.graphics().setDepth(4.5).setBlendMode(Phaser.BlendModes.ADD);
@@ -197,6 +207,7 @@ export class ArenaRenderer {
     for (const p of this.popups) p.text.setFontSize(Math.round(15 * dpr));
     this.applySpriteScale();
     this.drawBackground(width, height);
+    this.ambienceLayers.layout(cx, cy, this.scale, width, height, dpr);
   }
 
   /** Taille d'affichage des sprites : la plus grande dimension du dessin = 2 × rayon visuel (+15 %). */
@@ -232,6 +243,11 @@ export class ArenaRenderer {
     g.clear();
     g.fillStyle(COLORS.background, 1);
     g.fillRect(0, 0, w, h);
+    this.gridG.clear();
+    this.drawGrid(this.gridG, w, h);
+  }
+
+  private drawGrid(g: Phaser.GameObjects.Graphics, w: number, h: number): void {
     // Anneaux concentriques discrets
     g.lineStyle(1 * this.dpr, COLORS.grid, 0.8);
     for (let r = 80; r < 900; r += 110) g.strokeCircle(this.cx, this.cy, r * this.scale);
@@ -269,6 +285,8 @@ export class ArenaRenderer {
     this.shipRim.setVisible(false);
     this.orbitGlow.setVisible(false);
     this.shardSprite.setVisible(false);
+    this.ambienceLayers.setVisible(false);
+    this.gridG.setVisible(true);
     for (const a of this.asteroidPool) {
       a.img.setVisible(false);
       a.glow.setVisible(false);
@@ -295,6 +313,15 @@ export class ArenaRenderer {
     } else {
       this.ox = 0;
       this.oy = 0;
+    }
+
+    // Ambiance (Survie, défi quotidien) : figée en pause ; ailleurs, décor fixe inchangé
+    if (this.ambience) {
+      this.ambienceLayers.draw(this.ambience, session.phase === 'paused' ? 0 : realDt);
+      this.gridG.setVisible(false);
+    } else {
+      this.ambienceLayers.setVisible(false);
+      this.gridG.setVisible(true);
     }
 
     const sim = session.sim;
@@ -1035,6 +1062,7 @@ export class ArenaRenderer {
 
   clearEffects(): void {
     this.plife.fill(0);
+    this.ambienceLayers.reset();
     for (const p of this.popups) {
       p.life = 0;
       p.text.setVisible(false);

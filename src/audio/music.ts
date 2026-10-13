@@ -25,6 +25,20 @@ export interface MusicBuffers {
 
 type State = 'idle' | 'playing' | 'paused' | 'outro';
 
+/** Morceau en cours de lecture (pour la synchronisation de l'ambiance visuelle). */
+export type MusicTrack = 'intro' | 'loop' | 'outro';
+
+/**
+ * Position de lecture ENTENDUE (latence de sortie déduite), réutilisable sans allocation.
+ * `time` : secondes depuis le début du fichier (intro, outro) ou depuis `loopStart` (boucle).
+ */
+export interface MusicPosition {
+  track: MusicTrack | null;
+  time: number;
+  /** Faux en pause (la position est figée) ou sans musique. */
+  playing: boolean;
+}
+
 interface Voice {
   src: AudioBufferSourceNode;
   gain: GainNode;
@@ -47,6 +61,8 @@ export class Music {
   private want = false;
   private pausedWhileLoading = false;
   private gen = 0;
+  /** Instant audio du démarrage de l'outro en cours. */
+  private outroAt = 0;
 
   constructor(
     private readonly host: AudioHost,
@@ -173,6 +189,7 @@ export class Music {
     v.gain.gain.linearRampToValueAtTime(1, now + MUSIC.outroCrossfade);
     v.startAt = now;
     v.src.start(now);
+    this.outroAt = now;
     this.state = 'outro';
     const g = this.gen;
     v.src.onended = () => {
@@ -190,6 +207,59 @@ export class Music {
     if (!ctx) return;
     if (this.voices.length > 0) this.fadeOutVoices(ctx, MUSIC.quitFade);
     this.state = 'idle';
+  }
+
+  // ————————————————————————————————————————————— position de lecture (ambiance visuelle)
+
+  /**
+   * Instant audio ENTENDU maintenant : horodatage de sortie du contexte quand il existe (Chrome, Firefox, Safari récents),
+   * sinon horloge du contexte moins la latence annoncée. Calculé à chaque appel depuis l'horloge audio : aucun décalage cumulatif.
+   */
+  private heardTime(ctx: BaseAudioContext): number {
+    const ac = ctx as AudioContext;
+    if (typeof ac.getOutputTimestamp === 'function') {
+      const ts = ac.getOutputTimestamp();
+      if (ts.contextTime !== undefined && ts.performanceTime !== undefined && ts.contextTime > 0) {
+        const t = ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+        return Math.min(ctx.currentTime, t);
+      }
+    }
+    return ctx.currentTime - (ac.outputLatency || ac.baseLatency || 0);
+  }
+
+  /**
+   * Remplit `out` avec la position de lecture entendue : intro (une fois), puis boucle (temps dans la région en boucle),
+   * outro après la fin de partie. Pause : position figée. Aucune musique (non décodée, pas de contexte) : `track = null`.
+   */
+  position(out: MusicPosition): MusicPosition {
+    const ctx = this.host.context();
+    out.track = null;
+    out.time = 0;
+    out.playing = false;
+    if (!ctx) return out;
+    if (this.state === 'outro') {
+      const t = this.heardTime(ctx) - this.outroAt;
+      if (t >= 0) {
+        out.track = 'outro';
+        out.time = t;
+        out.playing = true;
+      }
+      return out;
+    }
+    let pos: number;
+    if (this.state === 'playing') pos = this.heardTime(ctx) - this.t0;
+    else if (this.state === 'paused') pos = this.pausedPos;
+    else return out;
+    if (pos < 0) return out; // démarrage programmé, pas encore entendu
+    out.playing = this.state === 'playing';
+    if (pos < MUSIC.introDuration) {
+      out.track = 'intro';
+      out.time = pos;
+    } else {
+      out.track = 'loop';
+      out.time = mod(pos - MUSIC.introDuration, MUSIC.loopDuration);
+    }
+    return out;
   }
 
   // ————————————————————————————————————————————— programmation (horloge audio)

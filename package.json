@@ -16,6 +16,7 @@
     "check": "npm run typecheck && npm run test && npm run build",
     "perf": "node scripts/perf.mjs",
     "sprites": "python3 scripts/process-sprites.py",
+    "music-map": "python3 -I scripts/analyze-music.py",
     "cost": "vite-node scripts/cost.ts",
     "server": "tsx server/index.ts",
     "e2e:classement": "node scripts/e2e-classement.mjs"

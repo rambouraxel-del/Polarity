@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
-import { Music } from './audio/music';
+import { Music, type MusicPosition } from './audio/music';
+import { AmbienceDirector, QualityGovernor } from './ambience/director';
+import { MusicSync } from './ambience/musicSync';
+import { AMBIENCE_MODES, STAGES } from './config/ambience';
 import { Sfx } from './audio/sfx';
 import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
@@ -83,6 +86,13 @@ export class App {
   /** Musique de partie : partage le contexte audio, le volume et la sourdine de `sfx`. */
   readonly music = new Music({ context: () => this.sfx.context, output: () => this.sfx.output });
   private readonly hud = new Hud();
+  /** Ambiance évolutive de la Survie : position musicale entendue → carte musicale → directeur → rendu. */
+  private readonly musicPos: MusicPosition = { track: null, time: 0, playing: false };
+  private readonly musicSync = new MusicSync();
+  private readonly ambience = new AmbienceDirector();
+  private readonly quality = new QualityGovernor((navigator.hardwareConcurrency ?? 8) <= 4 ? 'medium' : 'high');
+  /** Aperçu des stades (URL `?stade=N`, 1 à 5) : décale seulement le temps de l'ambiance, jamais celui de la partie. */
+  private readonly ambiencePreview = ambiencePreviewOffset();
   private renderer: ArenaRenderer | null = null;
   private game: Phaser.Game | null = null;
   private session: GameSession | null = null;
@@ -279,8 +289,22 @@ export class App {
     this.space?.update(realDt);
     this.updateStoryText(realDt);
     // Campagne : le vaisseau est celui d'Élias (la Traverse) ; les cosmétiques de la Survie ne s'y appliquent pas
-    if (this.renderer) this.renderer.trailId = this.isCampaignRun() ? DEFAULT_TRAIL_ID : this.save.trail;
+    if (this.renderer) {
+      this.renderer.trailId = this.isCampaignRun() ? DEFAULT_TRAIL_ID : this.save.trail;
+      this.renderer.ambience = this.updateAmbience(realDt);
+    }
     this.renderer?.draw(this.session, this.activeSkin(), realDt, this.clock);
+  }
+
+  /** Ambiance de la Survie et du défi quotidien (décorative) : jamais en campagne ni en défi classique. */
+  private updateAmbience(realDt: number): ReturnType<AmbienceDirector['update']> | null {
+    const s = this.session;
+    if (!s || !(AMBIENCE_MODES as readonly string[]).includes(s.config.mode)) return null;
+    this.quality.update(realDt);
+    if (this.ambience.state.tier !== this.quality.tier) this.ambience.setQuality(this.quality.tier);
+    const frame = this.musicSync.update(this.music.position(this.musicPos));
+    const dt = s.phase === 'paused' ? 0 : realDt;
+    return this.ambience.update(s.sim.time + this.ambiencePreview, dt, frame, this.reducedMotion);
   }
 
   private updateInGameUi(session: GameSession): void {
@@ -339,6 +363,8 @@ export class App {
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.showScreen(null);
     this.renderer?.clearEffects();
+    this.ambience.reset();
+    this.musicSync.reset();
     this.hud.reset();
     this.eventKey = '';
     this.creditedShards.clear();
@@ -1141,4 +1167,10 @@ export class App {
   private persist(): void {
     writeSave(this.store, this.save);
   }
+}
+
+/** `?stade=3` : l'ambiance démarre au début du stade 3 (aperçu visuel ; la partie elle-même n'est pas modifiée). */
+function ambiencePreviewOffset(): number {
+  const n = Number(new URLSearchParams(location.search).get('stade'));
+  return Number.isInteger(n) && n >= 1 && n <= STAGES.length ? STAGES[n - 1].from : 0;
 }

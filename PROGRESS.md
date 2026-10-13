@@ -1,5 +1,8 @@
 # Suivi d'avancement
 
+## Ambiance évolutive de la Survie (livrée, à valider à l'œil)
+Cinq stades progressifs, faille cosmique, parallaxe, particules, anneaux, ondes, arcs, débris, quadrillage gravitationnel ; synchronisation musicale par position de lecture réelle + carte des morceaux (battements, basses, intensité, montées, drops) ; effets réduits ; qualité adaptative. Survie et défi quotidien uniquement. Pas de test navigateur lancé. Voir `docs/AMBIANCE.md`.
+
 ## Musique de partie (livrée sur `main`)
 - [x] Intro une fois → boucle native (`loopStart`/`loopEnd` du JSON) → outro en fondu 1,2 s à la fin de partie, annulation de la boucle programmée, relance rapide sans superposition, pause/reprise, arrière-plan, volume/sourdine existants, buffers décodés une seule fois
 - [x] Tests unitaires (faux contexte) + e2e réel (MP3, rendus hors ligne des raccords)

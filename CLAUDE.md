@@ -28,6 +28,7 @@ npm run server       # service de classement (Node 22.13+)
 npm run cost         # coût du directeur de vagues (validateur d'évitement inclus)
 npm run perf         # coût CPU en émulation mobile (--dist <dossier> pour comparer deux builds)
 npm run sprites      # textures 128 px depuis art/source/ (Pillow)
+npm run music-map    # carte musicale (battements, basses, drops) depuis les MP3 (ffmpeg + numpy)
 npm run check        # typecheck + tests + build
 ```
 
@@ -49,6 +50,7 @@ npm run check        # typecheck + tests + build
 - `progression/` — progression/records (`progress.ts`), succès, apparences.
 - `save/save.ts` — sauvegarde localStorage versionnée, validation champ par champ, repli si corrompue.
 - `audio/sfx.ts` — sons Web Audio procéduraux (et contexte audio, volume, sourdine partagés) ; `audio/music.ts` + `config/music.ts` + `data/polar-rift-audio.json` — musique de partie (intro → boucle → outro, raccords sur l'horloge audio, jamais de `setTimeout`/`ended` pour relancer ; voir `docs/MUSIQUE.md`).
+- `config/ambience.ts` (**source unique** de l'ambiance évolutive de la Survie : 5 stades, réactions musicales, plafonds, qualité), `ambience/` (`musicSync.ts` : carte musicale lue à la position de lecture réelle ; `director.ts` : stades et réactions, logique pure), `render/ambience/` (calques derrière le jeu), `data/polar-rift-music-map.json` (généré par `scripts/analyze-music.py`). Survie et défi quotidien seulement. Voir `docs/AMBIANCE.md`.
 - `render/` — `ArenaRenderer.ts` (sprites vaisseau/astéroïdes + effets par code), `geometry.ts` (sens du déplacement et du réacteur, testé),
   `GameScene.ts` (chargement des textures).
 - `ui/` — `theme.ts` (**source unique** des couleurs, polices, rayons, durées → variables CSS), `components.ts` (boutons, en-têtes, réglages…), `icons.ts` (SVG), `screens.ts` (écrans HTML), `space.ts` (fond spatial des menus), HUD, formatage. `app.ts` orchestre le tout.
@@ -76,6 +78,7 @@ npm run check        # typecheck + tests + build
 - Économie : cosmétiques seulement, aucun avantage de jeu ; achat = vérification du solde + débit + déblocage dans la même modification ; Prismes jamais débités ni crédités localement (paiements non actifs) ; sauvegarde versionnée (format 6) : toute nouvelle donnée de progression passe par `save.ts` (sanitize + migration).
 - Classement : le serveur ne croit jamais le client (rejeu graine + entrées) ; aucune clé secrète ni route d'administration dans le jeu ; toute modification des règles de simulation exige `BALANCE_VERSION` + redéploiement du serveur ; le serveur doit rester déterministe-identique au client (même code `src/`). Succès : objectifs sans dépense, récompenses versées une seule fois.
 - Campagne : ne jamais modifier `src/sim/*` pour elle (Survie et rejeu serveur identiques, `BALANCE_VERSION` inchangée) ; `createSimulation` refuse le mode `campaign` ; aucune partie de campagne n'est envoyée au classement ; les gains vont dans la **réserve de campagne** (`save.campaign.reserve`), jamais dans le portefeuille de la Survie, et la campagne ne touche ni aux succès ni aux statistiques ni aux cosmétiques (le vaisseau de campagne est `CAMPAIGN_SKIN`) ; étoile et récompense passent de faux à vrai dans la même modification de sauvegarde (jamais de double crédit) ; sauvegarde format 6 (champ `campaign`). Récit : une réplique à la fois, premier toucher = révéler, suivant = avancer, jamais de transmission pendant une esquive, scènes jouées une seule fois puis relisibles ; niveaux 1 à 5 : astéroïdes seulement ; niveaux 6 à 10 : aucun laser hostile (premiers lasers au niveau 11).
+- Ambiance de la Survie : décorative uniquement (jamais de lecture par la simulation), jamais en Campagne ni en Défis classiques ; synchronisée sur `Music.position()` + carte musicale (pas de BPM supposé, pas de minuteur, rien sans musique) ; tout réglage dans `config/ambience.ts` ; menaces, vaisseau et objets toujours au-dessus et lisibles (voile, plafonds, pas de flash plein écran ni de tremblement) ; effets réduits respectés.
 - Musique : repères du JSON utilisés exactement (boucle `loopStart`/`loopEnd`, jamais le MP3 entier) ; raccords programmés sur l'horloge Web Audio ; un seul ensemble de buffers, jamais rechargé ; fin de partie = fondu vers l'outro (jamais d'attente du tour de boucle) ; réutiliser le contexte, le volume et la sourdine de `Sfx`.
 - Textes utilisateur en français. Pas de bouton factice.
 - Après une modification : `npm run check`, et `npm run build && npm run e2e` si l'interface change.
