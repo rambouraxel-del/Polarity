@@ -791,7 +791,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   const noOverflow = async () => !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1));
   const go = async (action) => { await page.evaluate((a) => window.__polarite.showScreen(a), action); await page.waitForTimeout(350); };
   if (label === 'bureau') {
-    check((await page.title()) === 'Polarity', 'Titre de la page : Polarity');
+    check((await page.title()) === 'Polar Rift', 'Titre de la page : Polar Rift');
     check(await page.evaluate(() => document.querySelector('.home__logo')?.complete && document.querySelector('.home__logo').naturalWidth > 0), 'Logo affiché (image chargée)');
     check(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Orbitron') || getComputedStyle(document.querySelector('.btn')).fontFamily.includes('Orbitron')), 'Police Orbitron appliquée aux boutons');
     check(await page.evaluate(() => !document.querySelector('#space').classList.contains('hidden')), 'Fond spatial visible dans les menus');

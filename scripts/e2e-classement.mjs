@@ -39,7 +39,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 console.log('Construction du jeu configuré pour le classement…');
 execSync(`node node_modules/vite/bin/vite.js build --outDir dist-lb`, { stdio: 'ignore', env: { ...process.env, VITE_LEADERBOARD_URL: `http://127.0.0.1:${API}` } });
 
-const dir = mkdtempSync(join(tmpdir(), 'polarity-e2e-'));
+const dir = mkdtempSync(join(tmpdir(), 'polar-rift-e2e-'));
 const procs = [];
 function startApi() {
   const p = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server/index.ts'], {

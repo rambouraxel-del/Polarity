@@ -1,12 +1,12 @@
-import timing from '../data/polarity-audio.json';
-import introUrl from '../assets/audio/polarity-intro.mp3';
-import loopUrl from '../assets/audio/polarity-loop.mp3';
-import outroUrl from '../assets/audio/polarity-outro.mp3';
+import timing from '../data/polar-rift-audio.json';
+import introUrl from '../assets/audio/polar-rift-intro.mp3';
+import loopUrl from '../assets/audio/polar-rift-loop.mp3';
+import outroUrl from '../assets/audio/polar-rift-outro.mp3';
 
 /**
  * Musique de partie : intro (une fois) → boucle (aussi longtemps que la partie dure) → outro (à la fin de la partie).
  *
- * Les repères viennent de `src/data/polarity-audio.json` (fournis avec les fichiers) et sont utilisés EXACTEMENT :
+ * Les repères viennent de `src/data/polar-rift-audio.json` (fournis avec les fichiers) et sont utilisés EXACTEMENT :
  * la boucle contient 120 ms de garde de chaque côté, on ne répète jamais le MP3 entier (`loopStart` / `loopEnd`).
  * Voir docs/MUSIQUE.md.
  */

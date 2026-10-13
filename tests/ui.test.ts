@@ -15,8 +15,8 @@ const STYLES = join(__dirname, '..', 'src', 'styles');
 const css = readdirSync(STYLES).filter((f) => f.endsWith('.css')).map((f) => ({ f, text: readFileSync(join(STYLES, f), 'utf8') }));
 
 describe('marque et sauvegarde', () => {
-  it('le nom affiché est Polarity et les clés de sauvegarde restent « polarite.* »', () => {
-    expect(GAME_NAME).toBe('Polarity');
+  it('le nom affiché est Polar Rift et les clés de sauvegarde restent « polarite.* »', () => {
+    expect(GAME_NAME).toBe('Polar Rift');
     expect(STORAGE_NAMESPACE).toBe('polarite');
     for (const k of [SAVE_KEY, CORRUPT_KEY, BACKUP_PREFIX, BALANCE_BACKUP_PREFIX]) expect(k.startsWith('polarite.')).toBe(true);
     expect(SAVE_KEY).toBe('polarite.save');
@@ -79,7 +79,7 @@ describe('écrans : données réelles', () => {
     const idx = order.map((s) => html.indexOf(s));
     expect(idx.every((i) => i >= 0)).toBe(true);
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);
-    expect(html).toContain('alt="Polarity"');
+    expect(html).toContain('alt="Polar Rift"');
     expect(html).toContain('home__version');
     expect(html).not.toContain('reload-app');
     expect(S.homeScreen(save, '2026-10-12', false, true)).toContain('data-action="reload-app"');
@@ -94,7 +94,7 @@ describe('écrans : données réelles', () => {
   });
 
   it('options, apparences, succès, pause, résultat : rendus sans valeur figée', () => {
-    expect(S.optionsScreen(save)).toContain('Polarity v');
+    expect(S.optionsScreen(save)).toContain('Polar Rift v');
     expect(S.cosmeticsScreen(save, 'ships', 'all')).toContain('data-action="cat-trails"');
     const ach = S.achievementsScreen(save);
     for (const a of ACHIEVEMENTS) expect(ach).toContain(a.name);

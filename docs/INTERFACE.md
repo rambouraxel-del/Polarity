@@ -1,16 +1,16 @@
-# Interface — direction artistique « Néon premium » (nom affiché : Polarity)
+# Interface — direction artistique « Néon premium » (nom affiché : Polar Rift)
 
 ## Références et assets
 | Fichier | Usage |
 |---|---|
-| `src/assets/ui/logo.png` (copie : `art/source/logo.png`) | Logo PNG transparent fourni, **utilisé directement** sur l'accueil (jamais recadré ni redessiné) |
+| `src/assets/ui/logo.webp` (master PNG : `art/source/logo.png`) | Logo « Polar Rift » transparent fourni (WebP 1200 px), **utilisé directement** sur l'accueil (jamais recadré ni redessiné) |
 | `art/reference/menus.jpg`, `art/reference/accueil.jpg` | Planche des menus et maquette d'accueil : **références visuelles uniquement**, jamais affichées dans le jeu |
 
 Les écrans sont reconstruits en HTML/CSS réel (vrais textes, vrais boutons, états survol / focus / actif / désactivé). Scores, étoiles,
 niveaux, apparences et succès viennent toujours de la sauvegarde (`SaveData`) : les illustrations de la planche n'en remplacent aucun.
 
 ## Nom et sauvegarde
-- `src/config/brand.ts` : `GAME_NAME` (« Polarity », provisoire : un seul endroit à modifier ; repris dans `index.html` par `vite.config.ts`, l'accueil, les options, le titre de l'onglet).
+- `src/config/brand.ts` : `GAME_NAME` (« Polar Rift » : un seul endroit à modifier ; repris dans `index.html` par `vite.config.ts`, l'accueil, les options, le titre de l'onglet).
 - `STORAGE_NAMESPACE = 'polarite'` : **ne jamais le changer** — les clés `polarite.save`, `polarite.save.avant-v1`, `polarite.save.avant-eq2`, `polarite.save.corrompue` gardent la progression (testé).
 
 ## Tokens centralisés (`src/ui/theme.ts`)

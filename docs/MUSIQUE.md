@@ -4,12 +4,12 @@ Intro (une fois) → boucle (aussi longtemps que la partie dure) → outro (à l
 
 | Fichier (`src/assets/audio/`) | Durée utile | Poids |
 |---|---:|---:|
-| `polarity-intro.mp3` | 24,285 s | 340 890 o |
-| `polarity-loop.mp3` | 153,170 s (+ 2 × 120 ms de garde) | 2 148 615 o |
-| `polarity-outro.mp3` | 15,695 s | 220 570 o |
+| `polar-rift-intro.mp3` | 24,285 s | 340 890 o |
+| `polar-rift-loop.mp3` | 153,170 s (+ 2 × 120 ms de garde) | 2 148 615 o |
+| `polar-rift-outro.mp3` | 15,695 s | 220 570 o |
 
 ## Où est quoi ?
-- `src/data/polarity-audio.json` : repères fournis avec les fichiers, **utilisés tels quels** ; `src/config/music.ts` : constantes (niveau, fondus) dérivées du JSON.
+- `src/data/polar-rift-audio.json` : repères fournis avec les fichiers, **utilisés tels quels** ; `src/config/music.ts` : constantes (niveau, fondus) dérivées du JSON.
 - `src/audio/music.ts` : classe `Music` (programmation Web Audio) ; `src/audio/sfx.ts` : contexte, volume et sourdine **réutilisés** (la musique se branche sur la sortie du jeu) ; `src/app.ts` : points d'appel.
 - `tests/music.test.ts` (faux contexte audio) et section « Musique » de `scripts/e2e.mjs` (vrai navigateur, vrais MP3, rendus hors ligne).
 

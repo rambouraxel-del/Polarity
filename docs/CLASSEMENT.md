@@ -54,7 +54,7 @@ Le jeu fonctionne sans service. Avec un profil et des tickets en réserve, une p
 - Le journal des entrées est conservé en base pour audit (table `runs`) ; prévoir une purge si la base grossit.
 
 ## Mise en service (configuration restante)
-1. **Héberger le service** (Node ≥ 22.13, disque persistant) : Fly.io, Render, un VPS… Exemple avec Docker : `docker build -f server/Dockerfile -t polarity-classement .` puis lancer avec un volume monté sur `/data`.
+1. **Héberger le service** (Node ≥ 22.13, disque persistant) : Fly.io, Render, un VPS… Exemple avec Docker : `docker build -f server/Dockerfile -t polar-rift-classement .` puis lancer avec un volume monté sur `/data`.
 2. **Variables d'environnement du serveur** : `TICKET_SECRET` (≥ 32 caractères aléatoires : `openssl rand -hex 32`, **ne jamais le committer**), `ALLOWED_ORIGINS` (origine du jeu, ex. `https://<utilisateur>.github.io`), `DATABASE_PATH` (défaut `./data/leaderboard.sqlite`), `PORT`, `TRUST_PROXY=1` derrière un proxy fiable.
 3. **HTTPS obligatoire** (les secrets des joueurs transitent dans l'en-tête `Authorization`).
 4. **Sauvegardes** : copier régulièrement le fichier SQLite (mode WAL : utiliser `sqlite3 .backup`).

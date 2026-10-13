@@ -329,7 +329,7 @@ describe('classement : service', () => {
   });
 
   it('persistance : les données survivent à la fermeture et à la réouverture de la base', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'polarity-lb-'));
+    const dir = mkdtempSync(join(tmpdir(), 'polar-rift-lb-'));
     const file = join(dir, 'lb.sqlite');
     try {
       const db1 = openDb(file);

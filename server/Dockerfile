@@ -1,4 +1,4 @@
-# Service de classement : docker build -f server/Dockerfile -t polarity-classement .
+# Service de classement : docker build -f server/Dockerfile -t polar-rift-classement .
 # Variables obligatoires au lancement : TICKET_SECRET (≥ 32 caractères), ALLOWED_ORIGINS. Base : /data (volume persistant).
 FROM node:22-slim
 WORKDIR /app

@@ -60,7 +60,7 @@ Astuce : ouvrez le jeu avec `?debug` pour afficher hitboxes (traits pleins) et s
   (`FX.asteroidGlow`), plus un halo diffus. Purement décoratif, sans collision.
 
 ## Interface
-Logo, thème, police Orbitron (OFL), fond spatial : voir `docs/INTERFACE.md`. Le logo `src/assets/ui/logo.png` est le PNG transparent fourni pour le projet (utilisé tel quel).
+Logo, thème, police Orbitron (OFL), fond spatial : voir `docs/INTERFACE.md`. Le logo « Polar Rift » `src/assets/ui/logo.webp` (1200 × 675, alpha) est dérivé du PNG transparent fourni (master : `art/source/logo.png`) et utilisé tel quel.
 
 ## Vaisseau en partie (v1.4)
 - Taille : +20 % par rapport à la v1.1.x (`VISUAL.shipScale = 1,45 × 1,2`) ; hitbox inchangée (`config/hitbox.ts`).

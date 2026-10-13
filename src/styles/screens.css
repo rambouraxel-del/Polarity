@@ -63,9 +63,9 @@
 
 .home__logo {
   width: 100%;
-  max-width: 520px;
+  max-width: 460px;
   height: auto;
-  max-height: 24vh;
+  max-height: 30vh;
   object-fit: contain;
   filter: drop-shadow(0 0 18px rgb(var(--c-cyan-rgb) / 0.25));
   user-select: none;
@@ -105,7 +105,7 @@
     gap: 8px;
   }
   .home__logo {
-    max-height: 34vh;
+    max-height: 40vh;
   }
   .btn--hero {
     min-height: 72px;

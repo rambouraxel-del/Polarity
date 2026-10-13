@@ -1,4 +1,4 @@
-# Polarité — instructions de travail
+# Polar Rift — instructions de travail
 
 ## Produit
 Jeu d'arcade web (ordinateur + mobile). Un vaisseau tourne seul sur une orbite circulaire ; une seule commande
@@ -48,7 +48,7 @@ npm run check        # typecheck + tests + build
 - `game/` — `session.ts` (horloge, pause, compte à rebours, fin unique), `input.ts` (Pointer Events + Espace).
 - `progression/` — progression/records (`progress.ts`), succès, apparences.
 - `save/save.ts` — sauvegarde localStorage versionnée, validation champ par champ, repli si corrompue.
-- `audio/sfx.ts` — sons Web Audio procéduraux (et contexte audio, volume, sourdine partagés) ; `audio/music.ts` + `config/music.ts` + `data/polarity-audio.json` — musique de partie (intro → boucle → outro, raccords sur l'horloge audio, jamais de `setTimeout`/`ended` pour relancer ; voir `docs/MUSIQUE.md`).
+- `audio/sfx.ts` — sons Web Audio procéduraux (et contexte audio, volume, sourdine partagés) ; `audio/music.ts` + `config/music.ts` + `data/polar-rift-audio.json` — musique de partie (intro → boucle → outro, raccords sur l'horloge audio, jamais de `setTimeout`/`ended` pour relancer ; voir `docs/MUSIQUE.md`).
 - `render/` — `ArenaRenderer.ts` (sprites vaisseau/astéroïdes + effets par code), `geometry.ts` (sens du déplacement et du réacteur, testé),
   `GameScene.ts` (chargement des textures).
 - `ui/` — `theme.ts` (**source unique** des couleurs, polices, rayons, durées → variables CSS), `components.ts` (boutons, en-têtes, réglages…), `icons.ts` (SVG), `screens.ts` (écrans HTML), `space.ts` (fond spatial des menus), HUD, formatage. `app.ts` orchestre le tout.
@@ -59,7 +59,7 @@ npm run check        # typecheck + tests + build
 - `net/protocol.ts` (types/règles partagés jeu ↔ serveur), `net/leaderboard.ts` (client : profil, tickets, file « en attente », jamais de secret), `server/` (service de classement Node + SQLite : validation par REJEU de la partie ; voir `docs/CLASSEMENT.md`). `Simulation.flipLog` = journal des entrées ; `Simulation.assisted` = aide de test (jamais éligible).
 - `config/campaign.ts` — **source unique** de la campagne (niveaux 1 à 5, récompenses en Éclats de campagne, hangar prévu) ; `config/story.ts` + `data/campagne_niveaux_01_05.fr.json` — dialogues (source éditable séparée ; identifiants de scène `n<N>-before|after` = clés de sauvegarde, ne jamais les changer) ;
   `campaign/simulation.ts` (`CampaignSimulation extends Simulation`, **sans toucher à `src/sim/`**), `campaign/progress.ts` (étoiles, récompenses uniques, réserve de campagne), `campaign/bot.ts` ; `ui/campaignScreens.ts` (dont l'écran de récit) + `styles/campaign.css` ; assets `assets/story/*.webp`, masters PNG dans `art/campagne/` (hors bundle). Voir `docs/CAMPAGNE.md`.
-- `config/brand.ts` — `GAME_NAME` (nom affiché, « Polarity ») et `STORAGE_NAMESPACE` (**'polarite', ne jamais changer** : clés de sauvegarde).
+- `config/brand.ts` — `GAME_NAME` (nom affiché, « Polar Rift ») et `STORAGE_NAMESPACE` (**'polarite', ne jamais changer** : clés de sauvegarde).
 - `monetization/ads.ts` — interface publicitaire facultative, désactivée (aucun SDK).
 
 ## Règles de travail

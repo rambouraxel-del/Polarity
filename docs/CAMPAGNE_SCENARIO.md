@@ -1,4 +1,4 @@
-# Polarity — début du chapitre : Douze ans de silence
+# Polar Rift — début du chapitre : Douze ans de silence
 
 Les cinq niveaux ci-dessous constituent uniquement le début du premier chapitre. Les noms et dialogues ont été validés. Ne pas les raccourcir, les réécrire ou inventer des répliques sans demande utilisateur.
 
@@ -167,7 +167,7 @@ Nora : Il y a douze ans.
 Nora : Approche assez pour lire son état. Elle envoie peut-être un ancien message en boucle.
 
 ### Gameplay
-Atteindre la capsule à travers les débris, puis rester à proximité assez longtemps pour télécharger les données de la balise. Réutiliser les commandes de Polarity. Adapter la notion de proximité au moteur existant sans imposer un système de déplacement totalement différent.
+Atteindre la capsule à travers les débris, puis rester à proximité assez longtemps pour télécharger les données de la balise. Réutiliser les commandes de Polar Rift. Adapter la notion de proximité au moteur existant sans imposer un système de déplacement totalement différent.
 
 ### Après le niveau
 [Didascalie : Le téléchargement s’achève. Une vue intérieure apparaît : sièges vides, sangles ouvertes, aucun occupant visible. Afficher maintenant 05b_capsule_interieur.png.]

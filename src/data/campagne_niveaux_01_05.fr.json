@@ -971,7 +971,7 @@
         }
       ],
       "gameplay_notes": [
-        "Atteindre la capsule à travers les débris, puis rester à proximité assez longtemps pour télécharger les données de la balise. Réutiliser les commandes de Polarity. Adapter la notion de proximité au moteur existant sans imposer un système de déplacement totalement différent."
+        "Atteindre la capsule à travers les débris, puis rester à proximité assez longtemps pour télécharger les données de la balise. Réutiliser les commandes de Polar Rift. Adapter la notion de proximité au moteur existant sans imposer un système de déplacement totalement différent."
       ],
       "illustration_before": "illustrations/05a_capsule_exterieur.png",
       "illustration_after": "illustrations/05b_capsule_interieur.png"

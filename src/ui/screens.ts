@@ -16,7 +16,7 @@ import { skinThumb } from '../render/skinSprites';
 import type { LeaderboardResponse, MeResponse, BalancesResponse } from '../net/protocol';
 import type { PendingRun } from '../net/leaderboard';
 import type { SaveData } from '../save/save';
-import logoUrl from '../assets/ui/logo.png';
+import logoUrl from '../assets/ui/logo.webp';
 import { CURRENCY_NAME, button, coin, notice, price, screenHead, setting, stat, switchButton, tabs, walletBar } from './components';
 import { escapeHtml, formatDelta, formatScore, formatTime, starsHtml } from './format';
 import { homeHelp } from './controls';
@@ -72,7 +72,7 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
   return `
   <div class="panel panel--bare home">
     <div class="home__brand">
-      <img class="home__logo" src="${logoUrl}" alt="${escapeHtml(GAME_NAME)}" width="1200" height="341" decoding="async" />
+      <img class="home__logo" src="${logoUrl}" alt="${escapeHtml(GAME_NAME)}" width="1200" height="675" decoding="async" />
       <p class="sub">Un vaisseau, une orbite, une seule commande : inverser.</p>
     </div>
     <div class="home__menu">

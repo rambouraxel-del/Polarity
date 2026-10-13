@@ -7,7 +7,7 @@
   "crossfadeOutroSeconds": 1.2,
   "files": {
     "intro": {
-      "file": "polarity-intro.mp3",
+      "file": "polar-rift-intro.mp3",
       "fileBytes": 340890,
       "decodedSamples": 1070968,
       "decodedDurationSeconds": 24.284988662131518,
@@ -15,7 +15,7 @@
       "playEndSeconds": 24.284988662131518
     },
     "loop": {
-      "file": "polarity-loop.mp3",
+      "file": "polar-rift-loop.mp3",
       "fileBytes": 2148615,
       "decodedSamples": 6765382,
       "decodedDurationSeconds": 153.41002267573697,
@@ -29,7 +29,7 @@
       "edgeGuardSeconds": 0.12
     },
     "outro": {
-      "file": "polarity-outro.mp3",
+      "file": "polar-rift-outro.mp3",
       "fileBytes": 220570,
       "decodedSamples": 692149,
       "decodedDurationSeconds": 15.69498866213152,

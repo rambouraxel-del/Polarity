@@ -52,8 +52,8 @@
 - [x] Apparences en configuration extensible (`config/skins.ts`), une texture par apparence, repli sur « classique », réacteurs distincts des dangers (testé), sauvegarde et application dans tous les modes
 - [x] Tests (`tests/skins.test.ts`, `tests/ui.test.ts`), e2e (équipement, verrouillage, modes, rechargement, repli), documentation (`docs/APPARENCES.md`)
 
-## Direction artistique « Néon premium » — nom Polarity (terminée)
-- [x] Nom affiché « Polarity » (`config/brand.ts`) ; clés de sauvegarde `polarite.*` inchangées (testé)
+## Direction artistique « Néon premium » — nom Polar Rift (ex-Polarity) (terminée)
+- [x] Nom affiché « Polar Rift » (`config/brand.ts` ; ex-« Polarity ») ; clés de sauvegarde `polarite.*` inchangées (testé)
 - [x] Thème centralisé (`ui/theme.ts` → variables CSS → couleurs Phaser), police Orbitron locale, composants et icônes SVG, feuilles de style séparées (`src/styles/`)
 - [x] Logo PNG utilisé directement ; planche des menus et maquette d'accueil recréées en HTML/CSS réel (références dans `art/reference/`)
 - [x] Écrans : accueil, niveaux (terminé / à jouer / verrouillé), défi quotidien, apparences + succès (onglets), options, confirmation, pause, résultat (3 variantes), HUD harmonisé

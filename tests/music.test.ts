@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Music, type AudioHost } from '../src/audio/music';
 import { LOOP_ENTRY_OFFSET, MUSIC } from '../src/config/music';
-import timing from '../src/data/polarity-audio.json';
+import timing from '../src/data/polar-rift-audio.json';
 
 // ————————————————————————————————————————————— faux contexte audio (horloge contrôlée, journal des programmations)
 

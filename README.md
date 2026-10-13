@@ -1,6 +1,6 @@
-# Polarity
+# Polar Rift
 
-(nom provisoire ; le dépôt et les clés de sauvegarde gardent l'identifiant historique « polarite »)
+(le dépôt GitHub et les clés de sauvegarde gardent l'identifiant historique « polarite »)
 
 Jeu d'arcade web au néon, jouable sur ordinateur et mobile. Un petit vaisseau tourne seul sur une orbite :
 **un clic, un toucher ou Espace inverse sa direction**. Évitez les tirs et les secteurs électriques, collectez
