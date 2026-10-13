@@ -41,7 +41,7 @@ describe('écrans de campagne', () => {
     expect(soon.slice(0, soon.indexOf('</article>'))).not.toContain('<button');
   });
 
-  it('carte des niveaux : 5 niveaux, un seul ouvert, puis « Suite du chapitre à venir » (information, pas un bouton)', () => {
+  it('carte des niveaux : 10 niveaux, un seul ouvert, puis « Suite du chapitre à venir » (information, pas un bouton)', () => {
     const html = C.chapterScreen(defaultSave());
     expect(html.match(/<button class="mission-node[ "]/g)?.length).toBe(MISSIONS.length);
     expect(html.match(/disabled/g)?.length).toBe(MISSIONS.length - 1);
@@ -64,7 +64,7 @@ describe('écrans de campagne', () => {
     const seen = C.missionScreen(s, 1);
     expect(seen).toContain('Revoir l’introduction');
     expect(seen).toContain('Revoir la conclusion');
-    expect(C.missionScreen(defaultSave(), 5)).not.toContain('play-mission');
+    expect(C.missionScreen(defaultSave(), 6)).not.toContain('play-mission');
   });
 
   it('journal : seules les scènes découvertes sont listées', () => {
@@ -123,10 +123,10 @@ describe('écrans de campagne', () => {
     expect(fh).toContain('data-replay');
   });
 
-  it('fin des cinq niveaux : « Suite du chapitre à venir » et possibilité de rejouer, sans niveau suivant', () => {
+  it('fin des dix niveaux : « Suite du chapitre à venir » et possibilité de rejouer, sans niveau suivant', () => {
     const s = defaultSave();
-    for (let i = 1; i < 5; i++) applyMission(s, win(i));
-    const last = applyMission(s, win(5));
+    for (let i = 1; i < 10; i++) applyMission(s, win(i));
+    const last = applyMission(s, win(10));
     const html = C.campaignResultScreen(s, last, false);
     expect(html).toContain('Suite du chapitre à venir');
     expect(html).toContain('data-replay');

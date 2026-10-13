@@ -28,14 +28,14 @@ export const OBJECT_KINDS: Record<ObjectKind, { name: string; plural: string; /*
 
 export type Objective =
   /** Survivre `seconds` secondes. */
-  | { type: 'survive'; seconds: number }
+  | { type: 'survive'; seconds: number; /** Compteur affiché (progression en %) : « Trajet », « Traversée du nuage »… */ label?: string }
   /** Collecter `count` balises (en tout, cycles confondus). */
   | { type: 'beacons'; count: number }
   /**
    * Récupérer `count` objets successifs : un seul visible à la fois, durée limitée, un objet manqué réapparaît.
    * `after` : phase d'approche — les objets n'apparaissent qu'une fois `beacons` éclats récoltés (puis `first` secondes plus tard).
    */
-  | { type: 'objects'; kind: ObjectKind; count: number; lifetime: number; first: number; gap: { min: number; max: number }; respawn: number; after?: { beacons: number; label: string } }
+  | { type: 'objects'; kind: ObjectKind; count: number; lifetime: number; first: number; gap: { min: number; max: number }; respawn: number; /** Libellé du compteur (sinon celui du type d'objet). */ counter?: string; after?: { beacons: number; label: string } }
   /** Compléter `count` cycles de balises (verrous désactivés). */
   | { type: 'cycles'; count: number }
   /** Compléter `cycles` cycles, puis récupérer l'objet qui apparaît alors (persistant jusqu'à sa collecte). */
@@ -204,6 +204,132 @@ export const MISSIONS: MissionDef[] = [
     challenge: { kind: 'time', target: 240, text: 'Terminer en moins de 240 secondes' },
     before: 'n5-before',
     after: 'n5-after',
+  },
+  {
+    id: 6,
+    title: 'Ceux qui sont partis',
+    summary: 'Quittez le champ par la route de Nora : des astéroïdes modérés d’abord, puis des passages resserrés. Ramassez des éclats en chemin, sans obligation de tout prendre.',
+    objective: { type: 'survive', seconds: 170, label: 'Route vers la sortie' },
+    objectiveText: 'Quitter le champ par la route de Nora (170 secondes)',
+    limit: 170,
+    speed: 0.55,
+    script: {
+      difficulty: [0.18, 0.34],
+      firstWave: 2.4,
+      phases: [phase(0, 70, { shot: 1, diameter: 0.5, parallel: 0.3 }), phase(70, 170, { shot: 1, parallel: 0.6, cross: 0.5, convoy: 0.5, burst: 0.2 }, 0.9)],
+      breaths: [[34, 37], [70, 73], [104, 107], [138, 141]],
+      lines: [],
+      announces: [{ at: 68, text: 'Passages resserrés' }],
+    },
+    challenge: { kind: 'beacons', target: 100, text: 'Récolter au moins 100 éclats en chemin' },
+    before: 'n6-before',
+    after: 'n6-after',
+  },
+  {
+    id: 7,
+    title: 'Dans le bruit',
+    summary: 'Traversez le nuage chargé : les décharges électriques arrivent progressivement et la radio se coupe. Gardez le cap jusqu’à la sortie.',
+    objective: { type: 'survive', seconds: 180, label: 'Traversée du nuage' },
+    objectiveText: 'Traverser le nuage chargé (180 secondes)',
+    limit: 180,
+    speed: 0.55,
+    script: {
+      difficulty: [0.12, 0.26],
+      firstWave: 2.8,
+      phases: [
+        phase(0, 30, { shot: 1, diameter: 0.4 }, 1.15),
+        phase(30, 70, { arc: 0.5, shot: 0.8 }, 1.25),
+        phase(70, 115, { arc: 0.8, twinArcs: 0.25, shot: 0.5 }, 1.3),
+        phase(115, 155, { arc: 0.8, twinArcs: 0.3, chase: 0.12, shot: 0.5 }, 1.3),
+        phase(155, 180, { arc: 0.7, twinArcs: 0.3, chase: 0.15, shot: 0.5 }, 1.3),
+      ],
+      breaths: [[68, 71], [113, 116], [153, 156]],
+      lines: [],
+      announces: [
+        { at: 28, text: 'Nuage chargé : décharges en approche' },
+        { at: 72, text: 'Parasites : liaison radio coupée' },
+        { at: 150, text: 'Liaison radio rétablie' },
+      ],
+    },
+    challenge: { kind: 'beacons', target: 100, text: 'Récolter au moins 100 éclats dans le nuage' },
+    before: 'n7-before',
+    after: 'n7-after',
+  },
+  {
+    id: 8,
+    title: 'À contre-courant',
+    summary: 'Des vagues de trajectoires anormales sont annoncées à l’avance. Relevez les perturbations entre les vagues pour compléter le dossier.',
+    objective: { type: 'objects', kind: 'data', count: 6, lifetime: 18, first: 14, gap: { min: 22, max: 30 }, respawn: 3, counter: 'Relevés de perturbation' },
+    objectiveText: 'Relever 6 perturbations entre les vagues d’astéroïdes',
+    limit: 300,
+    speed: 0.55,
+    script: {
+      difficulty: [0.18, 0.38],
+      firstWave: 3,
+      phases: [
+        phase(0, 45, { shot: 1, diameter: 0.3 }, 1.1),
+        phase(45, 80, { convoy: 1.2, echo: 0.6, shot: 0.4 }),
+        phase(80, 115, { shot: 1, diameter: 0.3 }, 1.1),
+        phase(115, 150, { fragment: 1, convoy: 0.8, echo: 0.6, shot: 0.3 }),
+        phase(150, 185, { shot: 1, diameter: 0.3 }, 1.1),
+        phase(185, 300, { convoy: 1, fragment: 0.8, echo: 0.8, parallel: 0.4 }, 0.9),
+      ],
+      breaths: [[80, 83], [150, 153], [232, 235], [270, 273]],
+      lines: [],
+      announces: [
+        { at: 43, text: 'Vague de trajectoires !' },
+        { at: 113, text: 'Vague de trajectoires !' },
+        { at: 183, text: 'Vague de trajectoires !' },
+      ],
+    },
+    challenge: { kind: 'time', target: 175, text: 'Terminer en moins de 175 secondes' },
+    before: 'n8-before',
+    after: 'n8-after',
+  },
+  {
+    id: 9,
+    title: 'Ne laissez pas repartir',
+    summary: 'Longez la haute atmosphère sans plonger : décharges et débris. Suivez les balises de navigation qui guident la route, et renoncez plutôt que de descendre.',
+    objective: { type: 'objects', kind: 'data', count: 7, lifetime: 20, first: 12, gap: { min: 24, max: 32 }, respawn: 3, counter: 'Balises de navigation' },
+    objectiveText: 'Suivre 7 balises de navigation le long de la bordure atmosphérique',
+    limit: 300,
+    speed: 0.6,
+    script: {
+      difficulty: [0.18, 0.34],
+      firstWave: 2.8,
+      phases: [
+        phase(0, 50, { shot: 1, diameter: 0.5, fragment: 0.4 }),
+        phase(50, 100, { arc: 0.8, shot: 0.6, fragment: 0.4 }, 1.1),
+        phase(100, 160, { arc: 1, twinArcs: 0.4, shot: 0.4, fragment: 0.5 }, 1.15),
+        phase(160, 300, { arc: 0.9, twinArcs: 0.4, fragment: 0.5, convoy: 0.3, shot: 0.3 }, 1.15),
+      ],
+      breaths: [[48, 51], [98, 101], [158, 161], [208, 211], [256, 259]],
+      lines: [],
+      announces: [{ at: 48, text: 'Haute atmosphère : décharges, restez en altitude' }],
+    },
+    challenge: { kind: 'time', target: 220, text: 'Terminer en moins de 220 secondes' },
+    before: 'n9-before',
+    after: 'n9-after',
+  },
+  {
+    id: 10,
+    title: 'La Lisière',
+    summary: 'Approchez le grand transport à distance, au milieu des débris. Relevez ses points d’inspection (moteurs, coque, accès), puis rejoignez la position de contact.',
+    objective: { type: 'objects', kind: 'data', count: 7, lifetime: 18, first: 12, gap: { min: 24, max: 32 }, respawn: 3, counter: 'Relevés d’inspection' },
+    objectiveText: 'Relever 7 points d’inspection (moteurs, coque, accès), le dernier au point de contact',
+    limit: 300,
+    speed: 0.55,
+    script: {
+      difficulty: [0.2, 0.36],
+      firstWave: 2.6,
+      phases: [phase(0, 300, { shot: 1, diameter: 0.5, parallel: 0.3, cross: 0.25, fragment: 0.5, convoy: 0.25, burst: 0.15 }, 1.1)],
+      breaths: [[34, 37], [72, 75], [110, 113], [148, 151], [186, 189], [224, 227], [262, 265]],
+      lines: [],
+      announces: [],
+    },
+    challenge: { kind: 'time', target: 225, text: 'Terminer en moins de 225 secondes' },
+    before: 'n10-before',
+    after: 'n10-after',
   },
 ];
 

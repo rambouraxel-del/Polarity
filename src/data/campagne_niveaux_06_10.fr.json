@@ -1,0 +1,939 @@
+{
+  "schema_version": 1,
+  "locale": "fr",
+  "levels": [
+    {
+      "id": "level_06",
+      "title": "Ceux qui sont partis",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "J’ai une route. Elle contourne la partie la plus dense du champ."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Et les secours ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ils ont reçu les coordonnées. Ils veulent des relevés plus précis avant d’envoyer un équipage."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Donc ils attendent."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ils évitent d’ajouter une deuxième disparition à la première."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "J’ai trouvé quelque chose dans la capsule."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Quoi ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Elle a bien quitté la Lisière il y a douze ans. Six personnes à bord."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Elles ont pu rejoindre un autre vaisseau."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Le sas a été ouvert onze minutes après le départ. Puis plus aucune entrée."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ça ne nous dit pas ce qui leur est arrivé."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Non."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Mais quelqu’un savait encore ouvrir ce sas."
+        }
+      ],
+      "after": [
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "J’ai retrouvé la liste des passagers de la Lisière."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Les six de la capsule ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tout le vaisseau. Quarante-trois personnes."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Quarante-trois…"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Équipage compris."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Ils transportaient quoi ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Du matériel d’extraction. C’est ce que dit le rapport public."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Et le reste ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je n’ai que le rapport public."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je pensais trouver une épave."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu peux encore faire demi-tour."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je sais."
+        }
+      ],
+      "gameplay_notes": [
+        "Quitter le champ selon le trajet établi par Nora : astéroïdes modérés puis passages resserrés ; collecter une quantité raisonnable d'éclats rencontrés sur la route, sans obligation de tout ramasser. Objectif prioritaire : atteindre la sortie. Durée visée : 90–180 s."
+      ],
+      "illustration_before": "illustrations/campaign_06.png",
+      "illustration_after": "illustrations/campaign_06.png"
+    },
+    {
+      "id": "level_07",
+      "title": "Dans le bruit",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu arrives dans le nuage. Après ça, ma voix risque de couper."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Combien de temps ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Quelques minutes, si tu gardes le cap."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Et le signal ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ses coordonnées sont enregistrées. Tu peux continuer sans le recevoir."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu dis ça comme si c’était rassurant."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je préfère que tu suives une position fixe plutôt qu’une voix au milieu des parasites."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Si tu entends quelque chose, enregistre-le. N’essaie pas de répondre en changeant de trajectoire."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Compris."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "On se retrouve de l’autre côté."
+        }
+      ],
+      "after": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora ? Je suis sorti."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je te reçois. Tu as eu des dégâts ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Rien que je puisse voir. Mais j’ai reçu une voix."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Fais écouter."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "transmission_inconnue",
+          "display_name": "Voix enregistrée",
+          "portrait": "portraits/transmission_inconnue.png",
+          "text": "…six personnes… sas secondaire… pas le principal…"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Six personnes. Comme dans la capsule."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ça pourrait être un message de l’évacuation."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Pourquoi il arrive maintenant ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Si une alimentation s’est rétablie, une vieille transmission peut repartir."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Donc on suit peut-être des gens morts depuis douze ans."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "On suit un vaisseau qui émet aujourd’hui. C’est tout ce qu’on sait."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "D’accord."
+        }
+      ],
+      "gameplay_notes": [
+        "Traverser un nuage chargé, dangers électriques introduits progressivement ; la radio est coupée pendant une portion du trajet (sans conséquence sur la compréhension). Objectif : atteindre la sortie en évitant les décharges. Durée visée : 100–190 s."
+      ],
+      "illustration_before": "illustrations/campaign_07.png",
+      "illustration_after": "illustrations/campaign_07.png"
+    },
+    {
+      "id": "level_08",
+      "title": "À contre-courant",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora, regarde les trajectoires."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je vois."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "C’est comme tout à l’heure."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu es pourtant loin du premier champ."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Les éclats se regroupent encore."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Et tes capteurs enregistrent la même perturbation."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Une autre tempête ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Peut-être. Attends…"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Le signal devient plus fort juste avant chaque variation."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "La Lisière fait bouger les astéroïdes ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je n’ai pas dit ça. Les deux phénomènes peuvent avoir la même cause."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Mais ils sont liés."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ça, oui. Ça commence à y ressembler."
+        }
+      ],
+      "after": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "J’ai passé la dernière vague."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tes relevés viennent de compléter le dossier transmis aux secours."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Ils vont venir ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ils évaluent le risque."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu as dit quarante-trois personnes."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je leur ai dit aussi."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Si cette chose a provoqué la première tempête… c’est elle qui nous a permis de trouver la capsule."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Ou c’est elle qui l’a dégagée."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu crois que quelqu’un l’a fait exprès ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je crois qu’on a trop peu d’informations."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Et qu’on va bientôt en avoir davantage."
+        }
+      ],
+      "gameplay_notes": [
+        "Traverser des vagues de trajectoires d'astéroïdes annoncées clairement ; récolter des relevés accessibles pour synchroniser les mesures. Objectif : relever les perturbations et atteindre la sortie. Durée visée : 120–210 s."
+      ],
+      "illustration_before": "illustrations/campaign_08.png",
+      "illustration_after": "illustrations/campaign_08.png"
+    },
+    {
+      "id": "level_09",
+      "title": "Ne laissez pas repartir",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "La route extérieure n’est plus praticable."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "On attend que ça passe ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu peux. Mais la perturbation augmente."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "L’autre passage ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "La haute atmosphère. Tu restes au-dessus des couches épaisses."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "La Traverse n’a pas été conçue pour ça."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Pour traverser une atmosphère entière, non. Pour en longer la bordure, oui. Tant que tu ne descends pas."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Et si les décharges me poussent vers le bas ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu renonces au passage. Même si tu es presque arrivé."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "D’accord."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je veux que tu le penses, Élias."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je le pense."
+        }
+      ],
+      "after": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Le signal est beaucoup plus net. J’ai récupéré un autre fragment."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Écoute-le."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "transmission_inconnue",
+          "display_name": "Voix enregistrée",
+          "portrait": "portraits/transmission_inconnue.png",
+          "text": "…ne laissez pas… repartir… même si…"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Repartir quoi ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Le vaisseau, peut-être."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Pourquoi empêcher des gens de partir ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "On ignore à qui cette personne parlait."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "On ignore beaucoup de choses."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Oui. Alors quand tu arriveras, tu observes. Tu ne réactives rien."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Même pour ouvrir un accès ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Tu vérifies d’abord ce que tu alimentes."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora…"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Je l’ai aussi."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "C’est beaucoup plus grand que je pensais."
+        }
+      ],
+      "gameplay_notes": [
+        "Longer la haute atmosphère sans plonger, débris et électricité déjà rencontrés ; récolter les balises de navigation qui guident réellement la route. Objectif : atteindre le point de sortie. Durée visée : 130–230 s."
+      ],
+      "illustration_before": "illustrations/campaign_09.png",
+      "illustration_after": "illustrations/campaign_09.png"
+    },
+    {
+      "id": "level_10",
+      "title": "La Lisière",
+      "before": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Elle est là."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Le profil correspond aux archives."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Elle n’est pas détruite."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "La coque extérieure semble entière. Ça ne dit rien de l’intérieur."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Douze ans de recherches… et personne ne l’a trouvée ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Elle dérive dans une zone où les capteurs fonctionnent mal. Sans la balise, tu serais passé à côté."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Tu vois des capsules ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Des logements. Plusieurs sont vides."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Donc d’autres ont pu partir."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Oui."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "On commence par un tour extérieur."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "À distance. Je veux une vue des moteurs et des accès."
+        }
+      ],
+      "after": [
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Les moteurs sont éteints. Je ne vois aucun impact majeur."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Et aucune lumière dans les secteurs d’habitation."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Pourtant quelqu’un émet."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Transport Lisière, ici la Traverse. Nous avons reçu votre appel. Est-ce que quelqu’un m’entend ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je suis à proximité. Si vous pouvez recevoir sans transmettre, allumez une lumière extérieure."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nora. Tu as vu ?"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Oui."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Ils nous ont entendus."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Attends. Ce ne sont pas les feux de position."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "transmission_inconnue",
+          "display_name": "Transmission inconnue",
+          "portrait": "portraits/transmission_inconnue.png",
+          "text": "Vaisseau non autorisé. Interrompez votre approche."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Nous venons porter assistance. Nous avons retrouvé votre capsule."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "transmission_inconnue",
+          "display_name": "Transmission inconnue",
+          "portrait": "portraits/transmission_inconnue.png",
+          "text": "Interrompez votre approche."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Élias. Recule."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "elias",
+          "display_name": "Élias",
+          "portrait": "portraits/elias.png",
+          "text": "Je recule."
+        },
+        {
+          "type": "dialogue",
+          "speaker": "nora",
+          "display_name": "Nora",
+          "portrait": "portraits/nora.png",
+          "text": "Coupe la liaison et recule !"
+        }
+      ],
+      "gameplay_notes": [
+        "Approche d'observation à distance du grand transport : relever plusieurs points d'inspection (moteurs, coques, accès) puis rejoindre la position de contact. Aucun laser dans ce niveau : les défenses apparaissent à la scène finale seulement. Durée visée : 140–240 s."
+      ],
+      "illustration_before": "illustrations/campaign_10.png",
+      "illustration_after": "illustrations/campaign_10.png"
+    }
+  ]
+}

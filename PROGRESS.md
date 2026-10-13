@@ -5,6 +5,9 @@
 - [x] Tests unitaires (faux contexte) + e2e réel (MP3, rendus hors ligne des raccords)
 - [ ] **Écoute sur Safari iPhone à effectuer** (décodage MP3, raccords, déverrouillage)
 
+## Campagne niveaux 6 à 10 (intégrés, à valider en jeu réel)
+Dialogues, 5 illustrations WebP, 5 missions (durées 150–200 s pour le joueur parfait), sauvegarde inchangée (format 6, `chapterComplete` recalculé), tests unitaires adaptés. Pas d'e2e ni de monitoring lancés. Voir `docs/CAMPAGNE.md`.
+
 ## Campagne « Douze ans de silence », niveaux 1 à 5 (branche `campagne-douze-ans`, livré, à valider en jeu réel)
 - [x] Pack narratif intégré : 6 illustrations + 3 portraits (WebP optimisés, masters dans `art/campagne/`), dialogues JSON non altérés (`src/data/`), mapping des portraits
 - [x] Écran de récit mobile (illustration au-dessus, boîte de dialogue, portrait, texte progressif, révéler/avancer, passer, relecture, journal, clavier)

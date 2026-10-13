@@ -20,9 +20,9 @@ const report = (missionId: number, over: Partial<MissionReport> = {}, stars?: Pa
 });
 const failed = (id: number): MissionReport => report(id, { outcome: 'failure' }, { main: false, challenge: false });
 
-describe('progression de campagne (niveaux 1 à 5)', () => {
-  it('cinq niveaux ; seul le niveau 1 est ouvert, le suivant s’ouvre à la réussite (aucun score minimal)', () => {
-    expect(MISSIONS).toHaveLength(5);
+describe('progression de campagne (niveaux 1 à 10)', () => {
+  it('dix niveaux ; seul le niveau 1 est ouvert, le suivant s’ouvre à la réussite (aucun score minimal)', () => {
+    expect(MISSIONS).toHaveLength(10);
     const s = defaultSave();
     expect(isMissionUnlocked(s, 1)).toBe(true);
     expect(isMissionUnlocked(s, 2)).toBe(false);
@@ -31,6 +31,7 @@ describe('progression de campagne (niveaux 1 à 5)', () => {
     expect(isMissionUnlocked(s, 2)).toBe(true);
     expect(isMissionUnlocked(s, 3)).toBe(false);
     expect(isMissionUnlocked(s, 6)).toBe(false);
+    expect(isMissionUnlocked(s, 11)).toBe(false);
   });
 
   it('un échec ne verse rien, ne débloque rien, ne retire rien', () => {
@@ -83,20 +84,20 @@ describe('progression de campagne (niveaux 1 à 5)', () => {
 
   it('dernier niveau livré : « suite à venir », une seule fois ; aucun cosmétique n’est débloqué', () => {
     const s = defaultSave();
-    for (let i = 1; i < 5; i++) applyMission(s, report(i));
+    for (let i = 1; i < 10; i++) applyMission(s, report(i));
     expect(s.campaign.chapterComplete).toBe(false);
-    const r = applyMission(s, report(5));
+    const r = applyMission(s, report(10));
     expect(r.chapterCompleted).toBe(true);
     expect(r.unlockedMission).toBeNull();
     expect(s.campaign.chapterComplete).toBe(true);
-    expect(applyMission(s, report(5)).chapterCompleted).toBe(false);
+    expect(applyMission(s, report(10)).chapterCompleted).toBe(false);
     expect(s.owned).toEqual([]);
   });
 
-  it('étoiles : 2 par niveau, 10 au total', () => {
+  it('étoiles : 2 par niveau, 20 au total', () => {
     const s = defaultSave();
     for (const m of MISSIONS) applyMission(s, report(m.id, {}, { challenge: true }));
-    expect(totalStars(s)).toBe(10);
+    expect(totalStars(s)).toBe(20);
   });
 
   it('scènes : lues une seule fois (automatiquement), identifiants inconnus ignorés', () => {

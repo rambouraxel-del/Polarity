@@ -402,6 +402,7 @@ export class CampaignSimulation extends Simulation {
     const s = this.mission.script;
     switch (o.type) {
       case 'survive': {
+        if (o.label) return `${o.label} ${Math.min(100, Math.floor((this.time / o.seconds) * 100))} %`;
         if (s.sequences) {
           const cur = Math.min(s.sequences.length, s.sequences.filter(([a]) => this.time >= a).length);
           return cur > 0 ? `Séquence ${cur}/${s.sequences.length}` : 'Séquences électriques : 0/3';
@@ -411,7 +412,7 @@ export class CampaignSimulation extends Simulation {
       case 'beacons': return `Éclats ${Math.min(this.beaconsCollected, o.count)}/${o.count}`;
       case 'objects':
         if (o.after && !this.approachDone) return `${o.after.label} : éclats ${Math.min(this.beaconsCollected, o.after.beacons)}/${o.after.beacons}`;
-        return `${OBJECT_KINDS[o.kind].counter} ${this.objectsCollected}/${o.count}`;
+        return `${o.counter ?? OBJECT_KINDS[o.kind].counter} ${this.objectsCollected}/${o.count}`;
       case 'cycles': return `Verrous ${Math.min(this.cyclesDone, o.count)}/${o.count}`;
       case 'cyclesThenObject': return this.cyclesDone < o.cycles ? `Cycles ${this.cyclesDone}/${o.cycles}` : this.objectsCollected >= 1 ? 'Boîte noire récupérée' : 'Boîte noire sur l’orbite';
     }

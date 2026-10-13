@@ -1,5 +1,7 @@
 # Reprise
 
+**Campagne niveaux 6 à 10 intégrés (« Douze ans de silence ») :** dialogues `src/data/campagne_niveaux_06_10.fr.json`, illustrations `src/assets/story/campaign_06..10.webp` (masters dans `art/campagne/illustrations/level_0X_*.png`), missions 6–10 dans `src/config/campaign.ts` (survie 170 s, nuage électrique 180 s, 6 relevés, 7 balises, 7 points d’inspection ; aucun laser hostile), « Suite du chapitre à venir » après le niveau 10. `src/sim/` et `BALANCE_VERSION` inchangés. Vérifié seulement par compilation et tests unitaires ciblés (aucun e2e, aucun monitoring) ; `scripts/e2e.mjs` non mis à jour ni rejoué pour 6–10. **Reste :** validation humaine de l’équilibrage (niveaux 7 et 9 durs pour un joueur lent). Détail : `docs/CAMPAGNE.md`.
+
 **Ajustements campagne (niveaux 1 à 5) :** durées de 90 à 300 s (≈ 95 → 240 s), objectifs et compteurs revus (84 / 114 éclats, survie 150 s, 6 fragments, approche 100 éclats puis 5 passages), scènes centrées en un bloc compact. Vérifié seulement par compilation, types et tests unitaires ciblés (pas d'e2e relancé : `scripts/e2e.mjs` a été mis à jour pour les nouveaux textes mais **non rejoué**). Détail : `docs/CAMPAGNE.md`.
 
 **Dernière étape (musique) :** intro → boucle → outro (3 MP3, 2,71 Mo) intégrés sur `main` (`src/audio/music.ts`, `docs/MUSIQUE.md`) ; raccords programmés sur l'horloge Web Audio, vérifiés par tests et rendus hors ligne. **Reste : écoute sur Safari iPhone.**

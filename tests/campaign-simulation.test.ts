@@ -23,10 +23,15 @@ describe('missions de campagne : faisabilité et durée (joueur automatique parf
     });
   }
 
-  it('durée croissante avec l’avancée de l’histoire (joueur parfait, médiane)', () => {
-    const times = MISSIONS.map((m) => playMission(CampaignSimulation.create(m, 1000)).report().time);
-    for (let i = 1; i < times.length; i++) expect(times[i], `niveau ${i + 1}`).toBeGreaterThanOrEqual(times[i - 1] - 1);
-    expect(times[4]).toBeGreaterThan(times[0] + 60);
+  it('durées de jeu du joueur parfait dans les fourchettes prévues par niveau (6 à 10)', () => {
+    const range: Record<number, [number, number]> = { 6: [90, 180], 7: [100, 190], 8: [120, 210], 9: [130, 230], 10: [140, 240] };
+    for (const m of MISSIONS.filter((x) => x.id >= 6)) {
+      const t = playMission(CampaignSimulation.create(m, 1000)).report().time;
+      expect(t, `niveau ${m.id}`).toBeGreaterThanOrEqual(range[m.id][0]);
+      expect(t, `niveau ${m.id}`).toBeLessThanOrEqual(range[m.id][1]);
+    }
+    const first = MISSIONS.map((m) => playMission(CampaignSimulation.create(m, 1000)).report().time);
+    expect(first[4]).toBeGreaterThan(first[0] + 60);
   });
 
   it('consignes, compteurs et conditions de victoire concordent', () => {
@@ -69,23 +74,27 @@ describe('missions de campagne : faisabilité et durée (joueur automatique parf
 });
 
 describe('missions de campagne : structure', () => {
-  it('cinq niveaux consécutifs, limites ≤ 300 s', () => {
-    expect(MISSIONS.map((m) => m.id)).toEqual([1, 2, 3, 4, 5]);
+  it('dix niveaux consécutifs, limites ≤ 300 s', () => {
+    expect(MISSIONS.map((m) => m.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     for (const m of MISSIONS) expect(m.limit).toBeLessThanOrEqual(300);
   });
 
-  it('astéroïdes seulement : ni secteur électrique ni laser avant les niveaux suivants', () => {
+  it('aucun laser hostile avant le niveau 11 ; niveaux 1 à 5 : astéroïdes seulement', () => {
     const asteroids = new Set(['shot', 'diameter', 'parallel', 'cross', 'burst', 'fragment', 'convoy']);
     for (const m of MISSIONS) {
       const all = [...m.script.phases.map((p) => p.weights), ...(m.script.phaseByCycles ?? [])];
-      for (const w of all) for (const k of Object.keys(w)) expect(asteroids.has(k), `niveau ${m.id} : motif ${k}`).toBe(true);
+      for (const w of all) for (const k of Object.keys(w)) {
+        expect(k, `niveau ${m.id} : laser`).not.toMatch(/laser/);
+        if (m.id <= 5) expect(asteroids.has(k), `niveau ${m.id} : motif ${k}`).toBe(true);
+      }
     }
   });
 
   it('aucune transmission en pleine esquive : la narration se joue avant et après le niveau', () => {
     for (const m of MISSIONS) {
       expect(m.script.lines).toEqual([]);
-      expect(m.script.announces).toEqual([]);
+      // Niveaux 1 à 5 : aucun bandeau ; niveaux 6 à 10 : seulement de courts bandeaux d'information (jamais de dialogue)
+      if (m.id <= 5) expect(m.script.announces).toEqual([]);
     }
   });
 

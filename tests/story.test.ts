@@ -2,7 +2,11 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MISSIONS } from '../src/config/campaign';
 import { SPEAKERS, STORY, STORY_ASSET_KEYS, storyAsset } from '../src/config/story';
-import raw from '../src/data/campagne_niveaux_01_05.fr.json';
+import raw1 from '../src/data/campagne_niveaux_01_05.fr.json';
+import raw2 from '../src/data/campagne_niveaux_06_10.fr.json';
+
+type RawLevels = { levels: { id: string; before: { type: string; text: string }[]; after: { type: string; text: string }[] }[] };
+const raw: RawLevels = { levels: [...(raw1 as RawLevels).levels, ...(raw2 as RawLevels).levels] };
 
 describe('histoire : données et assets', () => {
   it('une scène « avant » et une « après » par niveau, rattachées aux niveaux de la campagne', () => {
@@ -15,8 +19,7 @@ describe('histoire : données et assets', () => {
   });
 
   it('les textes du JSON sont repris sans altération (ordre, accents, ellipses), didascalies exclues', () => {
-    const levels = (raw as { levels: { before: { type: string; text: string }[]; after: { type: string; text: string }[] }[] }).levels;
-    levels.forEach((lv, i) => {
+    raw.levels.forEach((lv, i) => {
       for (const [phase, entries] of [['before', lv.before], ['after', lv.after]] as const) {
         const seq = STORY.find((s) => s.id === `n${i + 1}-${phase}`)!;
         const expected = entries.filter((e) => e.type !== 'direction').map((e) => e.text);
@@ -30,7 +33,7 @@ describe('histoire : données et assets', () => {
   });
 
   it('aucune didascalie n’est affichée comme parole', () => {
-    const dir = (raw as { levels: { before: { type: string; text: string }[]; after: { type: string; text: string }[] }[] }).levels.flatMap((l) => [...l.before, ...l.after]).filter((e) => e.type === 'direction').map((e) => e.text);
+    const dir = raw.levels.flatMap((l) => [...l.before, ...l.after]).filter((e) => e.type === 'direction').map((e) => e.text);
     expect(dir.length).toBeGreaterThan(10);
     const spoken = new Set(STORY.flatMap((s) => s.lines.map((l) => l.text)));
     for (const d of dir) expect(spoken.has(d)).toBe(false);
@@ -49,7 +52,8 @@ describe('histoire : données et assets', () => {
     for (const sp of Object.values(SPEAKERS)) if (sp.portrait) expect(storyAsset(sp.portrait)).not.toBe('');
     expect(STORY.find((s) => s.id === 'n5-before')!.illustration).toBe('05a_capsule_exterieur');
     expect(STORY.find((s) => s.id === 'n5-after')!.illustration).toBe('05b_capsule_interieur');
-    expect(STORY_ASSET_KEYS.length).toBe(9);
+    for (let n = 6; n <= 10; n++) expect(STORY.find((x) => x.id === `n${n}-before`)!.illustration).toBe(`campaign_${String(n).padStart(2, '0')}`);
+    expect(STORY_ASSET_KEYS.length).toBe(14);
   });
 
   it('poids des assets du jeu : illustrations < 350 Ko, portraits < 60 Ko, masters PNG hors du bundle', () => {
@@ -59,7 +63,7 @@ describe('histoire : données et assets', () => {
       const portrait = ['elias.webp', 'nora.webp', 'transmission_inconnue.webp'].includes(f);
       expect(kb, f).toBeLessThan(portrait ? 60 : 350);
     }
-    expect(readdirSync('art/campagne/illustrations').length).toBe(6);
+    expect(readdirSync('art/campagne/illustrations').length).toBe(11);
     expect(readdirSync(dir).every((f) => f.endsWith('.webp'))).toBe(true);
   });
 

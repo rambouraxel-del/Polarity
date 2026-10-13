@@ -1,9 +1,10 @@
-import data from '../data/campagne_niveaux_01_05.fr.json';
+import data1 from '../data/campagne_niveaux_01_05.fr.json';
+import data2 from '../data/campagne_niveaux_06_10.fr.json';
 
 /**
- * Histoire de la campagne : « Douze ans de silence » (début du chapitre 1, niveaux 1 à 5).
+ * Histoire de la campagne : « Douze ans de silence » (chapitre 1, niveaux 1 à 10).
  *
- * - Les textes sont dans `src/data/campagne_niveaux_01_05.fr.json` (source éditable, séparée de la logique, transcription fournie telle quelle).
+ * - Les textes sont dans `src/data/campagne_niveaux_01_05.fr.json` et `campagne_niveaux_06_10.fr.json` (sources éditables, séparées de la logique, transcriptions fournies telles quelles).
  *   Ce module n'en fait que des séquences prêtes à afficher : une séquence « avant » et une « après » par niveau, identifiants stables
  *   (`n1-before`, `n1-after`…) enregistrés dans la sauvegarde : ne jamais les changer.
  * - Les didascalies (`direction`) sont des intentions de mise en scène : elles ne sont jamais affichées comme du texte parlé.
@@ -103,11 +104,14 @@ function lines(entries: RawEntry[]): StoryLine[] {
   return out;
 }
 
-const raw = (data as { levels: RawLevel[] }).levels;
+const raw: RawLevel[] = [...(data1 as { levels: RawLevel[] }).levels, ...(data2 as { levels: RawLevel[] }).levels];
 
-export const STORY: StorySequence[] = raw.flatMap((lv, i) => {
-  const level = i + 1;
-  const last = level === raw.length;
+/** `level_07` → 7 : le numéro vient de l'identifiant du niveau, pas de l'ordre des fichiers. */
+const levelNumber = (lv: RawLevel): number => Number(lv.id.replace(/^level_/, ''));
+
+export const STORY: StorySequence[] = raw.flatMap((lv) => {
+  const level = levelNumber(lv);
+  const last = level === Math.max(...raw.map(levelNumber));
   return [
     { id: `n${level}-before`, title: `Niveau ${level} · ${lv.title} · Introduction`, level, phase: 'before' as const, illustration: keyOf(lv.illustration_before), lines: lines(lv.before) },
     { id: `n${level}-after`, title: `Niveau ${level} · ${lv.title} · Conclusion`, level, phase: 'after' as const, illustration: keyOf(lv.illustration_after), lines: lines(lv.after), chapterEnd: last || undefined },

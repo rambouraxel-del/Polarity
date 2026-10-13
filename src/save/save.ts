@@ -365,7 +365,8 @@ function sanitizeCampaign(raw: Record<string, unknown>): CampaignSave {
     out.upgrades.enabled = pick(raw.upgrades.enabled).filter((id) => out.upgrades.owned.includes(id));
   }
   out.reserve = Math.floor(num(raw.reserve, 0, 0, WALLET_MAX));
-  out.chapterComplete = bool(raw.chapterComplete, false);
+  // Le chapitre n'est terminé que si toutes les missions livrées sont réussies (une sauvegarde faite avec moins de niveaux n'est pas « terminée »)
+  out.chapterComplete = bool(raw.chapterComplete, false) && MISSIONS.every((m) => out.missions[missionKey(m.id)]?.main === true);
   return out;
 }
 
