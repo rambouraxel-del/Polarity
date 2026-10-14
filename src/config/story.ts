@@ -126,4 +126,6 @@ export function storyById(id: string): StorySequence | undefined {
 export const STORY_UI = {
   /** Vitesse d'apparition du texte (caractères par seconde) ; instantané avec « effets réduits ». */
   charsPerSecond: 48,
+  /** Deux actions de récit (toucher, Entrée, Espace) séparées de moins que ce délai (ms) comptent pour une seule. */
+  tapGuardMs: 160,
 } as const;

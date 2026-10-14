@@ -1,14 +1,14 @@
 import type { PatternWeights } from '../sim/patterns';
 
 /**
- * Campagne — chapitre 1, « Douze ans de silence » (niveaux 1 à 5 livrés ; la suite est à venir). Toutes les missions, leurs objectifs, leur difficulté, leurs
+ * Campagne — chapitre 1, « Douze ans de silence » (niveaux 1 à 10 livrés ; la suite est à venir). Toutes les missions, leurs objectifs, leur difficulté, leurs
  * récompenses et les améliorations du hangar sont décrits ICI, en données typées : ajouter un chapitre ou une mission =
  * ajouter des entrées, sans toucher à la simulation.
  *
  * Règles :
  * - Durées = temps de jeu actif (la pause les arrête). Les missions de collecte se terminent dès l'objectif atteint.
  * - La vitesse du vaisseau est réglée PAR MISSION (`speed`, fraction de 2,0 rad/s) : la courbe temporelle de la Survie ne s'applique pas.
- * - Niveaux 1 à 5 : les astéroïdes sont les seuls dangers (aucun secteur électrique ni laser avant les niveaux suivants).
+ * - Niveaux 1 à 5 : les astéroïdes sont les seuls dangers. Niveaux 6 à 10 : + nuages électriques (secteurs) ; aucun laser hostile avant le niveau 11.
  * - Aucune transmission n'est affichée pendant une esquive : la narration se joue avant et après chaque niveau (config/story.ts).
  * - Les trajectoires sont tirées de la graine de la tentative (reproductibles) ; les phases importantes sont scénarisées
  *   (fenêtres de motifs, respirations) mais toujours validées par le validateur d'évitement du directeur de vagues.
@@ -100,8 +100,10 @@ export interface MissionDef {
 const phase = (from: number, to: number, weights: PatternWeights, intervalScale = 1): ScriptPhase => ({ from, to, weights, intervalScale });
 
 /**
- * Les cinq premiers niveaux. Choix d'équilibrage (à valider avec de vrais joueurs) : vitesse et difficulté croissent doucement,
- * tous les niveaux sont faisables avec le vaisseau de base (tests de faisabilité par joueur automatique).
+ * Les dix niveaux livrés. Choix d'équilibrage (à valider avec de vrais joueurs) : vitesse et difficulté croissent doucement (très en dessous de la
+ * Survie au même temps de jeu), tous les niveaux sont faisables avec le vaisseau de base (tests de faisabilité par joueur automatique).
+ * Défis secondaires de temps : cibles ≈ 1,25 × la durée médiane d'un joueur automatique, soit une marge d'environ deux objets manqués
+ * (un objet manqué coûte sa durée de vie + 3 s) pour un humain moins rapide que le robot.
  * « Éclats » = les balises de l'orbite, présentées comme les éclats que récolte Élias.
  */
 export const MISSIONS: MissionDef[] = [
@@ -121,7 +123,7 @@ export const MISSIONS: MissionDef[] = [
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 115, text: 'Terminer en moins de 115 secondes' },
+    challenge: { kind: 'time', target: 120, text: 'Terminer en moins de 120 secondes' },
     before: 'n1-before',
     after: 'n1-after',
   },
@@ -181,7 +183,7 @@ export const MISSIONS: MissionDef[] = [
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 180, text: 'Terminer en moins de 180 secondes' },
+    challenge: { kind: 'time', target: 200, text: 'Terminer en moins de 200 secondes' },
     before: 'n4-before',
     after: 'n4-after',
   },
@@ -189,8 +191,8 @@ export const MISSIONS: MissionDef[] = [
     id: 5,
     title: 'Douze ans de silence',
     summary: 'Atteignez la capsule à travers les débris, puis restez près de sa balise le temps de télécharger ses données.',
-    objective: { type: 'objects', kind: 'blackbox', count: 5, lifetime: 18, first: 8, gap: { min: 18, max: 24 }, respawn: 3, after: { beacons: 100, label: 'Approche de la capsule' } },
-    objectiveText: 'Atteindre la capsule (100 éclats), puis télécharger la balise (5 passages)',
+    objective: { type: 'objects', kind: 'blackbox', count: 5, lifetime: 18, first: 8, gap: { min: 18, max: 24 }, respawn: 3, after: { beacons: 90, label: 'Approche de la capsule' } },
+    objectiveText: 'Atteindre la capsule (90 éclats), puis télécharger la balise (5 passages)',
     limit: 300,
     speed: 0.5,
     script: {
@@ -201,7 +203,7 @@ export const MISSIONS: MissionDef[] = [
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 240, text: 'Terminer en moins de 240 secondes' },
+    challenge: { kind: 'time', target: 235, text: 'Terminer en moins de 235 secondes' },
     before: 'n5-before',
     after: 'n5-after',
   },
@@ -260,7 +262,7 @@ export const MISSIONS: MissionDef[] = [
     title: 'À contre-courant',
     summary: 'Des vagues de trajectoires anormales sont annoncées à l’avance. Relevez les perturbations entre les vagues pour compléter le dossier.',
     objective: { type: 'objects', kind: 'data', count: 6, lifetime: 18, first: 14, gap: { min: 22, max: 30 }, respawn: 3, counter: 'Relevés de perturbation' },
-    objectiveText: 'Relever 6 perturbations entre les vagues d’astéroïdes',
+    objectiveText: 'Relever 6 perturbations, de préférence entre les vagues d’astéroïdes',
     limit: 300,
     speed: 0.55,
     script: {
@@ -282,7 +284,7 @@ export const MISSIONS: MissionDef[] = [
         { at: 183, text: 'Vague de trajectoires !' },
       ],
     },
-    challenge: { kind: 'time', target: 175, text: 'Terminer en moins de 175 secondes' },
+    challenge: { kind: 'time', target: 195, text: 'Terminer en moins de 195 secondes' },
     before: 'n8-before',
     after: 'n8-after',
   },
@@ -307,7 +309,7 @@ export const MISSIONS: MissionDef[] = [
       lines: [],
       announces: [{ at: 48, text: 'Haute atmosphère : décharges, restez en altitude' }],
     },
-    challenge: { kind: 'time', target: 220, text: 'Terminer en moins de 220 secondes' },
+    challenge: { kind: 'time', target: 245, text: 'Terminer en moins de 245 secondes' },
     before: 'n9-before',
     after: 'n9-after',
   },
@@ -327,7 +329,7 @@ export const MISSIONS: MissionDef[] = [
       lines: [],
       announces: [],
     },
-    challenge: { kind: 'time', target: 225, text: 'Terminer en moins de 225 secondes' },
+    challenge: { kind: 'time', target: 240, text: 'Terminer en moins de 240 secondes' },
     before: 'n10-before',
     after: 'n10-after',
   },
@@ -353,7 +355,7 @@ export const CAMPAIGN_REWARDS = {
   repeat: 0,
 } as const;
 
-/** Présentation de l'écran « Hangar » (améliorations). Désactivé pour les niveaux 1 à 5 : le vaisseau reste celui de départ. */
+/** Présentation de l'écran « Hangar » (améliorations). Désactivé pour la V1 (niveaux 1 à 10) : le vaisseau reste la Traverse de départ, aucune amélioration proposée. */
 export const HANGAR_ENABLED = false as boolean;
 
 export interface UpgradeDef {
@@ -415,7 +417,7 @@ export const STARS_PER_MISSION = 2;
 export const CHAPTER = {
   id: 'douze-ans',
   title: 'Douze ans de silence',
-  /** Niveaux livrés ; la suite du chapitre est annoncée « à venir ». */
+  /** Dix niveaux livrés ; la suite du chapitre est annoncée « à venir ». */
   place: 'Chapitre 1',
   number: 1,
 };

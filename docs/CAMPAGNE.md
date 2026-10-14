@@ -25,23 +25,29 @@ Dangers : niveaux 1 à 5 **astéroïdes uniquement** ; niveaux 6 à 10 : astéro
 
 Une réussite dure **90 à 300 s de jeu** (hors scènes et pauses), de plus en plus longtemps avec l'histoire. Sur l'orbite, le vaisseau ramasse les 6 éclats en un tour (≈ 8 s à 40 % de vitesse) : la durée d'un niveau de récolte vient donc du **nombre de tours** demandé, pas d'une attente. Les objets de mission (fragments, balise de la capsule) apparaissent l'un après l'autre sur toute la durée, avec une durée de vie supérieure à deux tours d'orbite (atteignables sans chance, seulement en évitant les astéroïdes).
 
-| # | Titre | Objectif (= compteur affiché = condition de victoire) | Vitesse | Limite | Durée visée* | Défi secondaire |
-|---|---|---|---|---|---|---|
-| 1 | De quoi rentrer | Récolter **84 éclats** (14 tours) — champ peu dense | 40 % | 240 s | ≈ 95–120 s | < 115 s |
-| 2 | Une bonne journée | Récolter **114 éclats** (19 tours) — champ plus dense, trajectoires moins prévisibles | 45 % | 300 s | ≈ 115–150 s | multiplicateur ×4 |
-| 3 | Tenir | **Survivre 150 s** à la tempête (aucun quota de récolte) | 50 % | 150 s | 150 s | ≥ 70 éclats en chemin |
-| 4 | Ce que la tempête a laissé | Suivre **6 fragments d'épave** (un à la fois, 18 s chacun, toutes les 22–30 s) | 50 % | 300 s | ≈ 155–190 s | < 180 s |
-| 5 | Douze ans de silence | Atteindre la capsule (**100 éclats**), puis télécharger la balise (**5 passages**, toutes les 18–24 s) | 50 % | 300 s | ≈ 195–240 s | < 240 s |
+| # | Titre | Objectif (= compteur affiché = condition de victoire) | Vitesse | Limite | Durée robot* | Estimation humaine** | Défi secondaire |
+|---|---|---|---|---|---|---|---|
+| 1 | De quoi rentrer | Récolter **84 éclats** (14 tours) — champ peu dense | 40 % | 240 s | 94–99 s | 105–130 s | < 120 s |
+| 2 | Une bonne journée | Récolter **114 éclats** (19 tours) — champ plus dense | 45 % | 300 s | 115–117 s | 130–160 s | multiplicateur ×4 |
+| 3 | Tenir | **Survivre 150 s** à la tempête | 50 % | 150 s | 150 s | 150 s | ≥ 70 éclats en chemin |
+| 4 | Ce que la tempête a laissé | Suivre **6 fragments d'épave** (un à la fois, 18 s chacun, toutes les 22–30 s) | 50 % | 300 s | 149–169 s | 170–200 s | < 200 s |
+| 5 | Douze ans de silence | Atteindre la capsule (**90 éclats**), puis télécharger la balise (**5 passages**, toutes les 18–24 s) | 50 % | 300 s | 178–194 s | 200–250 s | < 235 s |
+| 6 | Ceux qui sont partis | **Survivre 170 s** (« Route vers la sortie ») — passages resserrés en 2e moitié | 55 % | 170 s | 170 s | 170 s | ≥ 100 éclats |
+| 7 | Dans le bruit | **Traverser le nuage chargé** (180 s) — décharges progressives, liaison radio coupée (bandeaux) | 55 % | 180 s | 180 s | 180 s | ≥ 100 éclats |
+| 8 | À contre-courant | Relever **6 perturbations**, de préférence entre les vagues annoncées | 55 % | 300 s | 142–163 s | 160–200 s | < 195 s |
+| 9 | Ne laissez pas repartir | Relever **7 balises de navigation** en haute atmosphère | 60 % | 300 s | 176–204 s | 200–250 s | < 245 s |
+| 10 | La Lisière | Relever **7 points d’inspection**, le dernier au point de contact | 55 % | 300 s | 184–200 s | 200–250 s | < 240 s |
 
-| 6 | Ceux qui sont partis | **Survivre 170 s** (« Route vers la sortie ») — passages resserrés en 2e moitié | 55 % | 170 s | 170 s | ≥ 100 éclats |
-| 7 | Dans le bruit | **Traverser le nuage chargé** (180 s) — décharges progressives, liaison radio coupée (bandeaux) | 55 % | 180 s | 180 s | ≥ 100 éclats |
-| 8 | À contre-courant | Relever **6 perturbations** entre des vagues de trajectoires annoncées | 55 % | 300 s | ≈ 150 s | < 175 s |
-| 9 | Ne laissez pas repartir | Relever **7 balises de navigation** en haute atmosphère | 60 % | 300 s | ≈ 190–200 s | < 220 s |
-| 10 | La Lisière | Relever **7 points d’inspection**, le dernier au point de contact | 55 % | 300 s | ≈ 190–200 s | < 225 s |
+\* Robot : joueur automatique « parfait » et « moyen » (réaction 0,25 s), 12 graines — **borne basse, pas une preuve de ressenti**. \*\* Estimation humaine **théorique** (robot × 1,1 à 1,35 ; un objet manqué coûte sa durée de vie + 3 s), jamais mesurée sur des joueurs. Cibles des défis de temps ≈ 1,25 × le robot (marge d'environ deux objets manqués) ; elles sont testées (≥ 1,15 × le robot le plus lent testé, ≤ la limite).
+Difficulté des missions très inférieure à la Survie au même temps de jeu (ex. niveau 7 : 0,12 → 0,26 à 55 % de vitesse ; Survie : 0,55 à 60 s, 0,77 à 120 s). Le test `tests/campaign-simulation.test.ts` impose ≥ 90 s et ≤ 300 s même pour ce joueur parfait, et vérifie que le défi secondaire reste atteignable.
 
-\* Mesuré avec un joueur automatique parfait (borne basse) ; un joueur humain est plus lent. Le test `tests/campaign-simulation.test.ts` impose ≥ 90 s et ≤ 300 s même pour ce joueur parfait, et vérifie que le défi secondaire reste atteignable.
+Mécanique commune : respirations (aucune nouvelle vague) réparties sur toute la durée, vitesse réglée par niveau, trajectoires issues de la graine de la tentative, tous les niveaux validés par le validateur d'évitement du directeur. Objectifs et compteurs : `Éclats x/N`, `Fragments d'épave x/6`, `Approche de la capsule : éclats x/90` puis `Téléchargement x/5`.
 
-Mécanique commune : respirations (aucune nouvelle vague) réparties sur toute la durée, vitesse réglée par niveau, trajectoires issues de la graine de la tentative, tous les niveaux validés par le validateur d'évitement du directeur. Objectifs et compteurs : `Éclats x/N`, `Fragments d'épave x/6`, `Approche de la capsule : éclats x/100` puis `Téléchargement x/5`.
+## Séquencement et cas limites (V1)
+- Introduction : `takeIntroScene` (première fois seulement, marquée vue) → niveau → **réussite** → `applyMission` (étoiles, récompenses uniques, déblocage, fin de chapitre, une seule écriture) → `takeOutroScene` (conclusion, **jamais après un échec ni un temps écoulé**, première fois seulement) → bilan. Rejouer : ni scène ni récompense répétées.
+- Objectif rempli au pas même où la limite est atteinte : victoire (corrigé ; testé). Limite sans objectif : « Temps écoulé » (« survivre » : victoire à la limite). Collision : échec, jamais de victoire.
+- Image de scène introuvable : masquée, la scène reste jouable. Double toucher / Entrée maintenue : une seule action (garde de 160 ms, `STORY_UI.tapGuardMs`). Réplique suivante : seule la boîte de dialogue est remplacée (l'illustration n'est ni rechargée ni redessinée) ; scène suivante et trois portraits préchargés.
+- **Fin de la V1** : après le niveau 10, « Suite du chapitre à venir » (information, jamais un bouton) ; niveaux 11+ hors périmètre. Hangar désactivé (`HANGAR_ENABLED = false`) : aucune interface ni amélioration.
 
 ## Récit (écran dédié)
 - Illustration fixe (3:2, `object-fit: contain`, jamais étirée ni recadrée) et boîte de dialogue (nom, petit portrait à gauche, texte français) forment **un seul bloc compact (8 px d'écart), centré verticalement et horizontalement**. Largeur du bloc : écran, hauteur disponible (rapport 3:2 conservé), maximum 780 px ; safe areas respectées ; paysage bas : illustration à gauche, dialogue à droite, l'ensemble centré.

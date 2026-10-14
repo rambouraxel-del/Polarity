@@ -330,7 +330,8 @@ export class CampaignSimulation extends Simulation {
   // ————————————————————————— objectif, fin
 
   private checkObjective(): void {
-    if (this.outcome !== 'running' || this.state !== 'running') return;
+    // L'état peut déjà être « complete » (limite atteinte à ce même pas) : un objectif rempli à cet instant précis reste une victoire
+    if (this.outcome !== 'running' || (this.state !== 'running' && (this.state as SimState) !== 'complete')) return;
     const o = this.mission.objective;
     let done = false;
     switch (o.type) {

@@ -133,3 +133,48 @@ describe('écrans de campagne', () => {
     expect(html).not.toContain('next-mission');
   });
 });
+
+describe('bilan : cas d’échec et fin de V1', () => {
+  it('temps écoulé : pas de « Niveau réussi », pas de récompense, pas de « Suite du chapitre », rejouer possible', () => {
+    const s = defaultSave();
+    const res = applyMission(s, { ...win(3), outcome: 'timeout', stars: { main: false, challenge: false } });
+    const html = C.campaignResultScreen(s, res, false);
+    expect(html).toContain('Temps écoulé');
+    expect(html).not.toContain('Niveau réussi');
+    expect(html).not.toContain('gagnés');
+    expect(html).not.toContain('Suite du chapitre');
+    expect(html).toContain('data-replay');
+  });
+
+  it('niveaux 1 à 9 : jamais de « Suite du chapitre à venir » dans le bilan ; seulement après le niveau 10', () => {
+    const s = defaultSave();
+    for (let i = 1; i < 10; i++) {
+      const r = applyMission(s, win(i));
+      expect(C.campaignResultScreen(s, r, true), `niveau ${i}`).not.toContain('Suite du chapitre');
+      expect(C.campaignResultScreen(s, r, true)).toContain('next-mission');
+    }
+    const last = applyMission(s, win(10));
+    expect(C.campaignResultScreen(s, last, false)).toContain('Suite du chapitre à venir');
+  });
+
+  it('carte des niveaux et accueil : la suite est annoncée comme « à venir », sans bouton ni niveau fictif', () => {
+    const s = defaultSave();
+    for (const m of MISSIONS) applyMission(s, win(m.id));
+    const map = C.chapterScreen(s);
+    expect(map).toContain('Suite du chapitre à venir');
+    expect(map.match(/class="mission-node[ "]/g)).toHaveLength(10);
+    expect(C.campaignScreen(s)).toContain('À venir');
+    expect(C.campaignScreen(s)).toContain('10/10 niveaux');
+    // Aucune interface de hangar / amélioration proposée
+    for (const html of [map, C.campaignScreen(s), C.missionScreen(s, 10), C.journalScreen(s)]) expect(html).not.toMatch(/hangar|Bouclier de secours|Collecteur|Stabilisateur/i);
+  });
+
+  it('récit : une illustration, une boîte, aucune image absente ; le jeton data-action pour toucher l’illustration et la boîte', () => {
+    for (const seq of STORY) {
+      const html = C.storyScreen(seq, 0, 'Suite');
+      expect(html, seq.id).toContain('story__img');
+      expect(html.match(/data-action="story-advance"/g)).toHaveLength(2);
+      expect(html.match(/data-action="story-skip"/g)).toHaveLength(1);
+    }
+  });
+});

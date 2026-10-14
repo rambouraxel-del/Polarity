@@ -1,5 +1,14 @@
 # Suivi d'avancement
 
+## Finalisation de la campagne V1 (niveaux 1 à 10, branche `v1-finalisation-audiovisuelle`, non fusionnée)
+- [x] Audit des 10 missions : objectifs = conditions de victoire ; **correction** : objectif rempli au dernier pas de la limite = victoire (et non « temps écoulé »)
+- [x] Calibrage humain : défis de temps relâchés (N1 120, N4 200, N5 235, N8 195, N9 245, N10 240 s ≈ 1,25 × robot) ; niveau 5 : 90 éclats d'approche (au lieu de 100) ; texte du niveau 8 honnête (« de préférence entre les vagues ») ; popup « Téléchargement x/5 » (plus de « Boîte noire ! »)
+- [x] Séquencement testé : `takeIntroScene` / `takeOutroScene` (jamais de conclusion après échec, jamais de double récompense, parcours 1→10, sauvegarde v6 relue à l'identique)
+- [x] Récit : anti double-avance (clic double, Entrée maintenue), rendu partiel des répliques, image défaillante masquée, portraits préchargés ; vérifié sur captures 320×568, 390×844, 844×390
+- [x] Orthographe et continuité relues (aucune correction : dialogues inchangés) ; fin honnête « Suite du chapitre à venir » après le niveau 10 ; hangar désactivé
+- [x] `src/sim/*`, Survie, défi quotidien, défis classiques, classement et `BALANCE_VERSION` inchangés
+- [ ] **Validation humaine** : durées et difficulté réelles (surtout niveaux 4, 5, 7, 9), lisibilité des scènes sur téléphones, ressenti des défis secondaires. `scripts/e2e.mjs` mis à jour pour 10 niveaux mais **non rejoué**.
+
 ## Finalisation audiovisuelle V1 (branche `v1-finalisation-audiovisuelle`, non fusionnée)
 - [x] Carte musicale recalée sur les attaques réelles (+9,1 ms mesurés, écart résiduel ≈ 0 ms) ; grille de battements continue aux raccords
 - [x] Silence, sourdine, pause, compte à rebours, contexte suspendu/« interrupted » : aucune réaction musicale, aucun battement manqué rejoué

@@ -871,9 +871,9 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await context.close();
 }
 
-// ————————————————————————————————————————————— Campagne : « Douze ans de silence » (niveaux 1 à 5)
+// ————————————————————————————————————————————— Campagne : « Douze ans de silence » (niveaux 1 à 10)
 {
-  // Mobile portrait 390×844 : parcours complet des cinq niveaux
+  // Mobile portrait 390×844 : parcours des niveaux (1, 5, puis 10 : fin de la V1)
   const { page, context, errors } = await newPage({ width: 390, height: 844 }, { touch: true, dpr: 2 });
   const app = (fn, arg) => page.evaluate(fn, arg);
   const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('polarite.save')));
@@ -923,7 +923,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await page.screenshot({ path: 'screenshots/80-campagne.png' });
   check(await noOverflowNow(), 'Campagne mobile : pas de débordement horizontal');
   await page.tap('[data-action="chapter"]');
-  check((await page.locator('.mission-node').count()) === 5 && (await page.locator('.mission-node:disabled').count()) === 4, 'Carte des niveaux : 5 niveaux, un seul ouvert');
+  check((await page.locator('.mission-node').count()) === 10 && (await page.locator('.mission-node:disabled').count()) === 9, 'Carte des niveaux : 10 niveaux, un seul ouvert');
   check(/Suite du chapitre à venir/i.test(await page.locator('#screen').innerText()), 'Carte des niveaux : « Suite du chapitre à venir »');
   await page.screenshot({ path: 'screenshots/81-carte-niveaux.png' });
   await page.tap('[data-action="open-mission"][data-mission="1"]');
@@ -937,6 +937,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   const early = await storyState();
   check(early.live.length < early.full.length, 'Texte progressif : la réplique s’affiche peu à peu');
   // Premier toucher (aussitôt) : révèle toute la réplique sans avancer
+  await sleep(220);
   await page.tap('.story__box .story__text');
   let st = await storyState();
   check(st.live === st.full && st.name === 'Nora' && /^1 \//.test(st.count), 'Premier toucher : toute la réplique est révélée sans avancer');
@@ -947,10 +948,13 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check(st.name === 'Nora' && st.portrait?.loaded, 'Scène : première réplique, nom et portrait de Nora');
   const norPortrait = st.portrait.src;
   await page.screenshot({ path: 'screenshots/83-scene-niveau1-debut.png' });
+  await sleep(220);
   await page.tap('.story__box .story__text');
   st = await storyState();
   check(st.name === 'Élias' && /^2 \//.test(st.count) && st.portrait?.loaded, 'Toucher suivant : réplique d’Élias avec son portrait');
+  await sleep(220);
   await page.tap('.story__scene'); // toucher dans l'illustration : révèle
+  await sleep(220);
   await page.tap('.story__scene'); // puis avance
   st = await storyState();
   check(st.name === 'Nora' && /^3 \//.test(st.count) && st.portrait.src === norPortrait, 'Toucher dans l’illustration : révèle puis avance (une réplique à la fois)');
@@ -1051,7 +1055,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   let sawSystem = false;
   let sawVoice = false;
   await app(() => { window.__polarite.reducedMotion = true; }); // texte instantané : parcours déterministe
-  for (let i = 0; i < 60 && (await page.locator('.story').count()) > 0; i++) {
+  for (let i = 0; i < 120 && (await page.locator('.story').count()) > 0; i++) {
     await sleep(60);
     const cur = await storyState();
     if (cur.system) {
@@ -1064,15 +1068,28 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
       check(cur.portrait?.loaded, 'Voix enregistrée : portrait de la transmission (anonyme)');
       await page.screenshot({ path: 'screenshots/92-voix-enregistree.png' });
     }
-    await page.tap('.story__box .story__text'); // toucher suivant : avance
+    await sleep(220);
+  await page.tap('.story__box .story__text'); // toucher suivant : avance
   }
   check(sawSystem && sawVoice, 'Niveau 5 : message système et voix enregistrée rencontrés dans la conclusion');
   await page.waitForSelector('.title--cyan', { timeout: 8000 });
   const end5 = await page.locator('#screen').innerText();
-  check(/Suite du chapitre à venir/i.test(end5) && (await page.locator('[data-action="next-mission"]').count()) === 0 && (await page.locator('[data-replay]').count()) === 1, 'Fin du niveau 5 : « Suite du chapitre à venir » et possibilité de rejouer');
-  await page.screenshot({ path: 'screenshots/93-suite-a-venir.png' });
+  check(/Niveau 6 débloqué/i.test(end5) && !/Suite du chapitre/i.test(end5) && (await page.locator('[data-action="next-mission"]').count()) === 1 && (await page.locator('[data-replay]').count()) === 1, 'Fin du niveau 5 : niveau 6 débloqué, pas de « Suite du chapitre à venir » (le chapitre continue)');
   const end = await stored();
-  check(end.campaign.chapterComplete === true && end.campaign.seen.length >= 4, 'Fin des cinq niveaux sauvegardée');
+  check(end.campaign.chapterComplete === false && end.campaign.seen.length >= 4, 'Après le niveau 5 : chapitre non terminé');
+  // Fin de la V1 : niveau 10 → « Suite du chapitre à venir », aucun niveau suivant, une seule fois
+  await app(() => { const a = window.__polarite; for (let i = 1; i <= 9; i++) a.save.campaign.missions['n' + i] = { main: true, challenge: false, clears: 1, bestTime: 30 }; a.persist(); a.launchMission(10); });
+  await waitStory();
+  await page.tap('[data-action="story-skip"]');
+  await sleep(400);
+  await finish(300);
+  await waitStory();
+  await page.tap('[data-action="story-skip"]');
+  await page.waitForSelector('.title--cyan', { timeout: 8000 });
+  const end10 = await page.locator('#screen').innerText();
+  check(/Suite du chapitre à venir/i.test(end10) && (await page.locator('[data-action="next-mission"]').count()) === 0 && (await page.locator('[data-replay]').count()) === 1, 'Fin du niveau 10 : « Suite du chapitre à venir » et possibilité de rejouer');
+  await page.screenshot({ path: 'screenshots/93-suite-a-venir.png' });
+  check((await stored()).campaign.chapterComplete === true, 'Fin des dix niveaux sauvegardée');
 
   // La Survie garde ses règles : aucune amélioration, apparence équipée respectée
   await app(() => { const a = window.__polarite; a.save.owned = ['aurore']; a.save.skin = 'aurore'; a.persist(); a.showScreen('home'); });
@@ -1183,9 +1200,9 @@ for (const [w, h, name, touch] of [[320, 568, 'petit écran', true], [844, 390, 
   // Ancienne campagne « Écho-7 » terminée (10/10) : la nouvelle histoire n'est ni terminée ni sautée
   await page.click('[data-action="campaign"]');
   const camp = await page.locator('#screen').innerText();
-  check(/Douze ans de silence/i.test(camp) && /0\/5 niveaux/.test(camp) && !/Écho-7|signal impossible/i.test(camp) && /Commencer/i.test(camp), 'Ancienne campagne terminée : la nouvelle (Douze ans de silence) s’affiche à 0/5, « Commencer »');
+  check(/Douze ans de silence/i.test(camp) && /0\/10 niveaux/.test(camp) && !/Écho-7|signal impossible/i.test(camp) && /Commencer/i.test(camp), 'Ancienne campagne terminée : la nouvelle (Douze ans de silence) s’affiche à 0/10, « Commencer »');
   await page.click('[data-action="chapter"]');
-  check((await page.locator('.mission-node').first().innerText()).includes('De quoi rentrer') && (await page.locator('.mission-node:disabled').count()) === 4, 'Le bouton Campagne mène au premier niveau « De quoi rentrer » (les 4 autres verrouillés)');
+  check((await page.locator('.mission-node').first().innerText()).includes('De quoi rentrer') && (await page.locator('.mission-node:disabled').count()) === 9, 'Le bouton Campagne mène au premier niveau « De quoi rentrer » (les 9 autres verrouillés)');
   await page.click('[data-action="open-mission"][data-mission="1"]');
   await page.click('[data-action="play-mission"]');
   await page.waitForSelector('.story', { timeout: 8000 });

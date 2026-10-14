@@ -405,6 +405,11 @@
   z-index: 1;
 }
 
+/* Image introuvable : masquée (la scène reste jouable, le fond sombre et la boîte de dialogue restent) */
+.story__failed {
+  visibility: hidden;
+}
+
 /* Illustration fixe : rapport 3:2 conservé, entière (contain), jamais étirée ni recadrée */
 .story__scene {
   flex: none;

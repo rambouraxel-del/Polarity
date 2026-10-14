@@ -7,8 +7,8 @@ import { Sfx } from './audio/sfx';
 import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
 import { MISSIONS, missionById, type MissionDef } from './config/campaign';
-import { STORY_UI, storyAsset, storyById, type StorySequence } from './config/story';
-import { activeUpgrades, applyMission, isMissionUnlocked, markSeen, type MissionResult } from './campaign/progress';
+import { SPEAKERS, STORY_UI, storyAsset, storyById, type StorySequence } from './config/story';
+import { activeUpgrades, applyMission, isMissionUnlocked, takeIntroScene, takeOutroScene, type MissionResult } from './campaign/progress';
 import type { CampaignEvent } from './campaign/simulation';
 import { eventDef } from './config/events';
 import { BALANCE_VERSION } from './config/version';
@@ -113,6 +113,9 @@ export class App {
   private pendingPurchase: string | null = null;
   private selectedMission = 1;
   private story: StoryState | null = null;
+  private portraitsWarmed = false;
+  /** Instant (ms) de la dernière action de récit acceptée : protège d'un double toucher involontaire. */
+  private lastStoryTap = 0;
   /** Une version plus récente est publiée (la page affichée vient du cache du navigateur). */
   private updateAvailable = false;
   /** Vitesse du texte des scènes (caractères/s) ; réglable par les tests de bout en bout. */
@@ -163,11 +166,21 @@ export class App {
       if (this.screen !== 'story' || (e.key !== 'Enter' && e.key !== ' ')) return;
       if ((e.target as HTMLElement | null)?.closest?.('button')) return;
       e.preventDefault();
+      if (e.repeat) return; // touche maintenue : une seule action
       this.advanceStory();
     });
     document.getElementById('btn-pause')!.addEventListener('click', () => this.pause());
     document.getElementById('btn-pause')!.addEventListener('pointerdown', (e) => e.preventDefault());
     this.screenEl.addEventListener('click', this.onScreenClick);
+    // Image de récit introuvable (réseau coupé, ancienne version en cache) : on masque l'image défaillante, la scène reste jouable
+    this.screenEl.addEventListener(
+      'error',
+      (e) => {
+        const t = e.target;
+        if (t instanceof HTMLImageElement && t.closest('.story')) t.classList.add('story__failed');
+      },
+      true,
+    );
     this.screenEl.addEventListener('input', this.onScreenInput);
     // Réglage de la musique : écoute d'essai quand le curseur est relâché
     this.screenEl.addEventListener('change', (e) => {
@@ -584,7 +597,7 @@ export class App {
   private onRunEnd(summary: RunSummary, s: GameSession): void {
     if (s !== this.session) return;
     if (summary.mode === 'campaign') {
-      this.onMissionEnd(summary, s);
+      this.onMissionEnd(summary);
       return;
     }
     const report = applyRun(this.save, summary);
@@ -612,9 +625,10 @@ export class App {
   private launchMission(id: number): void {
     const m = missionById(id);
     if (!m || !isMissionUnlocked(this.save, id)) return;
-    if (m.before && markSeen(this.save, m.before)) {
+    const intro = takeIntroScene(this.save, m);
+    if (intro) {
       this.persist();
-      this.openStory(m.before, () => this.startMission(m), 'Lancer le niveau');
+      this.openStory(intro, () => this.startMission(m), 'Lancer le niveau');
     } else {
       this.startMission(m);
     }
@@ -658,20 +672,34 @@ export class App {
     this.screenEl.classList.remove('dim');
     this.screenEl.classList.add('no-anim');
     this.screenEl.classList.add('screen--story');
-    this.screenEl.innerHTML = C.storyScreen(d.seq, d.index, d.finish);
+    const html = C.storyScreen(d.seq, d.index, d.finish);
+    const oldBox = fresh ? null : this.screenEl.querySelector('.story__box');
+    const newBox = oldBox ? new DOMParser().parseFromString(html, 'text/html').querySelector('.story__box') : null;
+    if (oldBox && newBox) {
+      // Réplique suivante : seule la boîte de dialogue change ; l'illustration (déjà décodée) n'est ni rechargée ni redessinée
+      oldBox.replaceWith(document.importNode(newBox, true));
+    } else {
+      this.screenEl.innerHTML = html;
+    }
     this.screenEl.scrollTop = 0;
     d.shown = 0;
     d.full = false;
-    // Précharge l'illustration de la scène suivante du même niveau
     if (fresh) this.preloadStory(d.seq);
     if (this.reducedMotion) this.revealStoryLine();
   }
 
+  /** Précharge la scène suivante (même niveau, ou début du niveau suivant) et, une fois, les trois portraits (petits : aucun clignotement au changement de locuteur). */
   private preloadStory(seq: StorySequence): void {
+    const warm = (key: string | null): void => {
+      const url = storyAsset(key);
+      if (url) new Image().src = url;
+    };
     const nextSeq = storyById(seq.phase === 'before' ? `n${seq.level}-after` : `n${seq.level + 1}-before`);
-    if (!nextSeq) return;
-    const url = storyAsset(nextSeq.illustration);
-    if (url) new Image().src = url;
+    if (nextSeq) warm(nextSeq.illustration);
+    if (!this.portraitsWarmed) {
+      this.portraitsWarmed = true;
+      for (const sp of Object.values(SPEAKERS)) warm(sp.portrait);
+    }
   }
 
   /** Texte progressif : avance avec le temps réel (la scène n'est pas une partie ; rien ne dépend de la pause). */
@@ -702,6 +730,10 @@ export class App {
   private advanceStory(): void {
     const d = this.story;
     if (!d) return;
+    // Double toucher (deux clics presque simultanés) : une seule action, jamais « révéler » puis « avancer » d'un coup
+    const now = performance.now();
+    if (now - this.lastStoryTap < STORY_UI.tapGuardMs) return;
+    this.lastStoryTap = now;
     if (!d.full) {
       this.revealStoryLine();
       return;
@@ -724,15 +756,16 @@ export class App {
   }
 
   /** Fin d'une mission : résultat appliqué une seule fois (étoiles, récompenses, déblocages), puis transmission de fin (1re fois). */
-  private onMissionEnd(summary: RunSummary, s: GameSession): void {
+  private onMissionEnd(summary: RunSummary): void {
     const rep = summary.report;
     if (!rep) return;
     const res = applyMission(this.save, rep);
     this.persist();
     this.hud.show(false);
     this.hideBanner();
-    const after = rep.outcome === 'success' ? s.config.mission?.after : undefined;
-    if (after && markSeen(this.save, after)) {
+    // Conclusion : seulement après une réussite, la première fois (jamais après un échec ni un temps écoulé)
+    const after = takeOutroScene(this.save, rep);
+    if (after) {
       this.persist();
       this.openStory(after, () => this.showMissionResult(res), 'Voir le bilan');
     } else {
@@ -769,7 +802,9 @@ export class App {
         r?.burst(x, y, COLORS.signal, 12, 170, 0.5);
         r?.burst(x, y, 0xffffff, 6, 120, 0.35);
         const o = s.config.mission?.objective;
-        r?.popup(x, y, e.kind === 'blackbox' ? 'Boîte noire !' : o && o.type === 'objects' ? `${e.count}/${o.count}` : '+1', '#7dffc4');
+        // Le libellé suit le compteur affiché au HUD (niveau 5 : « Téléchargement 2/5 »), jamais un nom d'objet différent
+        const progress = o && o.type === 'objects' ? `${e.count}/${o.count}` : '+1';
+        r?.popup(x, y, e.kind === 'blackbox' ? `Téléchargement ${progress}` : progress, '#7dffc4');
         break;
       }
       case 'object-miss': {

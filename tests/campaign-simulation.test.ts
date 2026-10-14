@@ -52,7 +52,7 @@ describe('missions de campagne : faisabilité et durée (joueur automatique parf
   it('niveau 5 : phase d’approche (éclats) puis balise narrative distincte, compteur cohérent', () => {
     const m = MISSIONS[4];
     const sim = CampaignSimulation.create(m, 7);
-    expect(sim.progressText()).toBe('Approche de la capsule : éclats 0/100');
+    expect(sim.progressText()).toBe('Approche de la capsule : éclats 0/90');
     expect(sim.objects).toHaveLength(0);
     const bot = new MissionBot(sim);
     let sawObject = false;
@@ -63,7 +63,7 @@ describe('missions de campagne : faisabilité et durée (joueur automatique parf
       sim.campaignEvents.length = 0;
       if (sim.objects.length > 0 && !sawObject) {
         sawObject = true;
-        expect(sim.beaconsCollected).toBeGreaterThanOrEqual(100);
+        expect(sim.beaconsCollected).toBeGreaterThanOrEqual(90);
         expect(sim.objects[0].kind).toBe('blackbox');
         expect(sim.progressText()).toMatch(/^Téléchargement \d\/5$/);
       }
@@ -185,5 +185,62 @@ describe('améliorations de campagne', () => {
 
   it('les pas fixes restent à 1/120 s', () => {
     expect(SIM.dt).toBeCloseTo(1 / 120, 9);
+  });
+});
+
+describe('cas limites : victoire et défaite', () => {
+  it('objectif rempli au pas même où la limite de temps est atteinte : victoire, pas « temps écoulé »', () => {
+    const m = { ...MISSIONS[0], limit: 3, objective: { type: 'beacons' as const, count: 5 } };
+    const sim = CampaignSimulation.create(m, 1);
+    while (sim.state === 'running' && sim.time < m.limit - 1.5 * SIM.dt) sim.step();
+    expect(sim.state).toBe('running');
+    expect(sim.outcome).toBe('running');
+    sim.beaconsCollected = 5; // l'objectif devient rempli juste avant le dernier pas
+    for (let i = 0; i < 3 && sim.state === 'running'; i++) sim.step();
+    expect(sim.outcome).toBe('success');
+    expect(sim.report().stars.main).toBe(true);
+    expect(sim.report().time).toBeLessThanOrEqual(m.limit + SIM.dt);
+  });
+
+  it('limite atteinte sans objectif : « temps écoulé », aucune étoile ; « survivre » : victoire à la limite', () => {
+    const m = { ...MISSIONS[0], limit: 2, objective: { type: 'beacons' as const, count: 999 } };
+    const sim = CampaignSimulation.create(m, 1);
+    for (let i = 0; i < 120 * 3 && sim.state === 'running'; i++) sim.step();
+    expect(sim.outcome).toBe('timeout');
+    expect(sim.report().stars).toEqual({ main: false, challenge: false });
+    const surv = { ...MISSIONS[2], limit: 2, objective: { type: 'survive' as const, seconds: 2 } };
+    const s2 = CampaignSimulation.create(surv, 1);
+    // Aucune collision possible pendant 2 s sans menace : on neutralise les dangers pour tester la règle de victoire
+    s2.hazards.length = 0;
+    for (let i = 0; i < 120 * 3 && s2.state === 'running'; i++) {
+      s2.hazards.length = 0;
+      s2.step();
+    }
+    expect(s2.outcome).toBe('success');
+  });
+
+  it('une collision termine la tentative en échec, même au dernier pas, et ne produit jamais de victoire', () => {
+    const sim = CampaignSimulation.create(MISSIONS[2], 11);
+    for (let i = 0; i < 120 * 150 && sim.state === 'running'; i++) sim.step(); // aucun pilote : il finit par être touché
+    expect(sim.outcome).toBe('failure');
+    expect(sim.report().stars).toEqual({ main: false, challenge: false });
+    expect(sim.events.some((e) => e.type === 'complete')).toBe(false);
+  });
+});
+
+describe('défis secondaires atteignables par un humain moins rapide que le robot', () => {
+  const times = new Map<number, number>();
+  for (const m of MISSIONS.filter((x) => x.challenge.kind === 'time')) {
+    it(`niveau ${m.id} : cible de ${(m.challenge as { target: number }).target} s ≥ 1,15 × la durée du robot le plus lent testé, et ≤ la limite`, () => {
+      const target = (m.challenge as { target: number }).target;
+      const worst = Math.max(...SEEDS.map((seed) => playMission(CampaignSimulation.create(m, seed)).report().time));
+      times.set(m.id, worst);
+      expect(target).toBeGreaterThanOrEqual(worst * 1.15);
+      expect(target).toBeLessThanOrEqual(m.limit);
+    });
+  }
+
+  it('le texte du défi affiche la cible réelle', () => {
+    for (const m of MISSIONS) expect(m.challenge.text, `niveau ${m.id}`).toContain(String(m.challenge.target));
   });
 });

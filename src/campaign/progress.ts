@@ -1,4 +1,4 @@
-import { CAMPAIGN_REWARDS, HANGAR_ENABLED, MISSIONS, STARS_PER_MISSION, UPGRADES, missionById, missionKey, upgradeById, type UpgradeDef } from '../config/campaign';
+import { CAMPAIGN_REWARDS, HANGAR_ENABLED, MISSIONS, STARS_PER_MISSION, UPGRADES, missionById, missionKey, upgradeById, type MissionDef, type UpgradeDef } from '../config/campaign';
 import { storyById } from '../config/story';
 import type { MissionRecord, SaveData } from '../save/save';
 import type { ActiveUpgrades, MissionReport } from './simulation';
@@ -116,6 +116,24 @@ export function markSeen(save: SaveData, id: string): boolean {
   if (!storyById(id) || save.campaign.seen.includes(id)) return false;
   save.campaign.seen.push(id);
   return true;
+}
+
+/**
+ * Scène d'introduction à jouer avant le niveau : seulement la première fois (elle est alors marquée vue, relisible au journal).
+ * Renvoie l'identifiant de la scène, ou null (déjà vue ou absente : le niveau démarre directement).
+ */
+export function takeIntroScene(save: SaveData, mission: MissionDef): string | null {
+  return mission.before && markSeen(save, mission.before) ? mission.before : null;
+}
+
+/**
+ * Scène de conclusion à jouer après le niveau : UNIQUEMENT après une réussite, et seulement la première fois.
+ * Un échec ou un temps écoulé ne la montre jamais et ne la marque pas comme vue.
+ */
+export function takeOutroScene(save: SaveData, report: MissionReport): string | null {
+  if (report.outcome !== 'success') return null;
+  const after = missionById(report.missionId)?.after;
+  return after && markSeen(save, after) ? after : null;
 }
 
 export const hasSeen = (save: SaveData, id: string): boolean => save.campaign.seen.includes(id);

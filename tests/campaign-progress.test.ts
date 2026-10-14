@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeUpgrades, applyMission, buyUpgrade, isMissionUnlocked, isUpgradeVisible, markSeen, missionStars, toggleUpgrade, totalStars } from '../src/campaign/progress';
+import { activeUpgrades, applyMission, buyUpgrade, isMissionUnlocked, isUpgradeVisible, markSeen, missionStars, takeIntroScene, takeOutroScene, toggleUpgrade, totalStars } from '../src/campaign/progress';
 import type { MissionReport } from '../src/campaign/simulation';
 import { CAMPAIGN_REWARDS, HANGAR_ENABLED, MISSIONS, UPGRADES } from '../src/config/campaign';
 import { STORY } from '../src/config/story';
@@ -235,5 +235,87 @@ describe('sauvegarde v6', () => {
     eraseAll(store);
     expect(store.get(`${BACKUP_PREFIX}4`)).toBeNull();
     expect(store.get(`${BACKUP_PREFIX}5`)).toBeNull();
+  });
+});
+
+describe('séquencement : introduction → niveau → victoire → conclusion → déblocage', () => {
+  const timedOut = (id: number): MissionReport => report(id, { outcome: 'timeout' }, { main: false, challenge: false });
+
+  it('introduction : jouée automatiquement la première fois seulement, puis relisible', () => {
+    const s = defaultSave();
+    expect(takeIntroScene(s, MISSIONS[0])).toBe('n1-before');
+    expect(s.campaign.seen).toContain('n1-before');
+    expect(takeIntroScene(s, MISSIONS[0])).toBeNull();
+  });
+
+  it('conclusion : jamais après un échec ni un temps écoulé, et ces échecs ne la marquent pas comme vue', () => {
+    const s = defaultSave();
+    expect(takeOutroScene(s, failed(1))).toBeNull();
+    expect(takeOutroScene(s, timedOut(1))).toBeNull();
+    expect(s.campaign.seen).not.toContain('n1-after');
+    // Après un échec, la victoire suivante joue bien la conclusion (une seule fois)
+    expect(takeOutroScene(s, report(1))).toBe('n1-after');
+    expect(takeOutroScene(s, report(1))).toBeNull();
+  });
+
+  it('échec ou temps écoulé : aucune récompense, aucune étoile, aucun déblocage, rien de retiré', () => {
+    const s = defaultSave();
+    applyMission(s, report(1, {}, { challenge: true }));
+    const before = JSON.stringify(s.campaign);
+    for (const r of [failed(2), { ...failed(2), outcome: 'timeout' as const }, failed(1)]) {
+      const res = applyMission(s, r);
+      expect(res.rewards.total).toBe(0);
+      expect(res.unlockedMission).toBeNull();
+      expect(res.chapterCompleted).toBe(false);
+    }
+    expect(JSON.stringify(s.campaign)).toBe(before);
+    expect(isMissionUnlocked(s, 3)).toBe(false);
+  });
+
+  it('parcours complet des dix niveaux : chaque réussite débloque le suivant, une seule fois, et le chapitre se termine une seule fois', () => {
+    const s = defaultSave();
+    let reserve = 0;
+    for (const m of MISSIONS) {
+      expect(isMissionUnlocked(s, m.id)).toBe(true);
+      expect(takeIntroScene(s, m)).toBe(`n${m.id}-before`);
+      const win = applyMission(s, report(m.id, {}, { challenge: true }));
+      reserve += CAMPAIGN_REWARDS.firstClear + CAMPAIGN_REWARDS.star;
+      expect(win.unlockedMission).toBe(m.id < 10 ? m.id + 1 : null);
+      expect(win.chapterCompleted).toBe(m.id === 10);
+      expect(takeOutroScene(s, report(m.id))).toBe(`n${m.id}-after`);
+      // Rejouer : ni double récompense, ni nouvelle scène, ni nouveau déblocage
+      const again = applyMission(s, report(m.id, {}, { challenge: true }));
+      expect(again.rewards.total).toBe(0);
+      expect(again.unlockedMission).toBeNull();
+      expect(again.chapterCompleted).toBe(false);
+      expect(takeOutroScene(s, report(m.id))).toBeNull();
+    }
+    expect(s.campaign.reserve).toBe(reserve);
+    expect(s.campaign.seen).toHaveLength(20);
+    expect(totalStars(s)).toBe(20);
+  });
+
+  it('la campagne ne touche jamais au portefeuille, aux succès ni aux cosmétiques de la Survie', () => {
+    const s = defaultSave();
+    const wallet = JSON.stringify(s.wallet);
+    const owned = JSON.stringify(s.owned);
+    for (const m of MISSIONS) applyMission(s, report(m.id, {}, { challenge: true }));
+    expect(JSON.stringify(s.wallet)).toBe(wallet);
+    expect(JSON.stringify(s.owned)).toBe(owned);
+    expect(Object.keys(s.achievements)).toHaveLength(0);
+    expect(s.stats.totalRuns).toBe(0);
+  });
+
+  it('sauvegarde : une sauvegarde de campagne à 10 niveaux se recharge à l’identique (v6)', () => {
+    const s = defaultSave();
+    for (const m of MISSIONS) {
+      takeIntroScene(s, m);
+      applyMission(s, report(m.id, {}, { challenge: m.id % 2 === 0 }));
+      takeOutroScene(s, report(m.id));
+    }
+    const back = sanitize(JSON.parse(JSON.stringify(s)));
+    expect(back.version).toBe(SAVE_VERSION);
+    expect(back.campaign).toEqual(s.campaign);
+    expect(back.campaign.chapterComplete).toBe(true);
   });
 });
