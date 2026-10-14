@@ -48,6 +48,9 @@ Le workflow `.github/workflows/pages.yml` lance les tests, construit le jeu et l
 Le jeu est ensuite disponible sur `https://<utilisateur>.github.io/<dépôt>/`. Les chemins du build sont relatifs :
 il fonctionne dans n'importe quel sous-dossier.
 
+## Applications Android et iOS
+Le même jeu est prêt à être encapsulé (Capacitor) : projets `android/` et `ios/`, un seul code source. Rien n'est publié ; les étapes de construction, de signature et de publication sont dans `docs/BUILD_MOBILE.md`.
+
 ## Vérifications
 
 ```bash

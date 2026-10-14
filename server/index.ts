@@ -8,7 +8,7 @@ import { checkOrigins, createHttpServer } from './http';
  * Point d'entrée du service de classement mondial (Survie). Configuration par variables d'environnement (voir docs/GUIDE_DEPLOIEMENT.md) :
  *   TICKET_SECRET     secret de signature des tickets (obligatoire, ≥ 32 caractères aléatoires) — jamais dans le jeu ni dans le dépôt
  *   DATABASE_PATH     fichier SQLite (défaut : ./data/leaderboard.sqlite) — à placer sur un disque persistant
- *   ALLOWED_ORIGINS   origines CORS exactes, séparées par des virgules (ex. https://utilisateur.github.io) ; jamais « * »
+ *   ALLOWED_ORIGINS   origines CORS exactes, séparées par des virgules (ex. https://utilisateur.github.io) ; jamais « * ». Applications natives : ajouter https://localhost (Android) et capacitor://localhost (iOS), seules origines non https acceptées (src/net/origins.ts)
  *   PORT              port d'écoute (défaut 8787) ; HOST : interface d'écoute (défaut 0.0.0.0 ; 127.0.0.1 derrière un proxy sur la même machine)
  *   TRUST_PROXY       nombre de proxys de confiance devant le service (0 = aucun, défaut ; « 1 » avec Caddy/Nginx)
  *   REQUIRE_HTTPS     « 1 » : refuser toute requête arrivée en clair (exige TRUST_PROXY ≥ 1 ; en production : toujours 1)

@@ -1,0 +1,73 @@
+apply plugin: 'com.android.application'
+
+// Signature de PUBLICATION : jamais de clé ni de mot de passe dans le dépôt. Les valeurs viennent de android/keystore.properties (ignoré par git, voir
+// keystore.properties.example) ou de variables d'environnement. Sans elles, la version « release » est produite NON signée (installable seulement après signature).
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore.properties')
+if (keystoreFile.exists()) { keystoreFile.withInputStream { keystoreProps.load(it) } }
+def signingValue = { String key, String env -> keystoreProps.getProperty(key) ?: System.getenv(env) }
+
+android {
+    namespace = "com.example.polarrift"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.example.polarrift"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "2.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            def storePath = signingValue('storeFile', 'POLAR_RIFT_KEYSTORE')
+            if (storePath) {
+                storeFile = file(storePath)
+                storePassword = signingValue('storePassword', 'POLAR_RIFT_KEYSTORE_PASSWORD')
+                keyAlias = signingValue('keyAlias', 'POLAR_RIFT_KEY_ALIAS')
+                keyPassword = signingValue('keyPassword', 'POLAR_RIFT_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (signingValue('storeFile', 'POLAR_RIFT_KEYSTORE')) { signingConfig = signingConfigs.release }
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

@@ -25,7 +25,7 @@ Joueur ──▶ jeu sur GitHub Pages ──HTTPS──▶ Caddy (HTTPS auto) �
 |---|---|---|---|
 | `TICKET_SECRET` | **uniquement** dans le fichier `deploy/.env` du serveur (et une copie dans votre gestionnaire de mots de passe) | `openssl rand -hex 32` (64 caractères) | **OUI** — jamais dans GitHub, jamais dans le dépôt, jamais dans un message |
 | `LEADERBOARD_DOMAIN` | `deploy/.env` | le domaine choisi (sans `https://`) | non |
-| `ALLOWED_ORIGINS` | `deploy/.env` | l'origine du jeu : `https://<utilisateur>.github.io` (le domaine seulement, sans le nom du dépôt ni `/` final) | non |
+| `ALLOWED_ORIGINS` | `deploy/.env` | l'origine du jeu : `https://<utilisateur>.github.io` (le domaine seulement, sans le nom du dépôt ni `/` final). **Si vous publiez les applications mobiles**, ajoutez exactement `https://localhost` (Android) et `capacitor://localhost` (iOS) : `https://<utilisateur>.github.io,https://localhost,capacitor://localhost` (voir `docs/BUILD_MOBILE.md`) | non |
 | `LEADERBOARD_URL` | **variable** du dépôt GitHub (*Settings → Secrets and variables → Actions → onglet Variables*) | `https://classement.mon-domaine.fr` | non (publique : visible dans le jeu) |
 
 Règles : un secret **différent** par instance (bêta ≠ production) ; ne le réutilisez nulle part ; ne le collez jamais dans une conversation (y compris avec une IA).

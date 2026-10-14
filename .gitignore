@@ -11,3 +11,7 @@ dist-beta/
 .env.*
 !.env.example
 !.env.*.example
+dist-native/
+*.aab
+*.ipa
+*.xcarchive

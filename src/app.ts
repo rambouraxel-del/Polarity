@@ -30,6 +30,7 @@ import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
+import { hideNativeSplash, initNative, nativePlatform } from './platform/native';
 import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
 import { escapeHtml, formatScore } from './ui/format';
 import { Hud } from './ui/hud';
@@ -255,12 +256,22 @@ export class App {
       }
     });
     window.addEventListener('blur', () => this.pause());
+    // Application native (Android / iOS) : cycle de vie, bouton Retour, écran de démarrage (sans effet sur le web)
+    void initNative({
+      onBackground: () => {
+        this.pause();
+        this.sfx.suspend();
+      },
+      onForeground: () => this.sfx.resume(),
+      onBack: () => this.handleBack(),
+    });
     window.addEventListener('resize', () => this.layout());
     window.visualViewport?.addEventListener('resize', () => this.layout());
     window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 200));
     this.layout();
     this.lastFrame = performance.now();
     this.showScreen('home');
+    void hideNativeSplash();
   }
 
   /**
@@ -268,7 +279,8 @@ export class App {
    * l'accueil propose « Recharger ». Aucune erreur réseau ne bloque le jeu.
    */
   private async checkForUpdate(): Promise<void> {
-    if (__BUILD_ID__ === 'dev') return;
+    // Application native : le jeu est embarqué dans l'application, sa mise à jour passe par le magasin (pas de « Recharger »)
+    if (__BUILD_ID__ === 'dev' || nativePlatform()) return;
     try {
       const res = await fetch(`${new URL('version.json', document.baseURI).href}?t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return;
@@ -539,6 +551,19 @@ export class App {
       return;
     }
     if (this.screen && this.screen !== 'home' && this.screen !== 'result' && this.screen !== 'campaign-result') this.showScreen(PARENT[this.screen] ?? 'home');
+  }
+
+  /**
+   * Bouton Retour d'Android : même logique que la touche Échap (pause en jeu, écran précédent dans les menus) ; les écrans de résultat
+   * ramènent à l'accueil. Renvoie faux à l'accueil sans partie : l'application peut alors se fermer.
+   */
+  handleBack(): boolean {
+    const s = this.session;
+    const inRun = !!s && ['running', 'countdown', 'ending', 'paused'].includes(s.phase);
+    if (!inRun && (this.screen === 'home' || this.screen === null)) return false;
+    if (!inRun && (this.screen === 'result' || this.screen === 'campaign-result')) this.showScreen('home');
+    else this.onPauseKey();
+    return true;
   }
 
   pause(): void {

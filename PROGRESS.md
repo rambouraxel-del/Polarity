@@ -18,6 +18,17 @@
 - [x] `src/sim/*`, Survie, défi quotidien, défis classiques, classement et `BALANCE_VERSION` inchangés
 - [ ] **Validation humaine** : durées et difficulté réelles (surtout niveaux 4, 5, 7, 9), lisibilité des scènes sur téléphones, ressenti des défis secondaires. `scripts/e2e.mjs` mis à jour pour 10 niveaux mais **non rejoué**.
 
+## Distribution V1 : web, Android, iOS (branche `v1-finalisation-audiovisuelle`, commit local, ni poussée ni fusionnée)
+- [x] Web statique : base relative, icônes PNG + apple-touch + manifeste (`public/`), favicon, `version.json` (mise à jour web) ; aucun secret ni appel externe dans le bundle (`check:bundle`)
+- [x] Enveloppe **Capacitor 8.5.3** (un seul code) : `capacitor.config.ts` (origines WebView épinglées), projets `android/` (cible/compile 36, minSdk 24, permission `INTERNET` seule) et `ios/` (cible iOS 15, manifeste de confidentialité, chiffrement exempté), icônes et écrans de démarrage générés depuis `art/source/`, plugins `app` + `splash-screen` seulement
+- [x] `src/platform/native.ts` : pause + audio suspendu en arrière-plan, bouton Retour d'Android, écran de démarrage masqué au premier affichage, pas de bandeau « Recharger » en natif — inactif sur le web
+- [x] CORS strict et WebView : `capacitor://localhost` + `https://localhost` acceptés **exactement** (`src/net/origins.ts`, `server/http.ts`), parcours inscription → tickets → partie validée → suppression de profil testé avec les deux origines (serveur HTTP éphémère)
+- [x] Versions et signature : `mobile/release.json` + `package.json` → `build.gradle` / `project.pbxproj` (`mobile:version|bump|set-id|check`), signature Android par `keystore.properties`/variables d'environnement (jamais dans le dépôt)
+- [x] Documentation : `docs/BUILD_MOBILE.md` (étapes PC/Mac, sauvegarde web vs app, release/rollback), `docs/CLASSEMENT.md` et guide de déploiement (origines)
+- [x] Tests : `tests/native-origins.test.ts`, `tests/mobile-config.test.ts` ; `src/sim/`, gameplay, audio, `BALANCE_VERSION` inchangés
+- [ ] **Non produit : APK, AAB, IPA** (pas de SDK Android — dépôts Google inaccessibles —, pas de Mac) ; **non ouvert** dans Android Studio / Xcode
+- [ ] **À votre charge** : identifiant d'application définitif (`mobile:set-id`), clé de signature Android, compte Apple/Team, politique de confidentialité, fiches des magasins, essais sur appareil (audio, cycle de vie, WebGL, classement sur WebView), décision « version 2.0.0 vs 1.0.0 » et orientation
+
 ## Classement mondial : robustesse et préparation au déploiement (branche `v1-finalisation-audiovisuelle`, commit local, ni poussée ni fusionnée)
 - [x] Serveur : couche HTTP durcie (`server/http.ts` : CORS strict, `Content-Type` exigé, HTTPS exigé derrière proxy, IP lue depuis la droite de `X-Forwarded-For`, délais, taille, en-têtes), configuration validée au démarrage, arrêt propre, exceptions fatales journalisées
 - [x] Pseudos : lettres latines seulement (anti-homoglyphes), filtre d'insultes/noms réservés (`server/moderation.ts`), courses d'inscription gérées (409)

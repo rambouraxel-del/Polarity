@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { NATIVE_APP_ORIGINS } from '../src/net/origins';
 import { LIMITS } from '../src/net/protocol';
 import type { HttpRequest, HttpResponse } from './app';
 
@@ -34,10 +35,15 @@ export function clientIp(forwardedFor: string | undefined, socketAddress: string
   return socketAddress ?? 'inconnue';
 }
 
-/** Valide la liste d'origines CORS : origines exactes en https (ou http local pour le développement). Renvoie les erreurs. */
+/**
+ * Valide la liste d'origines CORS : origines exactes en https (ou http local pour le développement), plus les origines WebView des applications
+ * natives (`capacitor://localhost` pour iOS ; `https://localhost` pour Android est déjà du https). Ce sont les SEULS schémas non https acceptés, et uniquement tels quels.
+ * Renvoie les erreurs.
+ */
 export function checkOrigins(origins: readonly string[], production: boolean): string[] {
   const problems: string[] = [];
   for (const o of origins) {
+    if (NATIVE_APP_ORIGINS.includes(o)) continue;
     if (o === '*' || o.includes('*')) problems.push(`origine générique refusée : ${o}`);
     else if (!/^https?:\/\/[^/\s]+$/i.test(o)) problems.push(`origine invalide (attendu https://hôte, sans chemin ni slash final) : ${o}`);
     else if (/^http:\/\//i.test(o) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o)) problems.push(`origine en clair refusée (https obligatoire hors machine locale) : ${o}`);
