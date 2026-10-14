@@ -8,7 +8,7 @@ import { GameSession } from '../src/game/session';
 import { survivalProfile } from '../src/modes/profiles';
 import { NullPaymentProvider, getPaymentProvider, premiumAvailable, setPaymentProvider, type PaymentProvider } from '../src/monetization/payments';
 import { applyRun, type RunSummary } from '../src/progression/progress';
-import { creditShards, equip, isOwned, itemState, purchase } from '../src/progression/shop';
+import { creditShards, effectivePrice, equip, isOwned, itemState, purchase } from '../src/progression/shop';
 import { ACHIEVEMENTS, achievementById, achievementCosmetics, achievementProgress, metricValue, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
 import { BALANCE_BACKUP_PREFIX, BACKUP_PREFIX, MemoryStore, SAVE_KEY, SAVE_VERSION, defaultSave, loadSave, writeSave, type SaveData } from '../src/save/save';
 import { angleDiff, TAU } from '../src/core/math';
@@ -436,17 +436,19 @@ describe('boutique : achats en Éclats', () => {
     expect(itemState(save, catalogItem('glace')!)).toBe('owned');
   });
 
-  it('pack : prix unique, contenu débloqué, articles déjà possédés non dupliqués, jamais re-débité', () => {
+  it('pack : prix unique, contenu débloqué, articles déjà possédés non dupliqués ni repayés (prix au prorata), jamais re-débité', () => {
     const save = richSave(1000);
     purchase(save, 'aurore');
     expect(save.wallet.shards).toBe(900);
+    // Aurore (100) déjà possédée : le pack ne facture que le reste, avec la même remise (220 × 150 / 250 = 132)
+    expect(effectivePrice(save, catalogItem('pack-aurore')!)).toEqual({ currency: 'shards', amount: 132 });
     const res = purchase(save, 'pack-aurore');
-    expect(res).toMatchObject({ ok: true, spent: 220, granted: ['emeraude'] });
-    expect(save.wallet.shards).toBe(680);
+    expect(res).toMatchObject({ ok: true, spent: 132, granted: ['emeraude'] });
+    expect(save.wallet.shards).toBe(768);
     expect(isOwned(save, 'pack-aurore')).toBe(true);
     expect(itemState(save, catalogItem('pack-aurore')!)).toBe('owned');
     expect(purchase(save, 'pack-aurore')).toEqual({ ok: false, reason: 'owned' });
-    expect(save.wallet.shards).toBe(680);
+    expect(save.wallet.shards).toBe(768);
     expect(save.owned.sort()).toEqual(['aurore', 'emeraude']);
   });
 

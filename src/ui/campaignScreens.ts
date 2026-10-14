@@ -38,6 +38,7 @@ export function campaignScreen(save: SaveData): string {
       </article>
     </div>
     <div class="stats">${reserveStat(save)}${stat('Scènes vues', `${seen} / ${STORY.length}`)}</div>
+    <p class="small">Les Éclats de campagne forment une réserve propre à la campagne : ils sont distincts des Éclats de la Survie et de la boutique et ne s’échangent pas. Leur usage est prévu avec la suite de la campagne : pour l’instant ils s’accumulent simplement.</p>
     <div class="btn-stack campaign-links">
       ${button({ action: 'journal', label: 'Journal des scènes', sub: 'Relire les introductions et conclusions', icon: 'signal', variant: 'secondary', size: 'row', chevron: true })}
       ${button({ action: 'levels', label: 'Défis classiques', sub: '12 niveaux de 90 secondes', icon: 'levels', variant: 'secondary', size: 'row', chevron: true })}

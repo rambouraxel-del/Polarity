@@ -162,6 +162,8 @@ export interface KeyValueStore {
   get(key: string): string | null;
   set(key: string, value: string): void;
   remove(key: string): void;
+  /** Vrai si le stockage a refusé une écriture (navigation privée, quota plein, accès bloqué) : la progression n'est alors PAS conservée. */
+  readonly failed?: boolean;
 }
 
 export function defaultSave(): SaveData {
@@ -190,6 +192,8 @@ export function defaultSave(): SaveData {
 
 /** Stockage du navigateur, protégé : toute erreur (mode privé, quota, refus) est absorbée. */
 export class BrowserStore implements KeyValueStore {
+  failed = false;
+
   get(key: string): string | null {
     try {
       return globalThis.localStorage?.getItem(key) ?? null;
@@ -200,9 +204,12 @@ export class BrowserStore implements KeyValueStore {
 
   set(key: string, value: string): void {
     try {
-      globalThis.localStorage?.setItem(key, value);
+      if (!globalThis.localStorage) throw new Error('stockage absent');
+      globalThis.localStorage.setItem(key, value);
+      this.failed = false;
     } catch {
-      /* stockage indisponible : la partie continue sans sauvegarde */
+      /* stockage indisponible : la partie continue sans sauvegarde, mais le jeu le signale (`failed`) */
+      this.failed = true;
     }
   }
 
@@ -471,6 +478,22 @@ export function loadSave(store: KeyValueStore): LoadResult {
   return { data: sanitize(migrate(parsed)), status: 'ok' };
 }
 
+/**
+ * Lit une sauvegarde écrite par un AUTRE onglet (événement `storage`) : même validation et mêmes migrations que le chargement, sans copie
+ * ni effet de bord. Renvoie null si le texte est illisible ou vient d'une version plus récente (on garde alors la progression en mémoire).
+ */
+export function parseSave(text: string | null): SaveData | null {
+  if (!text) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!isObj(parsed)) return null;
+    if (typeof parsed.version === 'number' && parsed.version > SAVE_VERSION) return null;
+    return sanitize(migrate(parsed));
+  } catch {
+    return null;
+  }
+}
+
 export function writeSave(store: KeyValueStore, data: SaveData): void {
   try {
     store.set(SAVE_KEY, JSON.stringify(data));
@@ -481,7 +504,20 @@ export function writeSave(store: KeyValueStore, data: SaveData): void {
 
 /** Effacement explicite et confirmé : supprime aussi les copies de sauvegarde conservées lors des migrations. */
 export function eraseAll(store: KeyValueStore): void {
-  const keys = [SAVE_KEY, CORRUPT_KEY, `${BACKUP_PREFIX}5`, `${BACKUP_PREFIX}4`, `${BACKUP_PREFIX}3`, `${BACKUP_PREFIX}2`, `${BACKUP_PREFIX}1`, `${BACKUP_PREFIX}0`];
+  const keys = [SAVE_KEY, CORRUPT_KEY];
+  for (let v = 0; v <= SAVE_VERSION; v++) keys.push(`${BACKUP_PREFIX}${v}`);
   for (let b = 1; b <= 20; b++) keys.push(`${BALANCE_BACKUP_PREFIX}${b}`);
   for (const key of keys) store.remove(key);
+}
+
+/**
+ * Effacement confirmé de la progression : supprime la sauvegarde et ses copies, repart d'une progression neuve en CONSERVANT les préférences
+ * (son, effets réduits, intensité visuelle, astuce vue). Les autres clés du jeu (profil du classement mondial) ne sont pas touchées.
+ */
+export function resetProgress(store: KeyValueStore, current: SaveData): SaveData {
+  eraseAll(store);
+  const fresh = defaultSave();
+  fresh.options = { ...current.options };
+  writeSave(store, fresh);
+  return fresh;
 }

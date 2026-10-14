@@ -19,18 +19,19 @@ import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
 import { reconcileAchievements } from './progression/achievements';
-import { creditShards, equip, isOwned, purchase } from './progression/shop';
+import { catalogItem } from './config/catalog';
+import { creditShards, equip, isOwned, itemState, purchase } from './progression/shop';
 import { resolveEquipped, skinById, type Skin } from './progression/skins';
 import { CAMPAIGN_SKIN } from './config/skins';
 import { DEFAULT_TRAIL_ID } from './config/trails';
 import { ArenaRenderer, COLORS } from './render/ArenaRenderer';
-import { BrowserStore, defaultSave, eraseAll, loadSave, writeSave, type KeyValueStore, type SaveData } from './save/save';
+import { BrowserStore, SAVE_KEY, loadSave, parseSave, resetProgress, writeSave, type KeyValueStore, type LoadResult, type SaveData } from './save/save';
 import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
 import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
-import { escapeHtml } from './ui/format';
+import { escapeHtml, formatScore } from './ui/format';
 import { Hud } from './ui/hud';
 import { bannerHelp, isTouchPrimary } from './ui/controls';
 import { ShipPreview } from './ui/shipPreview';
@@ -82,6 +83,12 @@ export class App {
   private lbBalances: BalancesResponse | null = null;
   private lbNickMessage: string | null = null;
   save: SaveData;
+  /** Résultat du chargement (sauvegarde illisible ou plus récente que le jeu : signalé à l'accueil). */
+  private loadStatus: LoadResult['status'] = 'new';
+  /** Le stockage du navigateur refuse les écritures : la progression ne sera pas conservée (signalé à l'accueil). */
+  private storageFailed = false;
+  private saveNoticeDismissed = false;
+  private shopMessage: { kind: 'ok' | 'error'; text: string } | null = null;
   private readonly sfx = new Sfx();
   /** Musique de partie : partage le contexte audio, le volume et la sourdine de `sfx`. */
   readonly music = new Music({ context: () => this.sfx.context, output: () => this.sfx.output });
@@ -134,13 +141,48 @@ export class App {
 
   constructor() {
     const res = loadSave(this.store);
+    this.loadStatus = res.status;
     this.save = res.data;
     this.applyAudioOptions();
+    this.normalizeSave();
+    this.storageFailed = !storageWorks(this.store);
+    // Sauvegarde modifiée par un AUTRE onglet : on adopte la plus récente (jamais d'écrasement silencieux, aucune récompense en double)
+    window.addEventListener('storage', (e) => this.onRemoteSave(e));
+  }
+
+  /**
+   * Remet la sauvegarde en cohérence après chargement ou adoption : apparence et traînée équipées possédées, succès devenus
+   * atteignables (versés une seule fois). Renvoie vrai si une écriture est nécessaire.
+   */
+  private normalizeSave(): boolean {
     // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
     this.save.skin = resolveEquipped(this.save.skin, this.save).id;
     if (!isOwned(this.save, this.save.trail)) this.save.trail = DEFAULT_TRAIL_ID;
     // Nouveaux objectifs déjà atteints grâce à la progression existante : succès débloqués et récompensés une seule fois
-    if (reconcileAchievements(this.save).length > 0) this.persist();
+    const gained = reconcileAchievements(this.save).length > 0;
+    if (gained) this.persist();
+    return gained;
+  }
+
+  /** Écran dépendant de la sauvegarde, sans saisie en cours : il peut être redessiné quand un autre onglet a enregistré. */
+  private static readonly SAVE_SCREENS: ScreenId[] = ['home', 'campaign', 'chapter', 'mission', 'journal', 'levels', 'daily', 'achievements', 'options'];
+
+  /** Avertissements de sauvegarde à l'accueil : stockage refusé (progression non conservée), sauvegarde illisible ou plus récente que le jeu. */
+  private saveNotices(): S.SaveNotices {
+    return {
+      storageFailed: this.storageFailed,
+      load: this.saveNoticeDismissed ? null : this.loadStatus === 'corrupt' || this.loadStatus === 'future' ? this.loadStatus : null,
+    };
+  }
+
+  private onRemoteSave(e: StorageEvent): void {
+    if (e.key !== SAVE_KEY) return;
+    const next = parseSave(e.newValue);
+    if (!next) return;
+    this.save = next;
+    this.applyAudioOptions();
+    this.normalizeSave();
+    if (App.SAVE_SCREENS.includes(this.screen) && !this.session) this.showScreen(this.screen, false);
   }
 
   // ————————————————————————————————————————————— démarrage
@@ -860,14 +902,17 @@ export class App {
     const today = utcDateString();
     let html = '';
     switch (id) {
-      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable); break;
+      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable, this.saveNotices()); break;
       case 'campaign': html = C.campaignScreen(this.save); break;
       case 'chapter': html = C.chapterScreen(this.save); break;
       case 'mission': html = C.missionScreen(this.save, this.selectedMission); break;
       case 'journal': html = C.journalScreen(this.save); break;
       case 'levels': html = S.levelsScreen(this.save); break;
       case 'daily': html = S.dailyScreen(this.save, today); break;
-      case 'cosmetics': html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined); break;
+      case 'cosmetics':
+        html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage);
+        this.shopMessage = null; // affiché une seule fois
+        break;
       case 'achievements': html = S.achievementsScreen(this.save); break;
       case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
       case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? ''); break;
@@ -1004,18 +1049,31 @@ export class App {
         }
         break;
       }
-      case 'buy':
-        // Étape de confirmation : rien n'est débité ici
-        this.pendingPurchase = target.dataset.item ?? null;
+      case 'buy': {
+        // Étape de confirmation : rien n'est débité ici. Un article qui n'est plus achetable (solde, déjà possédé) est refusé avec une explication.
+        const item = catalogItem(target.dataset.item ?? '');
+        if (!item || itemState(this.save, item) !== 'buy') {
+          this.shopMessage = { kind: 'error', text: item ? S.purchaseRefusal(this.save, item) : 'Article inconnu : rien n’a été débité.' };
+          this.pendingPurchase = null;
+          this.showScreen('cosmetics');
+          break;
+        }
+        this.pendingPurchase = item.id;
         this.showScreen('confirm-purchase');
         break;
+      }
       case 'confirm-buy': {
-        // Vérification du solde, débit et déblocage dans la même modification, puis une seule écriture. Un article déjà possédé n'est jamais débité.
+        // Vérification du solde, débit et déblocage dans la même modification, puis une seule écriture. Un article déjà possédé n'est jamais débité
+        // (un double clic sur « Confirmer » ne peut donc pas payer deux fois : le second est refusé avec le motif « déjà possédé »).
         const res = purchase(this.save, target.dataset.item ?? '');
         if (res.ok) {
           this.persist();
           this.sfx.play('success');
           this.selectedItem = res.item.id;
+          this.shopMessage = { kind: 'ok', text: `Achat effectué : ${res.item.name} (−${formatScore(res.spent)} Éclats). Solde : ${formatScore(res.balance)} Éclats.` };
+        } else {
+          const item = catalogItem(target.dataset.item ?? '');
+          this.shopMessage = { kind: 'error', text: item ? S.purchaseRefusal(this.save, item) : 'Article inconnu : rien n’a été débité.' };
         }
         this.pendingPurchase = null;
         this.showScreen('cosmetics');
@@ -1044,6 +1102,10 @@ export class App {
         this.persist();
         this.showScreen('home', false);
         break;
+      case 'dismiss-save-notice':
+        this.saveNoticeDismissed = true;
+        this.showScreen('home', false);
+        break;
       case 'dismiss-reward-notice':
         this.save.rewardNotice = null;
         this.persist();
@@ -1051,11 +1113,8 @@ export class App {
         break;
       case 'ask-reset': this.showScreen('confirm-reset'); break;
       case 'confirm-reset': {
-        const options = this.save.options;
-        eraseAll(this.store);
-        this.save = defaultSave();
-        this.save.options = options;
-        this.persist();
+        this.save = resetProgress(this.store, this.save);
+        if (this.store.failed === true) this.storageFailed = true;
         this.showScreen('home');
         break;
       }
@@ -1225,6 +1284,7 @@ export class App {
 
   private persist(): void {
     writeSave(this.store, this.save);
+    if (this.store.failed === true) this.storageFailed = true;
   }
 }
 
@@ -1232,4 +1292,13 @@ export class App {
 function ambiencePreviewOffset(): number {
   const n = Number(new URLSearchParams(location.search).get('stade'));
   return Number.isInteger(n) && n >= 1 && n <= STAGES.length ? STAGES[n - 1].from : 0;
+}
+
+/** Le stockage du navigateur accepte-t-il les écritures ? (sonde sur une clé à part ; navigation privée, quota, accès bloqué → non) */
+function storageWorks(store: KeyValueStore): boolean {
+  const key = 'polarite.sonde';
+  store.set(key, '1');
+  const ok = store.failed !== true && store.get(key) === '1';
+  store.remove(key);
+  return ok;
 }

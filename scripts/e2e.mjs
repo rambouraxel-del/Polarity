@@ -670,7 +670,7 @@ const state = (page) =>
   // — Boutique
   await page.evaluate(() => { const a = window.__polarite; a.save.wallet = { shards: 150, prisms: 0 }; a.save.achievements = {}; a.save.owned = []; a.save.skin = 'classique'; a.save.trail = 'auto'; a.persist(); a.showScreen('home'); });
   await page.waitForTimeout(300);
-  check((await page.locator('.wallet [data-wallet="shards"]').innerText()) === '150' && (await page.locator('.wallet [data-wallet="prisms"]').innerText()) === '0', 'Accueil : les deux soldes (150 Éclats, 0 Prisme)');
+  check((await page.locator('.wallet [data-wallet="shards"]').innerText()) === '150' && (await page.locator('.wallet [data-wallet="prisms"]').count()) === 0, 'Accueil : le solde d’Éclats (150) ; les Prismes (non achetables en V1) ne sont pas affichés');
   await page.click('[data-action="cosmetics"]');
   check((await page.locator('[role="tab"]').allInnerTexts()).join('|').toLowerCase() === 'vaisseaux|traînées|packs', 'Boutique : onglets Vaisseaux, Traînées, Packs');
   await page.screenshot({ path: 'screenshots/74-boutique.png' });

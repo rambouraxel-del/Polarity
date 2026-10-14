@@ -69,15 +69,15 @@ export function achievementProgress(save: SaveData, a: AchievementDef): Achievem
 export function unlockAchievements(save: SaveData, run: RunSummary | undefined, now: number): AchievementDef[] {
   const gained: AchievementDef[] = [];
   for (const a of ACHIEVEMENTS) {
-    if (save.achievements[a.id] === undefined && metricValue(save, a.metric, run) >= a.target) {
-      save.achievements[a.id] = now;
-      gained.push(a);
-    }
-    // Récompense versée au déblocage ; jamais deux fois
-    if (save.achievements[a.id] !== undefined && !save.rewarded.includes(a.id) && gained.includes(a)) {
-      save.rewarded.push(a.id);
-      save.wallet.shards += a.shards;
-    }
+    if (save.achievements[a.id] !== undefined || metricValue(save, a.metric, run) < a.target) continue;
+    // Déblocage et versement dans la même modification de la sauvegarde (une seule écriture ensuite).
+    // Le registre `rewarded` est la garantie finale : un identifiant déjà versé n'est jamais re-versé ni re-notifié,
+    // même si la sauvegarde est incohérente (succès effacé à la main, copie ancienne…).
+    save.achievements[a.id] = now;
+    if (save.rewarded.includes(a.id)) continue;
+    save.rewarded.push(a.id);
+    save.wallet.shards += a.shards;
+    gained.push(a);
   }
   return gained;
 }

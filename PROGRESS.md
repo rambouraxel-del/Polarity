@@ -1,5 +1,14 @@
 # Suivi d'avancement
 
+## Consolidation V1 : progression, boutique et interfaces dépendant de la sauvegarde (branche `v1-finalisation-audiovisuelle`, non fusionnée)
+- [x] Succès (27) : conditions relues et testées contre la configuration (niveaux, multiplicateur), récompense unique (rechargements, appels répétés, deux onglets, sauvegarde incohérente), aucune dépense requise, campagne exclue
+- [x] Boutique : packs partiellement possédés facturés au prorata (plus de double paiement d'un article), refus expliqués, messages annoncés aux lecteurs d'écran, clics répétés sans double débit
+- [x] Libellés : Éclats (Survie/boutique) vs Éclats de campagne ; Prismes masqués (« Bientôt disponible », aucun prix) ; accueil « Douze ans de silence » (plus l'ancien sous-titre) ; classement hors ligne en français courant ; honnêteté sur les données locales
+- [x] Sauvegarde : stockage refusé signalé, sauvegarde illisible/plus récente signalée, adoption d'une sauvegarde écrite par un autre onglet, effacement qui conserve préférences et profil du classement, malformations couvertes, migrations v1→v6 sans remise à zéro
+- [x] Mobile : tailles tactiles ≥ 44 px, onglets sans débordement à 320 px, aperçu de la boutique réduit, pause plus claire ; captures ciblées 390×844 et 320×568
+- [x] Tests ciblés (`tests/robustness.test.ts`) ; `src/sim`, difficulté, hitboxes, `BALANCE_VERSION`, identifiants (`polarite`, skins, scènes) inchangés
+- [ ] **À tester humainement** : deux onglets réels, navigation privée, vraie boutique sur téléphone, lecteurs d'écran, propositions d'économie (`docs/ECONOMIE.md`)
+
 ## Finalisation de la campagne V1 (niveaux 1 à 10, branche `v1-finalisation-audiovisuelle`, non fusionnée)
 - [x] Audit des 10 missions : objectifs = conditions de victoire ; **correction** : objectif rempli au dernier pas de la limite = victoire (et non « temps écoulé »)
 - [x] Calibrage humain : défis de temps relâchés (N1 120, N4 200, N5 235, N8 195, N9 245, N10 240 s ≈ 1,25 × robot) ; niveau 5 : 90 éclats d'approche (au lieu de 100) ; texte du niveau 8 honnête (« de préférence entre les vagues ») ; popup « Téléchargement x/5 » (plus de « Boîte noire ! »)

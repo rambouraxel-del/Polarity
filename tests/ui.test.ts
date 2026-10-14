@@ -116,7 +116,8 @@ describe('menu Cosmétiques (Apparences + Boutique fusionnés)', () => {
   it('soldes affichés une seule fois, trois catégories, trois filtres', () => {
     const html = S.cosmeticsScreen(base(), 'ships', 'all');
     expect(html.match(/data-wallet="shards"/g)?.length).toBe(1);
-    expect(html.match(/data-wallet="prisms"/g)?.length).toBe(1);
+    // Les Prismes ne sont ni achetables ni gagnables en V1 : leur solde n'est pas affiché
+    expect(html).not.toContain('data-wallet="prisms"');
     for (const a of ['cat-ships', 'cat-trails', 'cat-packs', 'filter-all', 'filter-owned', 'filter-locked']) expect(html).toContain(`data-action="${a}"`);
     expect(html).not.toContain('tab-shop');
     expect(S.homeScreen(base(), '2026-10-12')).not.toContain('data-action="skins"');
@@ -160,7 +161,8 @@ describe('menu Cosmétiques (Apparences + Boutique fusionnés)', () => {
     expect(html).toContain('Endurance');
     html = S.cosmeticsScreen(save, 'ships', 'all', 'neon');
     expect(html).toContain('Bientôt disponible');
-    expect(html).toContain('Prismes');
+    // Premium inactif : aucun prix en Prismes, aucun bouton d'achat actif
+    expect(html).not.toContain('Prismes');
     expect(html).not.toMatch(/<button[^>]*data-action="buy"(?![^>]*disabled)[^>]*>/);
   });
 
@@ -254,15 +256,27 @@ describe('boutique et soldes', () => {
     return s;
   };
 
-  it('les deux soldes sont affichés sur l’accueil, la boutique et les apparences', () => {
+  it('le solde d’Éclats est affiché sur l’accueil et la boutique ; les Prismes (non achetables en V1) ne le sont pas', () => {
     const save = base();
     for (const html of [S.homeScreen(save, '2026-10-12'), S.cosmeticsScreen(save, 'ships', 'all')]) {
       expect(html).toContain('data-wallet="shards"');
-      expect(html).toContain('data-wallet="prisms"');
+      expect(html).not.toContain('data-wallet="prisms"');
       expect(html).toContain(formatScore(1200));
       expect(html).toContain('Éclats');
-      expect(html).toContain('Prismes');
+      expect(html).not.toContain('Prismes');
     }
+  });
+
+  it('un fournisseur de paiement actif ferait apparaître le solde de Prismes (et seulement alors)', async () => {
+    const { setPaymentProvider, NullPaymentProvider } = await import('../src/monetization/payments');
+    const save = base();
+    setPaymentProvider({ isAvailable: () => true, listProducts: async () => [], purchase: async () => ({ status: 'unavailable' }) });
+    try {
+      expect(S.homeScreen(save, '2026-10-12')).toContain('data-wallet="prisms"');
+    } finally {
+      setPaymentProvider(new NullPaymentProvider());
+    }
+    expect(S.homeScreen(save, '2026-10-12')).not.toContain('data-wallet="prisms"');
   });
 
   it('résultat : Éclats gagnés, origine et nouveau solde ; réafficher l’écran ne recrédite rien', () => {

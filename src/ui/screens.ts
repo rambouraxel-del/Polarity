@@ -10,7 +10,7 @@ import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
 import { ACHIEVEMENTS, achievementById, achievementCosmetics, achievementProgress } from '../progression/achievements';
 import { hasLegacyRecords, isLevelUnlocked, legacyDailyList, legacySurvivalBest, type RunReport } from '../progression/progress';
-import { balanceOf, isOwned, itemPrice, itemState, type ItemState } from '../progression/shop';
+import { balanceOf, effectivePrice, isOwned, itemPrice, itemState, type ItemState } from '../progression/shop';
 import { resolveEquipped } from '../progression/skins';
 import { skinThumb } from '../render/skinSprites';
 import type { LeaderboardResponse, MeResponse, BalancesResponse } from '../net/protocol';
@@ -36,7 +36,13 @@ export function nextLevelId(save: SaveData): number {
 
 // ————————————————————————————————————————————— Accueil
 
-export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false): string {
+/** Avertissements de sauvegarde (voir App.saveNotices). */
+export interface SaveNotices {
+  storageFailed: boolean;
+  load: 'corrupt' | 'future' | null;
+}
+
+export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false, saveNotices: SaveNotices = { storageFailed: false, load: null }): string {
   const legacy = legacySurvivalBest(save);
   const surv =
     save.survival.bestTime > 0
@@ -57,6 +63,15 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
   const update = updateAvailable
     ? `<div role="status" class="notice notice--cyan">Une nouvelle version du jeu est disponible. ${button({ action: 'reload-app', label: 'Recharger', variant: 'primary', size: 'sm' })}</div>`
     : '';
+  const saveWarning = saveNotices.storageFailed
+    ? '<div role="alert" class="notice">Sauvegarde impossible sur ce navigateur (navigation privée, stockage plein ou bloqué) : <strong>votre progression ne sera pas conservée</strong> à la fermeture. Vous pouvez jouer, mais pensez à quitter la navigation privée ou à libérer de l’espace.</div>'
+    : '';
+  const loadWarning =
+    saveNotices.load === 'corrupt'
+      ? `<div role="alert" class="notice">Votre sauvegarde précédente était <strong>illisible</strong> : une copie a été mise de côté sur cet appareil et une nouvelle progression a démarré. ${button({ action: 'dismiss-save-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
+      : saveNotices.load === 'future'
+        ? `<div role="status" class="notice">Cette sauvegarde vient d’une <strong>version plus récente</strong> du jeu : elle est lue au mieux et l’original est conservé à part. Rechargez la page pour obtenir la dernière version. ${button({ action: 'dismiss-save-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
+        : '';
   const rewardNotice = save.rewardNotice
     ? `<div role="status" class="notice">Récompenses de succès : <strong>+${formatScore(save.rewardNotice.shards)} Éclats</strong> pour ${save.rewardNotice.count} succès. ${button({ action: 'dismiss-reward-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
     : '';
@@ -65,7 +80,7 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
     ? `${CHAPTER.place} terminé · ${totalStars(save)}/${maxStars()} étoiles`
     : cleared > 0
       ? `${CHAPTER.place} · mission ${nextMission(save)} sur ${MISSIONS.length}`
-      : `${CHAPTER.place} · le signal impossible`;
+      : `${CHAPTER.place} · ${CHAPTER.title}`;
   const daily = save.daily[today];
   const dailyHint = daily ? `Aujourd’hui : ${formatTime(daily.bestTime)} · ${formatDateFr(today)}` : `Défi du ${formatDateFr(today)}`;
   const achCount = ACHIEVEMENTS.filter((a) => save.achievements[a.id] !== undefined).length;
@@ -78,6 +93,8 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
     <div class="home__menu">
       ${update}
       ${banner}
+      ${saveWarning}
+      ${loadWarning}
       ${rewardNotice}
       ${walletBar(save.wallet)}
       ${button({ action: 'survival', label: 'Survie', sub: surv, icon: 'play', variant: 'primary', size: 'hero' })}
@@ -204,13 +221,14 @@ function itemThumb(save: SaveData, item: CatalogItem): string {
 }
 
 /** Pastille d'état ou de prix d'un article. */
-function itemBadge(state: ItemState, item: CatalogItem): string {
-  const p = itemPrice(item);
+function itemBadge(state: ItemState, item: CatalogItem, save?: SaveData): string {
+  const p = save ? effectivePrice(save, item) : itemPrice(item);
   switch (state) {
     case 'equipped': return `<span class="chip chip--equipped">${ICONS.check}Équipé</span>`;
     case 'owned': return '<span class="chip chip--owned">Possédé</span>';
     case 'achievement': return `<span class="chip chip--locked">${ICONS.lock}Succès requis</span>`;
-    case 'soon': return `<span class="chip chip--soon">Bientôt disponible</span>${p ? price(p.currency, p.amount) : ''}`;
+    // Premium inactif : aucun prix en Prismes n'est affiché (pas de promesse d'achat), seulement « Bientôt disponible »
+    case 'soon': return '<span class="chip chip--soon">Bientôt disponible</span>';
     default: return p ? price(p.currency, p.amount) : '';
   }
 }
@@ -220,13 +238,13 @@ function itemCard(save: SaveData, item: CatalogItem, selected: boolean): string 
   return `<button class="skin item item--${st}${selected ? ' skin--selected' : ''}" data-action="select-item" data-item="${item.id}" aria-pressed="${selected}" aria-label="${escapeHtml(item.name)}">
     <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'achievement' || st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
     <span class="skin__name">${escapeHtml(item.name)}</span>
-    <span class="item__badge">${itemBadge(st, item)}</span>
+    <span class="item__badge">${itemBadge(st, item, save)}</span>
   </button>`;
 }
 
 /** Note explicative et bouton d'action selon l'état de l'article. */
 function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: string; button: string } {
-  const p = itemPrice(item);
+  const p = effectivePrice(save, item);
   switch (st) {
     case 'buy':
       return { note: '', button: button({ action: 'buy', label: 'Acheter', icon: 'shop', variant: 'primary', attrs: `data-item="${item.id}"` }) };
@@ -246,7 +264,7 @@ function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: s
     }
     case 'soon':
       return {
-        note: 'Article premium (Prismes), destiné aux futurs achats. Aucun paiement n’est actif dans cette version.',
+        note: 'Article premium : bientôt disponible. Aucun achat ni paiement n’est possible dans cette version ; rien n’est débité.',
         button: button({ action: 'buy', label: 'Bientôt disponible', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
       };
     case 'owned':
@@ -275,11 +293,13 @@ export function cosmeticItems(save: SaveData, tab: CosmeticsTab, filter: Cosmeti
 }
 
 /** Menu unique « Cosmétiques » : soldes une seule fois, catégories, filtres, grand aperçu animé, action adaptée. */
-export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string): string {
+export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string, message: { kind: 'ok' | 'error'; text: string } | null = null): string {
   const items = cosmeticItems(save, tab, filter);
   // Par défaut : l'article équipé de la liste (sinon le premier)
   const sel = items.find((i) => i.id === selectedId) ?? items.find((i) => itemState(save, i) === 'equipped') ?? items[0];
+  const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
   const head = `${screenHead('Cosmétiques')}
+    ${msg}
     ${walletBar(save.wallet)}
     ${tabs(COSMETIC_TABS.map((t) => ({ id: t.id, label: t.label, action: `cat-${t.id}` })), tab)}
     <div class="filters" role="group" aria-label="Filtre">${COSMETIC_FILTERS.map((f) => `<button class="filter${f.id === filter ? ' filter--on' : ''}" data-action="filter-${f.id}" aria-pressed="${f.id === filter}">${f.label}</button>`).join('')}</div>`;
@@ -289,7 +309,7 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
   const st = itemState(save, sel);
   const act = itemAction(save, sel, st);
   const prev = previewOf(save, sel);
-  const p = itemPrice(sel);
+  const p = effectivePrice(save, sel);
   const contents =
     sel.kind === 'pack'
       ? `<ul class="pack-list">${(sel.contents ?? [])
@@ -300,7 +320,7 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
           .join('')}</ul>`
       : '';
   const ownedParts = sel.kind === 'pack' ? (sel.contents ?? []).filter((id) => isOwned(save, id)).length : 0;
-  const packNote = ownedParts > 0 && st !== 'owned' ? `<p class="shop-note">Contient ${ownedParts} article${ownedParts > 1 ? 's' : ''} que vous possédez déjà.</p>` : '';
+  const packNote = ownedParts > 0 && st !== 'owned' ? `<p class="shop-note">Vous possédez déjà ${ownedParts} article${ownedParts > 1 ? 's' : ''} de ce pack : le prix affiché est ajusté, vous ne repayez rien.</p>` : '';
   return `<div class="panel panel--wide">${head}
     <div class="skin-stage">
       <div class="skin-preview${st === 'achievement' || st === 'soon' ? ' skin-preview--locked' : ''}">
@@ -311,7 +331,7 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
         <h3 class="skin-info__name">${escapeHtml(sel.name)}</h3>
         <p class="skin-info__cond">${escapeHtml(sel.blurb)}</p>
         ${contents}
-        <div class="item__badge item__badge--lg">${itemBadge(st, sel)}</div>
+        <div class="item__badge item__badge--lg">${itemBadge(st, sel, save)}</div>
         ${p && (st === 'buy' || st === 'insufficient') ? `<p class="shop-balance">Solde : <strong>${formatScore(balanceOf(save, p.currency))}</strong> ${CURRENCY_NAME[p.currency]}</p>` : ''}
         ${act.note ? `<p class="shop-note" id="item-note">${act.note}</p>` : ''}
         ${packNote}
@@ -319,16 +339,33 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
       </div>
     </div>
     <div class="skins" role="group" aria-label="${COSMETIC_TABS.find((t) => t.id === tab)?.label ?? ''}">${items.map((i) => itemCard(save, i, i.id === sel.id)).join('')}</div>
-    <p class="small" style="margin-top:12px">Purement cosmétiques : mêmes vitesses et mêmes hitboxes dans tous les modes. Les Éclats se gagnent en jouant et avec les succès.</p>
+    <p class="small" style="margin-top:12px">Purement cosmétiques : mêmes vitesses, mêmes hitboxes et même difficulté dans tous les modes. Les Éclats de la boutique se gagnent en Survie, aux niveaux classiques et avec les succès ; les « Éclats de campagne » sont une réserve séparée qui ne s’échange pas.</p>
   </div>`;
+}
+
+/** Confirmation d'un achat en Éclats : récapitulatif, solde avant / après. */
+/** Motif lisible d'un refus d'achat (rien n'est jamais débité dans ce cas). */
+export function purchaseRefusal(save: SaveData, item: CatalogItem): string {
+  const st = itemState(save, item);
+  const p = effectivePrice(save, item);
+  switch (st) {
+    case 'owned':
+    case 'equipped': return `${item.name} est déjà possédé : rien n’a été débité.`;
+    case 'insufficient': return p ? `Solde insuffisant pour ${item.name} : il manque ${formatScore(p.amount - balanceOf(save, p.currency))} ${CURRENCY_NAME[p.currency]}. Rien n’a été débité.` : 'Solde insuffisant : rien n’a été débité.';
+    case 'achievement': return `${item.name} est réservé à un succès : il ne s’achète pas.`;
+    case 'soon': return `${item.name} est un article premium, bientôt disponible : aucun achat n’est possible pour l’instant.`;
+    default: return 'Achat impossible : rien n’a été débité.';
+  }
 }
 
 /** Confirmation d'un achat en Éclats : récapitulatif, solde avant / après. */
 export function confirmPurchaseScreen(save: SaveData, itemId: string): string {
   const item = catalogItem(itemId);
-  const p = item ? itemPrice(item) : null;
-  if (!item || !p) {
-    return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>${button({ action: 'back-cosmetics', label: 'Retour aux cosmétiques', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
+  const p = item ? effectivePrice(save, item) : null;
+  if (!item || !p || itemState(save, item) !== 'buy') {
+    return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>
+      <p class="sub" role="alert" style="margin:6px 0 14px">${escapeHtml(item ? purchaseRefusal(save, item) : 'Article inconnu : rien n’a été débité.')}</p>
+      ${button({ action: 'back-cosmetics', label: 'Retour aux cosmétiques', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
   }
   const bal = balanceOf(save, p.currency);
   return `<div class="panel panel--pause">
@@ -430,11 +467,12 @@ function pendingRow(p: PendingRun): string {
 
 export function leaderboardScreen(v: LeaderboardView): string {
   const head = screenHead('Classement');
-  const rules = `<p class="small" style="margin-top:12px">Survie, version d’équilibrage ${v.balance}. Critère principal : durée de survie ; le score départage. Seules les parties <strong>rejouées et validées par le serveur</strong> sont classées ; les parties de démonstration ou de test n’en font jamais partie.</p>`;
+  const rules = `<p class="small" style="margin-top:12px">Survie, version d’équilibrage ${v.balance}. Critère principal : durée de survie ; le score départage. Seules les parties <strong>rejouées et validées par le serveur</strong> sont classées ; les parties de démonstration ou de test n’en font jamais partie.</p>
+    <p class="small">Votre profil de classement (pseudo et identifiant) est enregistré dans <strong>ce navigateur</strong> : un autre navigateur, un autre appareil ou une version installée du jeu aura un autre profil. Hors connexion, le jeu reste jouable et vos résultats sont envoyés plus tard.</p>`;
   const local = v.localBest ? `<div class="stats">${stat('Votre record sur cet appareil', formatTime(v.localBest.time))}${stat('Score associé', formatScore(v.localBest.score))}</div>` : '';
   if (!v.configured) {
     return `<div class="panel panel--wide">${head}
-      ${notice('Le classement mondial n’est <strong>pas encore activé</strong> : aucun service n’est configuré pour cette version du jeu. Le jeu reste entièrement jouable ; vos records sont enregistrés sur cet appareil. Voir docs/CLASSEMENT.md pour la mise en service.', 'cyan')}
+      ${notice('Le classement mondial n’est <strong>pas encore disponible</strong> dans cette version. Rien ne vous est demandé : le jeu reste entièrement jouable et vos records sont enregistrés sur cet appareil.', 'cyan')}
       ${local}${rules}
     </div>`;
   }
@@ -495,7 +533,7 @@ export function runLbStatusHtml(st: RunLbStatus): string {
   switch (st.kind) {
     case 'hidden': return '';
     case 'no-identity': return '<p class="lb-status lb-status--info">Classement mondial : choisissez un pseudo dans le menu Classement pour participer.</p>';
-    case 'no-ticket': return '<p class="lb-status lb-status--info">Classement mondial : résultat conservé sur cet appareil seulement (aucun ticket de partie disponible : connectez-vous une fois pour en obtenir).</p>';
+    case 'no-ticket': return '<p class="lb-status lb-status--info">Classement mondial : résultat conservé sur cet appareil seulement (aucun ticket de partie disponible : ouvrez le jeu une fois avec une connexion Internet pour en obtenir).</p>';
     case 'assisted': return '<p class="lb-status lb-status--info">Classement mondial : partie de démonstration ou de test, non éligible.</p>';
     case 'sending': return '<p class="lb-status lb-status--wait" role="status">Classement mondial : envoi et validation en cours…</p>';
     case 'pending': return `<p class="lb-status lb-status--wait" role="status">Classement mondial : <strong>en attente</strong> — ${st.offline ? 'hors connexion, nouvel essai automatique' : 'à envoyer'} (pas encore validé).</p>`;
@@ -529,7 +567,8 @@ export function optionsScreen(save: SaveData): string {
     ${sliderSetting('sparkle', 'Intensité visuelle', visualIntensityLabel(o.visualIntensity), 'opt-visual', 'visual', o.visualIntensity)}
     ${setting('leaf', 'Effets réduits', 'Sans secousses, flash, traînées ni animations décoratives', switchButton('opt-fx', 'toggle-fx', o.reducedEffects, 'Effets réduits'))}
     ${setting('help', 'Astuce de départ', 'Réafficher l’explication des commandes', button({ action: 'reset-tutorial', label: 'Réafficher', variant: 'secondary', size: 'sm' }))}
-    <h3 class="section-title">Progression</h3>
+    <h3 class="section-title">Sauvegarde et données</h3>
+    <p class="small">Votre progression (niveaux, campagne, Éclats, cosmétiques, succès, records) est enregistrée <strong>dans ce navigateur, sur cet appareil</strong>. Elle n’est pas synchronisée automatiquement avec un autre appareil, un autre navigateur ni une version installée (application native) du jeu. Vider les données du site ou passer en navigation privée l’efface. Le profil du classement mondial est lui aussi lié à ce navigateur.</p>
     ${button({ action: 'ask-reset', label: 'Effacer toute la progression…', icon: 'trash', variant: 'danger' })}
     <p class="small" style="margin-top:14px">Sauvegarde locale (cet appareil, ce navigateur). ${escapeHtml(GAME_NAME)} v${__APP_VERSION__} · version ${__BUILD_ID__}</p>
   </div>`;
@@ -538,7 +577,8 @@ export function optionsScreen(save: SaveData): string {
 export function confirmResetScreen(): string {
   return `<div class="panel panel--pause">
     <h2 class="title title--coral" style="margin-bottom:8px">Effacer la progression ?</h2>
-    <p class="sub" style="margin-bottom:16px">Niveaux, étoiles, records, défis, succès et apparences seront supprimés définitivement. Les options sont conservées.</p>
+    <p class="sub" style="margin-bottom:10px">Seront supprimés définitivement, <strong>sur cet appareil</strong> : défis classiques (niveaux, étoiles), campagne (étoiles, scènes vues, Éclats de campagne), records de Survie et du défi quotidien, succès, Éclats, cosmétiques achetés et équipés.</p>
+    <p class="small" style="margin-bottom:16px">Sont conservés : vos options (son, effets réduits, intensité visuelle) et votre profil du classement mondial. L’opération est irréversible.</p>
     <div class="btn-stack">
       ${button({ action: 'options', label: 'Annuler', variant: 'primary', attrs: 'data-autofocus' })}
       ${button({ action: 'confirm-reset', label: 'Oui, tout effacer', icon: 'trash', variant: 'danger' })}
@@ -557,7 +597,7 @@ export function pauseScreen(modeLabel: string, campaign = false): string {
       ${button({ action: 'restart', label: 'Recommencer', icon: 'replay', variant: 'secondary' })}
       ${campaign ? button({ action: 'quit', label: 'Carte des niveaux', icon: 'levels', variant: 'ghost' }) : button({ action: 'quit', label: 'Accueil', icon: 'home', variant: 'ghost' })}
     </div>
-    <p class="small" style="margin-top:14px">La reprise commence par un bref compte à rebours. Le temps en pause ne compte pas.</p>
+    <p class="small" style="margin-top:14px">La reprise commence par un bref compte à rebours. Le temps en pause ne compte pas. « Recommencer » et le retour au menu abandonnent la partie en cours (elle n’est pas enregistrée).</p>
   </div>`;
 }
 

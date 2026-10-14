@@ -1,6 +1,7 @@
 import eclatUrl from '../assets/ui/eclat.png';
 import prismeUrl from '../assets/ui/prisme.png';
 import type { Currency } from '../config/catalog';
+import { premiumAvailable } from '../monetization/payments';
 import type { Wallet } from '../save/save';
 import { escapeHtml, formatScore } from './format';
 import { ICONS, type IconName } from './icons';
@@ -85,9 +86,13 @@ export function price(currency: Currency, amount: number): string {
   return `<span class="price price--${currency}">${coin(currency)}<strong>${formatScore(amount)}</strong><span class="price__l">${CURRENCY_NAME[currency]}</span></span>`;
 }
 
-/** Les deux soldes (accueil, boutique, apparences). */
+/**
+ * Soldes (accueil, boutique). Les Prismes ne sont ni achetables ni gagnables dans cette version : leur solde n'est affiché
+ * que si un fournisseur de paiement est actif ou si le joueur en possède (jamais en V1) — aucune monnaie « fantôme » à l'écran.
+ */
 export function walletBar(wallet: Wallet): string {
   const item = (c: Currency): string =>
     `<div class="wallet__item wallet__item--${c}">${coin(c, 'coin--lg')}<div class="wallet__text"><span class="wallet__n" data-wallet="${c}">${formatScore(wallet[c])}</span><span class="wallet__l">${CURRENCY_NAME[c]}</span></div></div>`;
-  return `<div class="wallet" role="group" aria-label="Soldes">${item('shards')}<span class="wallet__sep" aria-hidden="true"></span>${item('prisms')}</div>`;
+  const showPrisms = wallet.prisms > 0 || premiumAvailable();
+  return `<div class="wallet" role="group" aria-label="Solde d’Éclats">${item('shards')}${showPrisms ? `<span class="wallet__sep" aria-hidden="true"></span>${item('prisms')}` : ''}</div>`;
 }

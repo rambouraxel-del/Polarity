@@ -25,6 +25,24 @@ export function itemPrice(item: CatalogItem): { currency: Currency; amount: numb
   return item.acquire.type === 'price' ? { currency: item.acquire.currency, amount: item.acquire.amount } : null;
 }
 
+/**
+ * Prix réellement demandé pour un article. Un pack dont une partie est déjà possédée est facturé AU PRORATA de ce qu'il reste à obtenir
+ * (même remise que le pack complet) : on ne repaie jamais un article déjà possédé. Les autres articles gardent leur prix du catalogue.
+ */
+export function effectivePrice(own: Ownership, item: CatalogItem): { currency: Currency; amount: number } | null {
+  const base = itemPrice(item);
+  if (!base || item.kind !== 'pack') return base;
+  const parts = (item.contents ?? []).map((id) => catalogItem(id)).filter((c): c is CatalogItem => !!c);
+  const priced = (c: CatalogItem): number => {
+    const p = itemPrice(c);
+    return p && p.currency === base.currency ? p.amount : 0;
+  };
+  const total = parts.reduce((t, c) => t + priced(c), 0);
+  const left = parts.filter((c) => !isOwned(own, c.id)).reduce((t, c) => t + priced(c), 0);
+  if (total <= 0 || left >= total) return base;
+  return { currency: base.currency, amount: Math.max(1, Math.round((base.amount * left) / total)) };
+}
+
 export const balanceOf = (save: Pick<SaveData, 'wallet'>, currency: Currency): number => save.wallet[currency];
 
 /**
@@ -45,7 +63,8 @@ export function itemState(save: SaveData, item: CatalogItem): ItemState {
   if (a.type === 'achievement') return 'achievement';
   if (a.type === 'price') {
     if (a.currency === 'prisms' && !premiumAvailable()) return 'soon';
-    return balanceOf(save, a.currency) >= a.amount ? 'buy' : 'insufficient';
+    const due = effectivePrice(save, item) ?? { currency: a.currency, amount: a.amount };
+    return balanceOf(save, due.currency) >= due.amount ? 'buy' : 'insufficient';
   }
   return 'owned';
 }
@@ -66,12 +85,13 @@ export function purchase(save: SaveData, id: string): PurchaseResult {
   if (a.type !== 'price') return { ok: false, reason: 'owned' };
   // Prismes : aucun paiement actif, jamais de débit local
   if (a.currency !== 'shards') return { ok: false, reason: 'unavailable' };
-  if (save.wallet.shards < a.amount) return { ok: false, reason: 'insufficient' };
+  const due = effectivePrice(save, item)?.amount ?? a.amount;
+  if (!Number.isFinite(save.wallet.shards) || save.wallet.shards < due) return { ok: false, reason: 'insufficient' };
   const granted = item.kind === 'pack' ? (item.contents ?? []).filter((c) => !isOwned(save, c)) : [id];
   // Débit et obtention : même modification, sans étape intermédiaire
-  save.wallet.shards -= a.amount;
+  save.wallet.shards -= due;
   for (const g of granted) if (!save.owned.includes(g)) save.owned.push(g);
-  return { ok: true, item, spent: a.amount, granted, balance: save.wallet.shards };
+  return { ok: true, item, spent: due, granted, balance: save.wallet.shards };
 }
 
 /** Équipe un vaisseau ou une traînée possédé. Renvoie faux si l'article est inconnu, d'un autre type ou non possédé. */

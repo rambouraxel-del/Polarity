@@ -53,7 +53,7 @@ describe('classement : client', () => {
     expect(store.get(TICKETS_KEY)).toBeNull();
     const view = { configured: false, identity: null, loading: false, error: null, top: null, me: null, balances: null, balance: BALANCE_VERSION, pending: [], nickMessage: null, localBest: { time: 84.6, score: 1234 } };
     const html = S.leaderboardScreen(view);
-    expect(html).toContain('pas encore activé');
+    expect(html).toContain('pas encore disponible');
     expect(html).toContain('1:24,6');
     expect(html).not.toContain('lb-table');
     expect(html).not.toContain('nick-form');

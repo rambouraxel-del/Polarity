@@ -296,7 +296,8 @@
 
 .skin-preview {
   position: relative;
-  width: min(72vw, 260px);
+  /* Sur téléphone en portrait, l'aperçu laisse la place au prix, à la note et au bouton d'action sans défilement */
+  width: min(72vw, 260px, 24dvh);
   aspect-ratio: 1;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 45%, rgb(var(--c-night-rgb) / 0.95), rgb(var(--c-bg-deep-rgb)) 72%);
@@ -888,7 +889,7 @@
   appearance: none;
   font: inherit;
   flex: 1;
-  min-height: 40px;
+  min-height: 44px;
   padding: 6px 8px;
   border-radius: var(--r-pill);
   border: 1.5px solid var(--line);
