@@ -11,6 +11,8 @@ import type { MusicFrame } from './musicSync';
 
 const PARAM_KEYS = Object.keys(STAGE_PARAMS) as StageParam[];
 const LAST = STAGES.length - 1;
+/** Paramètres que le réglage « intensité visuelle » du joueur atténue (le ciel étoilé et le décor de base restent). */
+const USER_SCALED: StageParam[] = ['nebula', 'riftGlow', 'dust', 'debris', 'arcRate', 'ringChance', 'gridWarp', 'waveGain', 'beatGain', 'bassGain'];
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smoothstep = (x: number): number => {
@@ -97,14 +99,17 @@ export class AmbienceDirector {
    * @param survival temps de survie actif (s) — la pause l'arrête
    * @param dt pas d'animation (s) — 0 en pause
    * @param music image musicale courante
+   * @param intensity réglage du joueur (0–1) : 1 = ambiance complète ; 0 = ciel étoilé seul (ni faille, ni nébuleuses, ni réaction musicale)
    */
-  update(survival: number, dt: number, music: MusicFrame, reduced: boolean): AmbienceState {
+  update(survival: number, dt: number, music: MusicFrame, reduced: boolean, intensity = 1): AmbienceState {
     const s = this.state;
     s.reduced = reduced;
     s.spawnRing = s.spawnWave = s.spawnArcs = 0;
     s.time += dt;
     s.stage = stageAt(survival);
     for (const k of PARAM_KEYS) s.p[k] = paramAt(k, s.stage);
+    const user = clamp01(intensity);
+    if (user < 1) for (const k of USER_SCALED) s.p[k] *= user;
 
     // Apogée : variations lentes pour que l'ambiance ne se fige jamais
     const apex = clamp01(s.stage - (LAST - 1));

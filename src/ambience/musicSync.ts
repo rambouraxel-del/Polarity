@@ -109,12 +109,16 @@ export class MusicSync {
     this.lastTime = 0;
   }
 
-  /** Met à jour `frame` depuis la position de lecture entendue. Sans allocation. */
-  update(pos: MusicPosition): MusicFrame {
+  /**
+   * Met à jour `frame` depuis la position de lecture entendue. Sans allocation.
+   * `audible` faux (sourdine, volume de la musique à zéro) : aucune réaction, comme sans musique. En pause ou pendant le compte
+   * à rebours la position ne progresse pas (`playing` faux) : les réactions retombent, on ne rejoue jamais un battement figé.
+   */
+  update(pos: MusicPosition, audible = true): MusicFrame {
     const f = this.frame;
     f.beat = 0;
     f.drop = false;
-    if (!pos.track) {
+    if (!pos.track || !pos.playing || !audible) {
       f.active = false;
       f.track = null;
       f.bass = 0;

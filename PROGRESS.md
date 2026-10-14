@@ -1,7 +1,17 @@
 # Suivi d'avancement
 
-## Ambiance évolutive de la Survie (livrée, à valider à l'œil)
-Cinq stades progressifs, faille cosmique, parallaxe, particules, anneaux, ondes, arcs, débris, quadrillage gravitationnel ; synchronisation musicale par position de lecture réelle + carte des morceaux (battements, basses, intensité, montées, drops) ; effets réduits ; qualité adaptative. Survie et défi quotidien uniquement. Pas de test navigateur lancé. Voir `docs/AMBIANCE.md`.
+## Finalisation audiovisuelle V1 (branche `v1-finalisation-audiovisuelle`, non fusionnée)
+- [x] Carte musicale recalée sur les attaques réelles (+9,1 ms mesurés, écart résiduel ≈ 0 ms) ; grille de battements continue aux raccords
+- [x] Silence, sourdine, pause, compte à rebours, contexte suspendu/« interrupted » : aucune réaction musicale, aucun battement manqué rejoué
+- [x] Réglages Options : volume général, **Musique**, **Effets sonores** (bus séparés), **Intensité visuelle** (0–100 %), Effets réduits conservé ; écoute d'essai de la musique ; préférences enregistrées
+- [x] Faille refaite (fissure irrégulière à ramifications), voile de la zone de jeu opaque jusqu'au-delà de l'orbite, traits en azur/violet (le magenta reste celui des secteurs électriques) — constaté lisible sur captures de jeu réel (stade 5, secteur, laser)
+- [x] Qualité adaptative : nébuleuses 3/2/1 ; quadrillage plus fin ; coût JS mesuré ≈ +1,3 ms/image à ×4 de ralentissement
+- [x] Niveaux audio mesurés : aucune saturation propre au jeu ; MP3 inchangés ; reprise de l'état « interrupted » (Safari iPhone)
+- [x] Tests : 50 tests ciblés (synchro, silence, intensité, bus audio, invariance du gameplay par graphe d'imports) ; `src/sim/` et `BALANCE_VERSION` inchangés
+- [ ] **À faire sur de vrais téléphones** : `docs/VERIFICATIONS_MOBILE.md` (Safari iPhone, Android, Bluetooth, réseau lent, fluidité, lisibilité à 0/60/120/180/240+ s)
+
+## Ambiance évolutive de la Survie (livrée sur `main`)
+Cinq stades progressifs, faille cosmique, parallaxe, particules, anneaux, ondes, arcs, débris, quadrillage gravitationnel ; synchronisation musicale par position de lecture réelle + carte des morceaux (battements, basses, intensité, montées, drops) ; effets réduits ; qualité adaptative. Survie et défi quotidien uniquement. Voir `docs/AMBIANCE.md`.
 
 ## Musique de partie (livrée sur `main`)
 - [x] Intro une fois → boucle native (`loopStart`/`loopEnd` du JSON) → outro en fondu 1,2 s à la fin de partie, annulation de la boucle programmée, relance rapide sans superposition, pause/reprise, arrière-plan, volume/sourdine existants, buffers décodés une seule fois

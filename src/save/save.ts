@@ -53,7 +53,13 @@ export interface RunRecord {
 
 export interface Options {
   muted: boolean;
+  /** Volume général (musique et effets sonores). */
   volume: number;
+  /** Mixage relatif (0–1, 1 = niveau d'origine) de la musique et des effets sonores. */
+  musicVolume: number;
+  sfxVolume: number;
+  /** Intensité de l'ambiance visuelle de la Survie (0–1, 1 = complète ; 0 = ciel étoilé seul). Décoratif. */
+  visualIntensity: number;
   reducedEffects: boolean;
   tutorialSeen: boolean;
 }
@@ -173,7 +179,7 @@ export function defaultSave(): SaveData {
     wallet: { ...WALLET_START },
     owned: [],
     paid: {},
-    options: { muted: false, volume: 0.7, reducedEffects: false, tutorialSeen: false },
+    options: { muted: false, volume: 0.7, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, reducedEffects: false, tutorialSeen: false },
     seenIntros: [],
     stats: { totalCycles: 0, totalRuns: 0, totalShards: 0, totalEvents: 0, bestScore: 0, bestMultiplier: 0 },
     rewarded: [],
@@ -308,6 +314,9 @@ export function sanitize(raw: unknown): SaveData {
     out.options = {
       muted: bool(o.muted, def.options.muted),
       volume: num(o.volume, def.options.volume, 0, 1),
+      musicVolume: num(o.musicVolume, def.options.musicVolume, 0, 1),
+      sfxVolume: num(o.sfxVolume, def.options.sfxVolume, 0, 1),
+      visualIntensity: num(o.visualIntensity, def.options.visualIntensity, 0, 1),
       reducedEffects: bool(o.reducedEffects, def.options.reducedEffects),
       tutorialSeen: bool(o.tutorialSeen, def.options.tutorialSeen),
     };

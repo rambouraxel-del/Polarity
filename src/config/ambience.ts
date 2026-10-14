@@ -15,11 +15,17 @@ import { THEME, hexNum } from '../ui/theme';
 /** Modes de jeu concernés. */
 export const AMBIENCE_MODES = ['survival', 'daily'] as const;
 
+/** L'ambiance s'applique-t-elle à ce mode de jeu ? (Survie et défi quotidien ; jamais la Campagne ni les Défis classiques.) */
+export const ambienceApplies = (mode: string): boolean => (AMBIENCE_MODES as readonly string[]).includes(mode);
+
 /** Palette : noir profond, cyan électrique, violet, magenta (distincts des couleurs des dangers). */
 export const AMBIENCE_COLORS = {
   cyan: hexNum(THEME.color.cyan),
   violet: 0x7a4dff,
+  /** Magenta : nébuleuses lointaines seulement (jamais en traits : trop proche du magenta des secteurs électriques). */
   magenta: 0xd04bff,
+  /** Bord de la faille : bleu azur, distinct du cyan de l'orbite. */
+  azure: 0x3d8bff,
   ice: 0xbfefff,
   white: 0xffffff,
   /** Voile sombre derrière la zone de jeu (couleur du fond de l'arène). */
@@ -125,6 +131,8 @@ export const AMBIENCE = {
     riftWidth: 70,
     /** Rayon du voile sombre qui protège la zone de jeu (au-delà de l'orbite). */
     veilRadius: 410,
+    /** Part du rayon du voile entièrement opaque (au-delà de l'orbite et des marges des menaces) ; le fondu occupe le reste. */
+    veilSolid: 0.8,
     /** Les arcs décoratifs restent hors de la zone de jeu (au-delà de ce rayon). */
     arcMinRadius: 420,
     /** Rayon de départ et d'arrivée des anneaux et ondes. */
@@ -135,7 +143,7 @@ export const AMBIENCE = {
   /** Lisibilité : plafonds absolus, quel que soit le stade ou la musique. */
   caps: {
     /** Opacité maximale du voile au centre (protège les menaces et le vaisseau). */
-    veilAlpha: 0.62,
+    veilAlpha: 0.9,
     /** Opacité maximale de la faille, des nébuleuses, des anneaux. */
     riftAlpha: 0.75,
     nebulaAlpha: 0.32,
@@ -155,9 +163,9 @@ export const AMBIENCE = {
   /** Qualité adaptative : plafonds par niveau ; on descend si les images sont trop lentes, on remonte prudemment. */
   quality: {
     tiers: {
-      high: { stars: 220, dust: 150, debris: 12, rings: 6, arcs: 3, gridSegments: 96 },
-      medium: { stars: 150, dust: 90, debris: 8, rings: 4, arcs: 2, gridSegments: 64 },
-      low: { stars: 90, dust: 45, debris: 4, rings: 2, arcs: 1, gridSegments: 40 },
+      high: { stars: 220, dust: 150, debris: 12, rings: 6, arcs: 3, nebulae: 3, gridSegments: 128 },
+      medium: { stars: 150, dust: 90, debris: 8, rings: 4, arcs: 2, nebulae: 2, gridSegments: 96 },
+      low: { stars: 90, dust: 45, debris: 4, rings: 2, arcs: 1, nebulae: 1, gridSegments: 64 },
     },
     /** Durée d'image moyenne (s) au-delà de laquelle on descend d'un niveau, et durée d'observation (s). */
     slowFrame: 1 / 45,

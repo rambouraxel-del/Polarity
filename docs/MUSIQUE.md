@@ -25,8 +25,17 @@ Intro (une fois) → boucle (aussi longtemps que la partie dure) → outro (à l
 - **Mobile** : le contexte est créé et repris au premier geste du joueur (`Sfx.unlock()`), qui lance aussi le téléchargement et le décodage (intro, boucle, puis outro). Rien n'est chargé avant. Si le décodage n'est pas fini au tout premier lancement, la musique démarre dès qu'il l'est (et seulement si la partie est toujours en cours).
 - **Mémoire** : un seul jeu de buffers décodés, jamais dupliqué ni rechargé (≈ 68 Mo de PCM à 44,1 kHz, dont ≈ 54 Mo pour la boucle ; plus si le contexte tourne à 48 kHz).
 
+## Mixage, niveaux et saturation
+- Chaîne : voix de la musique → **bus musique** (`MUSIC.gain` 0,5 × mixage joueur²) → **sortie générale** (volume général² × 0,5, sourdine) → destination ;
+  effets sonores → **bus effets** (mixage joueur²) → même sortie générale. Un seul contexte, un seul volume général, une seule sourdine.
+- Niveaux mesurés des MP3 décodés (`ffmpeg`) : crêtes −5,4 / −4,0 / −3,7 dBFS (intro / boucle / outro), aucun échantillon > 1,0, RMS −21 / −17,7 / −15,7 dBFS.
+  Pire cas simultané (musique + effets les plus forts) ≈ (0,65 × 0,5 + 0,75 + 0,25) × 0,5 < 1 : **aucune saturation propre au jeu** (testé).
+  Les écarts de sonie entre morceaux (intro plus douce, outro plus forte) sont ceux du mastering : volontaires (montée puis final), non corrigés.
+- Raccord de boucle vérifié sur l'audio : saut au point de boucle = 0,8 × le pas médian du signal (inaudible) ; longueurs décodées = repères du JSON.
+- **Écoute d'essai** : relâcher le curseur « Musique » des options joue 2,5 s de la boucle (`Music.audition`), sans effet pendant une partie.
+
 ## Position de lecture (ambiance visuelle)
-`Music.position(out)` donne la position **entendue** (latence de sortie déduite) : intro, puis boucle (temps dans la région en boucle), puis outro ; figée en pause, nulle sans musique décodée. Lecture seule : elle ne programme rien et ne change pas le son. Utilisée par l'ambiance de la Survie avec la carte `src/data/polar-rift-music-map.json` (voir `docs/AMBIANCE.md`).
+`Music.position(out)` donne la position **entendue** (latence de sortie déduite) : intro, puis boucle (temps dans la région en boucle), puis outro ; figée en pause, nulle sans musique décodée ; `playing` faux si le contexte audio n'est pas « running » (suspendu, ou « interrupted » sur Safari iPhone). Lecture seule : elle ne programme rien et ne change pas le son. Utilisée par l'ambiance de la Survie avec la carte `src/data/polar-rift-music-map.json` (voir `docs/AMBIANCE.md`).
 
 ## Vérifications
 - Tests unitaires (`npm test`) : repères exacts du JSON, poids des fichiers, programmation (intro/boucle/rampes), absence de minuteur, un seul nœud en boucle après une heure simulée, buffers uniques, fin pendant l'intro / la boucle, relances rapides, pause/reprise.

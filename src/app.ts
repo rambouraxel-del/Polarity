@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Music, type MusicPosition } from './audio/music';
 import { AmbienceDirector, QualityGovernor } from './ambience/director';
 import { MusicSync } from './ambience/musicSync';
-import { AMBIENCE_MODES, STAGES } from './config/ambience';
+import { ambienceApplies, STAGES } from './config/ambience';
 import { Sfx } from './audio/sfx';
 import { ARENA, SIM, UI } from './config/balance';
 import { LEVELS, levelById } from './config/levels';
@@ -132,8 +132,7 @@ export class App {
   constructor() {
     const res = loadSave(this.store);
     this.save = res.data;
-    this.sfx.setVolume(this.save.options.volume);
-    this.sfx.setMuted(this.save.options.muted);
+    this.applyAudioOptions();
     // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
     this.save.skin = resolveEquipped(this.save.skin, this.save).id;
     if (!isOwned(this.save, this.save.trail)) this.save.trail = DEFAULT_TRAIL_ID;
@@ -170,6 +169,10 @@ export class App {
     document.getElementById('btn-pause')!.addEventListener('pointerdown', (e) => e.preventDefault());
     this.screenEl.addEventListener('click', this.onScreenClick);
     this.screenEl.addEventListener('input', this.onScreenInput);
+    // Réglage de la musique : écoute d'essai quand le curseur est relâché
+    this.screenEl.addEventListener('change', (e) => {
+      if ((e.target as HTMLElement).dataset?.input === 'music') this.music.audition();
+    });
     this.screenEl.addEventListener('submit', (e) => {
       e.preventDefault();
       const kind = (e.target as HTMLElement).dataset.form;
@@ -247,6 +250,21 @@ export class App {
   }
 
   /** Effets réduits : option du joueur ou préférence du système. Coupe secousses, flash, traînées, animations et fond animé. */
+  /** Volume général, mixage musique / effets sonores et sourdine (Sfx possède le contexte, la sortie et les deux bus). */
+  private applyAudioOptions(): void {
+    const o = this.save.options;
+    this.sfx.setVolume(o.volume);
+    this.sfx.setSfxVolume(o.sfxVolume);
+    this.sfx.setMuted(o.muted);
+    this.music.setLevel(o.musicVolume);
+  }
+
+  /** La musique est-elle réellement entendue ? Sinon l'ambiance ne réagit pas (aucune fausse synchronisation). */
+  private musicAudible(): boolean {
+    const o = this.save.options;
+    return !o.muted && o.volume > 0 && o.musicVolume > 0;
+  }
+
   private applyReducedEffects(): void {
     const system = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     const reduced = this.save.options.reducedEffects;
@@ -299,12 +317,12 @@ export class App {
   /** Ambiance de la Survie et du défi quotidien (décorative) : jamais en campagne ni en défi classique. */
   private updateAmbience(realDt: number): ReturnType<AmbienceDirector['update']> | null {
     const s = this.session;
-    if (!s || !(AMBIENCE_MODES as readonly string[]).includes(s.config.mode)) return null;
+    if (!s || !ambienceApplies(s.config.mode)) return null;
     this.quality.update(realDt);
     if (this.ambience.state.tier !== this.quality.tier) this.ambience.setQuality(this.quality.tier);
-    const frame = this.musicSync.update(this.music.position(this.musicPos));
+    const frame = this.musicSync.update(this.music.position(this.musicPos), this.musicAudible());
     const dt = s.phase === 'paused' ? 0 : realDt;
-    return this.ambience.update(s.sim.time + this.ambiencePreview, dt, frame, this.reducedMotion);
+    return this.ambience.update(s.sim.time + this.ambiencePreview, dt, frame, this.reducedMotion, this.save.options.visualIntensity);
   }
 
   private updateInGameUi(session: GameSession): void {
@@ -970,7 +988,7 @@ export class App {
       }
       case 'toggle-sound':
         this.save.options.muted = !this.save.options.muted;
-        this.sfx.setMuted(this.save.options.muted);
+        this.applyAudioOptions();
         this.persist();
         this.refreshOptions();
         break;
@@ -1019,16 +1037,22 @@ export class App {
 
   private readonly onScreenInput = (e: Event): void => {
     const el = e.target as HTMLInputElement;
-    if (el.dataset.input === 'volume') {
-      const v = Number(el.value) / 100;
-      this.save.options.volume = v;
-      this.sfx.setVolume(v);
-      const label = document.getElementById('opt-volume-val');
-      if (label) label.textContent = `${Math.round(v * 100)} %`;
-      el.style.setProperty('--fill', `${Math.round(v * 100)}%`);
-      this.persist();
-      this.sfx.play('collect', 0);
-    }
+    const kind = el.dataset.input;
+    if (kind !== 'volume' && kind !== 'music' && kind !== 'sfx' && kind !== 'visual') return;
+    const v = Number(el.value) / 100;
+    const o = this.save.options;
+    if (kind === 'volume') o.volume = v;
+    else if (kind === 'music') o.musicVolume = v;
+    else if (kind === 'sfx') o.sfxVolume = v;
+    else o.visualIntensity = v;
+    this.applyAudioOptions();
+    const label = document.getElementById(`${el.id}-val`);
+    const pct = `${Math.round(v * 100)} %`;
+    if (label) label.textContent = kind === 'visual' ? S.visualIntensityLabel(v) : pct;
+    el.style.setProperty('--fill', `${Math.round(v * 100)}%`);
+    this.persist();
+    // Écoute immédiate : un effet sonore (volume général, effets) ; la musique a son écoute d'essai au relâchement (événement change)
+    if (kind === 'volume' || kind === 'sfx') this.sfx.play('collect', 0);
   };
 
   /** Nouvelle tentative : nouvelle graine (sauf défi, dont la graine est celle du jour). */

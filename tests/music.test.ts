@@ -15,6 +15,11 @@ class FakeParam {
   linearRampToValueAtTime(v: number, t: number): void {
     this.events.push({ type: 'ramp', value: v, time: t });
   }
+  targets: number[] = [];
+  setTargetAtTime(v: number): void {
+    this.targets.push(v);
+    this.value = v;
+  }
   cancelScheduledValues(t: number): void {
     this.events = this.events.filter((e) => e.time < t);
   }
@@ -331,5 +336,41 @@ describe('musique : pause et reprise', () => {
     music.stop();
     expect(music.mode).toBe('idle');
     expect(playingAt(ctx, 40)).toHaveLength(0);
+  });
+});
+
+describe('musique : mixage et écoute d’essai', () => {
+  it('le mixage de la musique agit sur son bus (courbe quadratique), tout de suite, sans toucher aux nœuds de lecture', () => {
+    const { ctx, music } = setup();
+    music.startGame();
+    const bus = ctx.gains.find((g) => g.gain.value === MUSIC.gain)!;
+    expect(bus).toBeDefined();
+    music.setLevel(0.5);
+    expect(bus.gain.targets.at(-1)).toBeCloseTo(MUSIC.gain * 0.25, 9);
+    music.setLevel(1);
+    expect(bus.gain.targets.at(-1)).toBeCloseTo(MUSIC.gain, 9);
+    music.setLevel(0);
+    expect(bus.gain.targets.at(-1)).toBe(0);
+    // Un mixage défini avant le premier bus s'applique à sa création
+    const b = setup();
+    b.music.setLevel(0.5);
+    b.music.startGame();
+    expect(b.ctx.gains.some((g) => Math.abs(g.gain.value - MUSIC.gain * 0.25) < 1e-9)).toBe(true);
+  });
+
+  it('écoute d’essai : 2,5 s de la boucle hors partie ; sans effet pendant une partie', () => {
+    const { ctx, music } = setup();
+    music.audition();
+    const src = ctx.sources.at(-1)!;
+    expect(name(src)).toBe('loop');
+    expect(src.loop).toBe(false);
+    expect(src.starts[0].offset).toBeCloseTo(MUSIC.loopStart + MUSIC.auditionFrom, 9);
+    expect(src.stopAt).toBeCloseTo(0.02 + MUSIC.auditionSeconds + 0.02, 9);
+    const n = ctx.sources.length;
+    music.startGame();
+    music.audition();
+    // Pendant la partie : aucun nœud d'essai supplémentaire (seulement ceux de la partie)
+    expect(ctx.sources.length - n).toBeLessThanOrEqual(2);
+    expect(ctx.sources.slice(n).every((s) => s !== src)).toBe(true);
   });
 });

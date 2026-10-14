@@ -129,6 +129,28 @@ def track_beats(o, period, tightness=120.0):
     return np.array(beats)
 
 
+def attack_shift(x, beat_times, strength):
+    """
+    Décalage systématique (s) entre l'instant d'un battement de la carte et la montée réelle de l'attaque.
+    Le flux spectral (fenêtres de 46 ms) détecte les attaques légèrement trop tôt ; on mesure, sur les battements forts,
+    l'écart médian avec la montée la plus rapide de l'enveloppe large bande au pas de l'échantillon (lissage 4 ms),
+    et la carte est corrigée de cette valeur (auto-calibrée sur l'audio, pas supposée).
+    """
+    d = np.abs(np.diff(x, prepend=0.0))
+    k = int(0.004 * SR)
+    env = np.convolve(d, np.ones(k) / k, 'same')
+    offs = []
+    for b, st in zip(beat_times, strength):
+        if st < 0.6:
+            continue
+        c = int(b * SR)
+        lo, hi = max(1, c - int(0.07 * SR)), min(len(env) - 1, c + int(0.07 * SR))
+        if hi - lo < 100:
+            continue
+        offs.append((lo + int(np.argmax(np.diff(env[lo:hi])))) / SR - b)
+    return float(np.median(offs)) if len(offs) >= 8 else 0.0
+
+
 def smooth(sig, n):
     if n <= 1:
         return sig
@@ -235,6 +257,10 @@ def main():
 
     beat_t_tl = beats_tl / ONSET_FPS
     beat_t_out = beats_out / ONSET_FPS
+    shift = attack_shift(timeline, beat_t_tl, strength_tl)
+    beat_t_tl = beat_t_tl + shift
+    beat_t_out = beat_t_out + shift
+    print(f'correction d’attaque appliquée aux battements : {shift * 1000:+.1f} ms')
     drops_tl = drops(e_tl, bass_tl, beat_t_tl)
     drops_out = drops(e_out, bass_out, beat_t_out)
     builds_tl = builds(int_tl)

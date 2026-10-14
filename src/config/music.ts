@@ -32,6 +32,9 @@ export const MUSIC = {
   pauseFade: 0.06,
   /** Fondu quand la partie est quittée sans résultat (retour au menu) (s). */
   quitFade: 0.6,
+  /** Écoute d'essai du réglage « Musique » (options) : durée (s) et position dans la boucle (s après loopStart) — un passage dense de la boucle. */
+  auditionSeconds: 2.5,
+  auditionFrom: 70,
 } as const;
 
 /** Offset de départ du nœud de boucle (s) : dans la garde, juste avant le point de boucle. */

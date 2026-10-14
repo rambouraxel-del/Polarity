@@ -1,9 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AmbienceDirector, QualityGovernor, paramAt, stageAt } from '../src/ambience/director';
 import { MUSIC_MAP, MusicSync, envAt, type MusicFrame } from '../src/ambience/musicSync';
 import { Music, type AudioHost, type MusicPosition } from '../src/audio/music';
-import { AMBIENCE, AMBIENCE_MODES, STAGES, STAGE_PARAMS } from '../src/config/ambience';
+import { AMBIENCE, AMBIENCE_MODES, STAGES, STAGE_PARAMS, ambienceApplies } from '../src/config/ambience';
+import { Sfx } from '../src/audio/sfx';
+import { defaultSave, sanitize } from '../src/save/save';
 import { MUSIC } from '../src/config/music';
 import timing from '../src/data/polar-rift-audio.json';
 
@@ -269,5 +272,199 @@ describe('position de lecture de la musique (horloge audio)', () => {
     const ctx = { currentTime: 5 };
     const music = new Music({ context: () => ctx as unknown as BaseAudioContext, output: () => null }, { intro: 'i', loop: 'l', outro: 'o' });
     expect(music.position(out()).track).toBeNull();
+  });
+});
+
+describe('silence, sourdine, pause : aucune fausse synchronisation', () => {
+  const pos = (track: MusicPosition['track'], time: number, playing = true): MusicPosition => ({ track, time, playing });
+
+  it('sourdine ou musique à zéro (non audible) : image inactive, aucun battement ni passage fort, même en lecture', () => {
+    const sync = new MusicSync();
+    const b = MUSIC_MAP.tracks.loop.beats[40];
+    const d = MUSIC_MAP.tracks.loop.drops[0];
+    sync.update(pos('loop', b - 0.05), false);
+    const f = sync.update(pos('loop', b + 0.01), false);
+    expect(f.active).toBe(false);
+    expect(f.beat).toBe(0);
+    expect(f.bass).toBe(0);
+    expect(sync.update(pos('loop', d + 0.01), false).drop).toBe(false);
+  });
+
+  it('remise du son : pas de rafale de battements manqués, la synchronisation repart proprement', () => {
+    const sync = new MusicSync();
+    sync.update(pos('loop', 10), false);
+    sync.update(pos('loop', 20), false);
+    // Son rétabli : la première image ne rejoue rien du passé
+    expect(sync.update(pos('loop', 20.01), true).beat).toBe(0);
+    const b = MUSIC_MAP.tracks.loop.beats.find((x) => x > 20.1)!;
+    sync.update(pos('loop', b - 0.02));
+    expect(sync.update(pos('loop', b + 0.01)).beat).toBeGreaterThan(0);
+  });
+
+  it('position non jouée (pause, compte à rebours, contexte suspendu) : aucune réaction, les valeurs retombent', () => {
+    const sync = new MusicSync();
+    const d = new AmbienceDirector(() => 0);
+    const loud = { ...sync.update(pos('loop', 110.2)) };
+    expect(loud.active).toBe(true);
+    for (let i = 0; i < 120; i++) {
+      const f = sync.update(pos('loop', 110.2, false));
+      expect(f.active).toBe(false);
+      d.update(300, 1 / 60, f, false);
+    }
+    expect(d.state.bass).toBeLessThan(0.01);
+    expect(d.state.beat).toBeLessThan(0.01);
+  });
+
+  it('Music.position : contexte suspendu ou interrompu (Safari iPhone) = rien d’entendu', () => {
+    const mk = (state: string) => {
+      const ctx = { currentTime: 0, state } as unknown as BaseAudioContext;
+      const music = new Music({ context: () => ctx, output: () => null }, { intro: 'i', loop: 'l', outro: 'o' });
+      return { ctx, music };
+    };
+    const out: MusicPosition = { track: null, time: 0, playing: false };
+    // Pas de musique démarrée : aucune position, quel que soit l'état
+    expect(mk('running').music.position(out).track).toBeNull();
+    expect(mk('interrupted').music.position(out).playing).toBe(false);
+  });
+});
+
+describe('intensité visuelle choisie par le joueur', () => {
+  const loud: MusicFrame = { active: true, track: 'loop', bass: 1, intensity: 1, beat: 1, drop: true, build: 1 };
+
+  it('0 % : ciel étoilé seul (ni faille, ni nébuleuses, ni particules, ni réaction) ; les étoiles restent', () => {
+    const d = new AmbienceDirector(() => 0);
+    const st = d.update(400, 1 / 60, loud, false, 0);
+    expect(st.p.riftGlow).toBe(0);
+    expect(st.p.nebula).toBe(0);
+    expect(st.p.dust).toBe(0);
+    expect(st.p.debris).toBe(0);
+    expect(st.beat).toBe(0);
+    expect(st.spawnWave + st.spawnRing + st.spawnArcs).toBe(0);
+    expect(st.p.stars).toBeGreaterThan(0);
+  });
+
+  it('proportionnelle : 50 % atténue les effets de moitié, 100 % = ambiance complète', () => {
+    const full = new AmbienceDirector(() => 0).update(400, 1 / 60, silent, false, 1);
+    const half = new AmbienceDirector(() => 0).update(400, 1 / 60, silent, false, 0.5);
+    expect(half.p.nebula).toBeCloseTo(full.p.nebula * 0.5, 9);
+    expect(half.p.dust).toBeCloseTo(full.p.dust * 0.5, 9);
+    expect(half.p.stars).toBe(full.p.stars);
+  });
+
+  it('réglages enregistrés : valeurs par défaut, bornes, anciennes sauvegardes sans ces champs', () => {
+    const def = defaultSave().options;
+    expect([def.musicVolume, def.sfxVolume, def.visualIntensity]).toEqual([1, 1, 1]);
+    const raw = JSON.parse(JSON.stringify(defaultSave())) as Record<string, unknown>;
+    (raw.options as Record<string, unknown>) = { muted: true, volume: 0.4, reducedEffects: true, tutorialSeen: true, musicVolume: 7, sfxVolume: -3, visualIntensity: 'x' };
+    const o = sanitize(raw).options;
+    expect(o.musicVolume).toBe(1);
+    expect(o.sfxVolume).toBe(0);
+    expect(o.visualIntensity).toBe(1);
+    expect(o.muted).toBe(true);
+    expect(o.reducedEffects).toBe(true);
+  });
+});
+
+describe('bus audio : effets sonores et musique sous le même volume général', () => {
+  class P {
+    value = 1;
+    targets: number[] = [];
+    setValueAtTime(): void {}
+    exponentialRampToValueAtTime(): void {}
+    linearRampToValueAtTime(): void {}
+    setTargetAtTime(v: number): void {
+      this.targets.push(v);
+    }
+  }
+  class N {
+    to: N[] = [];
+    connect(n: N): void {
+      this.to.push(n);
+    }
+    start(): void {}
+    stop(): void {}
+  }
+  class G extends N {
+    gain = new P();
+  }
+  class FakeContext {
+    state = 'running';
+    currentTime = 0;
+    sampleRate = 44100;
+    destination = new N();
+    gains: G[] = [];
+    createGain(): G {
+      const g = new G();
+      this.gains.push(g);
+      return g;
+    }
+    createBuffer(): { getChannelData: () => Float32Array } {
+      return { getChannelData: () => new Float32Array(32768) };
+    }
+    createOscillator(): N & { frequency: { setValueAtTime(): void; exponentialRampToValueAtTime(): void }; type: string } {
+      return Object.assign(new N(), { type: '', frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} } });
+    }
+    resume(): Promise<void> {
+      this.state = 'running';
+      return Promise.resolve();
+    }
+  }
+
+  it('effets sonores → bus effets → sortie générale → destination ; la musique se branche sur la même sortie', () => {
+    (globalThis as unknown as { AudioContext: unknown }).AudioContext = FakeContext;
+    try {
+      const sfx = new Sfx();
+      sfx.unlock();
+      const ctx = sfx.context as unknown as FakeContext;
+      const master = sfx.output as unknown as G;
+      expect(master.to).toContain(ctx.destination);
+      const bus = ctx.gains.find((g) => g !== master && g.to.includes(master))!;
+      expect(bus).toBeDefined();
+      sfx.play('collect');
+      // La voix d'effet passe par le bus des effets, jamais directement par la sortie générale
+      const voice = ctx.gains.at(-1)!;
+      expect(voice.to).toEqual([bus]);
+      sfx.setSfxVolume(0.5);
+      expect(bus.gain.targets.at(-1)).toBeCloseTo(0.25, 9);
+      sfx.setVolume(1);
+      sfx.setMuted(true);
+      expect(master.gain.targets.at(-1)).toBe(0);
+      sfx.setMuted(false);
+      expect(master.gain.targets.at(-1)).toBeCloseTo(0.5, 9);
+    } finally {
+      delete (globalThis as unknown as { AudioContext?: unknown }).AudioContext;
+    }
+  });
+
+  it('crête maximale de la musique × bus × volume général < 1 : aucune saturation propre au jeu', () => {
+    // Crêtes mesurées des trois MP3 : ≤ 0,65 ; bus musique 0,5 ; sortie générale ≤ 0,5 ; effets les plus forts ≤ 0,75 en même temps
+    const worst = (0.65 * MUSIC.gain + 0.75 + 0.25) * 0.5;
+    expect(worst).toBeLessThan(1);
+  });
+});
+
+describe('gameplay : l’ambiance ne touche ni la simulation ni les modes hors Survie', () => {
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? walk(p) : p.endsWith('.ts') ? [p] : [];
+    });
+
+  it('aucun fichier de la simulation, de la campagne, des modes, de la session ni du serveur n’importe l’ambiance', () => {
+    const dirs = ['src/sim', 'src/campaign', 'src/modes', 'src/game', 'src/core', 'src/progression', 'server'];
+    const files = dirs.flatMap(walk).concat(['src/config/hitbox.ts', 'src/config/balance.ts', 'src/config/levels.ts', 'src/config/survival.ts', 'src/config/playerSpeed.ts', 'src/config/hazards.ts', 'src/config/events.ts', 'src/config/economy.ts', 'src/config/campaign.ts', 'src/config/version.ts']);
+    for (const f of files) expect(readFileSync(f, 'utf8'), f).not.toMatch(/ambience|musicSync/i);
+  });
+
+  it('Survie et défi quotidien seulement', () => {
+    expect(ambienceApplies('survival')).toBe(true);
+    expect(ambienceApplies('daily')).toBe(true);
+    expect(ambienceApplies('campaign')).toBe(false);
+    expect(ambienceApplies('level')).toBe(false);
+  });
+
+  it('BALANCE_VERSION inchangée', async () => {
+    const { BALANCE_VERSION } = await import('../src/config/version');
+    expect(BALANCE_VERSION).toBe(3);
   });
 });

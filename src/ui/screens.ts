@@ -20,7 +20,7 @@ import logoUrl from '../assets/ui/logo.webp';
 import { CURRENCY_NAME, button, coin, notice, price, screenHead, setting, stat, switchButton, tabs, walletBar } from './components';
 import { escapeHtml, formatDelta, formatScore, formatTime, starsHtml } from './format';
 import { homeHelp } from './controls';
-import { ICONS } from './icons';
+import { ICONS, type IconName } from './icons';
 
 /**
  * Écrans de l'interface, générés en HTML à partir des vraies données de la sauvegarde.
@@ -506,12 +506,27 @@ export function runLbStatusHtml(st: RunLbStatus): string {
 
 // ————————————————————————————————————————————— Options
 
+/** Réglage à curseur 0–100 % : `input` identifie le curseur (data-input), `id` sert à mettre à jour l'étiquette sans redessiner l'écran. */
+function sliderSetting(icon: IconName, label: string, desc: string, id: string, input: string, value: number): string {
+  const pct = Math.round(value * 100);
+  // Le curseur occupe toute la largeur sous le libellé (les libellés longs ne sont pas écrasés sur mobile)
+  return setting(icon, label, desc, `<input id="${id}" class="slider" type="range" min="0" max="100" step="5" value="${pct}" data-input="${input}" aria-label="${escapeHtml(label)}" style="--fill:${pct}%" />`, `${id}-val`).replace('class="setting"', 'class="setting setting--slider"');
+}
+
+/** Description du réglage d'intensité visuelle (écran des options et mise à jour du curseur). */
+export function visualIntensityLabel(v: number): string {
+  return v <= 0 ? 'Ciel étoilé seul' : `Ambiance de la Survie : ${Math.round(v * 100)} %`;
+}
+
 export function optionsScreen(save: SaveData): string {
   const o = save.options;
-  const vol = Math.round(o.volume * 100);
+  const pct = (v: number): string => `${Math.round(v * 100)} %`;
   return `<div class="panel">${screenHead('Options')}
-    ${setting('sound', 'Son', o.muted ? 'Coupé' : 'Effets sonores procéduraux', switchButton('opt-sound', 'toggle-sound', !o.muted, 'Son'))}
-    ${setting('volume', 'Volume', `${vol} %`, `<input id="opt-volume" class="slider" type="range" min="0" max="100" step="5" value="${vol}" data-input="volume" aria-label="Volume" style="--fill:${vol}%" />`, 'opt-volume-val')}
+    ${setting('sound', 'Son', o.muted ? 'Coupé (musique et effets)' : 'Musique et effets sonores', switchButton('opt-sound', 'toggle-sound', !o.muted, 'Son'))}
+    ${sliderSetting('volume', 'Volume général', pct(o.volume), 'opt-volume', 'volume', o.volume)}
+    ${sliderSetting('music', 'Musique', pct(o.musicVolume), 'opt-music', 'music', o.musicVolume)}
+    ${sliderSetting('signal', 'Effets sonores', pct(o.sfxVolume), 'opt-sfx', 'sfx', o.sfxVolume)}
+    ${sliderSetting('sparkle', 'Intensité visuelle', visualIntensityLabel(o.visualIntensity), 'opt-visual', 'visual', o.visualIntensity)}
     ${setting('leaf', 'Effets réduits', 'Sans secousses, flash, traînées ni animations décoratives', switchButton('opt-fx', 'toggle-fx', o.reducedEffects, 'Effets réduits'))}
     ${setting('help', 'Astuce de départ', 'Réafficher l’explication des commandes', button({ action: 'reset-tutorial', label: 'Réafficher', variant: 'secondary', size: 'sm' }))}
     <h3 class="section-title">Progression</h3>

@@ -63,6 +63,8 @@ export class Music {
   private gen = 0;
   /** Instant audio du démarrage de l'outro en cours. */
   private outroAt = 0;
+  /** Mixage de la musique choisi par le joueur (0–1, courbe quadratique) ; le volume général et la sourdine sont ceux de `Sfx`. */
+  private level = 1;
 
   constructor(
     private readonly host: AudioHost,
@@ -209,6 +211,27 @@ export class Music {
     this.state = 'idle';
   }
 
+  /**
+   * Écoute d'essai du mixage (réglage « Musique » des options, hors partie) : 2,5 s de la boucle, en fondu, sur le même bus que la partie.
+   * Sans effet pendant une partie (la musique y est déjà audible) ou tant que la musique n'est pas décodée.
+   */
+  audition(): void {
+    const ctx = this.host.context();
+    const loop = this.buffers.loop;
+    if (!ctx || !loop || this.state !== 'idle' || this.want) return;
+    if (this.voices.length > 0) this.fadeOutVoices(ctx, 0.05);
+    const v = this.voice(ctx, loop, 0);
+    const now = ctx.currentTime + 0.02;
+    const len = MUSIC.auditionSeconds;
+    v.gain.gain.setValueAtTime(0, now);
+    v.gain.gain.linearRampToValueAtTime(1, now + 0.15);
+    v.gain.gain.setValueAtTime(1, now + len - 0.3);
+    v.gain.gain.linearRampToValueAtTime(0, now + len);
+    v.startAt = now;
+    v.src.start(now, MUSIC.loopStart + MUSIC.auditionFrom);
+    v.src.stop(now + len + 0.02);
+  }
+
   // ————————————————————————————————————————————— position de lecture (ambiance visuelle)
 
   /**
@@ -237,12 +260,15 @@ export class Music {
     out.time = 0;
     out.playing = false;
     if (!ctx) return out;
+    // Contexte suspendu ou interrompu (arrière-plan, appel sur iPhone) : l'horloge audio est figée, rien n'est entendu
+    const st = (ctx as AudioContext).state as string | undefined;
+    const running = st === undefined || st === 'running';
     if (this.state === 'outro') {
       const t = this.heardTime(ctx) - this.outroAt;
       if (t >= 0) {
         out.track = 'outro';
         out.time = t;
-        out.playing = true;
+        out.playing = running;
       }
       return out;
     }
@@ -251,7 +277,7 @@ export class Music {
     else if (this.state === 'paused') pos = this.pausedPos;
     else return out;
     if (pos < 0) return out; // démarrage programmé, pas encore entendu
-    out.playing = this.state === 'playing';
+    out.playing = this.state === 'playing' && running;
     if (pos < MUSIC.introDuration) {
       out.track = 'intro';
       out.time = pos;
@@ -315,12 +341,23 @@ export class Music {
     }
   }
 
+  /** Mixage de la musique (0–1) : s'applique tout de suite, sans coupure (rampe de 10 ms). */
+  setLevel(v: number): void {
+    this.level = Math.min(1, Math.max(0, v));
+    const ctx = this.host.context();
+    if (this.bus && ctx) this.bus.gain.setTargetAtTime(this.busGain(), ctx.currentTime, 0.01);
+  }
+
+  private busGain(): number {
+    return MUSIC.gain * this.level * this.level;
+  }
+
   private ensureBus(ctx: BaseAudioContext): GainNode | null {
     if (this.bus) return this.bus;
     const out = this.host.output();
     if (!out) return null;
     const bus = ctx.createGain();
-    bus.gain.value = MUSIC.gain;
+    bus.gain.value = this.busGain();
     bus.connect(out);
     this.bus = bus;
     return bus;

@@ -27,6 +27,10 @@ Aperçu sans jouer 4 minutes : ajouter `?stade=3` (1 à 5) à l'adresse du jeu. 
    - **battements** : enveloppe d'attaques (flux spectral, basses renforcées) ; période **mesurée** par autocorrélation
      (0,4203 s ≈ 142,8 pulsations/min — aucun BPM supposé) ; placement par programmation dynamique sur les attaques réelles ;
      chaque battement a une **force** mesurée (un passage sans pulsation donne des battements faibles, ignorés) ;
+     **calage** : le flux spectral (fenêtres de 46 ms) détectait les attaques ~9 ms trop tôt ; le script mesure l'écart médian avec la
+     montée réelle de l'enveloppe large bande (échantillon par échantillon) et corrige la carte de cette valeur (+9,1 ms, auto-calibrée).
+     Contrôle sur l'audio : écart médian résiduel 0,2 ms (boucle), 1,6 ms (outro), 3,3 ms (intro, peu rythmée) ; la grille de
+     battements est continue au raccord intro → boucle et au tour de boucle (écart 0,43 s pour une période de 0,42 s) ;
    - **basses** (30–150 Hz) et **intensité** (énergie lissée ~2 s), 30 valeurs/s ;
    - **passages forts** (« drops ») : sauts d'énergie et de basses — boucle : 65,6 s, 108,9 s, 136,1 s ;
    - **montées** : intervalles où l'intensité croît nettement.
@@ -40,6 +44,11 @@ Aperçu sans jouer 4 minutes : ajouter `?stade=3` (1 à 5) à l'adresse du jeu. 
    on ne simule jamais une fausse synchronisation.
 4. `AmbienceDirector` (`src/ambience/director.ts`) transforme cela en impulsions : battement (pic puis décroissance 0,16 s),
    basses (attaque 40 ms, relâchement 220 ms), intensité, montée, passage fort (1,4 s), demandes d'anneau/onde/arc.
+
+**Quand rien ne doit pulser** (`MusicSync.update(position, audible)`) : musique non décodée ou absente, **sourdine**, volume général ou
+musique à 0, **pause**, compte à rebours de reprise, contexte audio suspendu ou « interrupted » (arrière-plan, appel sur iPhone) →
+image musicale inactive : aucun battement, aucune montée ; les valeurs retombent en quelques dixièmes de seconde. Au retour du son,
+aucun battement manqué n'est rejoué (la synchronisation repart de la position entendue).
 
 Réactions : battement → pulsation de la faille, halos légèrement agrandis, étoiles et poussières plus lumineuses, quadrillage plus net,
 anneau d'énergie occasionnel ; basses → luminosité des halos, des nébuleuses et de la faille, légère ondulation du quadrillage ;
@@ -64,8 +73,25 @@ Si la musique change un jour : remplacer les MP3 et leurs repères, puis relance
 Ordre des calques : nébuleuses → étoiles → faille → débris → poussières → anneaux/ondes/arcs → **voile sombre de la zone de jeu**
 → quadrillage → orbite, menaces, vaisseau (inchangés).
 
+## Réglages du joueur (écran Options)
+| Réglage | Effet |
+|---|---|
+| Son (interrupteur) | Sourdine de la musique **et** des effets ; coupe aussi les réactions musicales de l'ambiance |
+| Volume général | Sortie unique (`Sfx`), courbe quadratique |
+| Musique | Mixage de la musique (bus propre, courbe quadratique, 0–100 %) ; écoute d'essai de 2,5 s au relâchement du curseur |
+| Effets sonores | Mixage des effets (bus propre `sfxBus`) |
+| Intensité visuelle | 100 % = ambiance complète ; moins = faille, nébuleuses, particules, anneaux, ondes, arcs et réactions atténués proportionnellement ; 0 % = ciel étoilé seul. Les stades évoluent toujours |
+| Effets réduits | Existant : réactions à 25 %, mouvements à 30 %, ni onde, ni arc, ni déformation ; suivi aussi de `prefers-reduced-motion` |
+
+Préférences enregistrées dans `save.options` (`musicVolume`, `sfxVolume`, `visualIntensity` ; défauts 1 ; anciennes sauvegardes conservées).
+
 ## Lisibilité et confort
-- Tout est derrière le jeu ; un **voile sombre** (couleur du fond, rayon 410) protège la zone de jeu et s'épaissit avec l'ambiance.
+- Tout est derrière le jeu ; un **voile sombre** (couleur du fond, rayon 410, **entièrement opaque jusqu'à 80 % du rayon** soit au-delà de
+  l'orbite et des marges des menaces, puis fondu) fait de la zone de jeu un disque sombre dont la faille, les anneaux et les arcs sont exclus ;
+  son opacité (plafond 90 %) croît de 50 % à 100 % avec les stades. Constaté sur des captures de jeu réel (stade 5, secteur électrique,
+  laser, projectiles annoncés) : balises, vaisseau, annonces, secteurs et lasers restent parfaitement lisibles.
+- Traits de l'ambiance (anneaux, ondes, arcs) en azur et violet : le **magenta** est réservé aux secteurs électriques (danger) et à de
+  très larges lueurs de nébuleuse ; la faille est azur → violet, distincte du cyan de l'orbite.
 - Couleurs de l'ambiance (cyan, violet, magenta doux, glace) distinctes des menaces : jamais l'orange des astéroïdes, jamais
   l'éclair magenta et blanc des secteurs électriques sur l'orbite. Arcs décoratifs toujours **hors** de la zone de jeu ;
   débris petits, sombres, sans lueur, hors de la zone de jeu.
@@ -77,15 +103,21 @@ Ordre des calques : nébuleuses → étoiles → faille → débris → poussiè
 ## Performances
 - Pools fixes (tableaux typés pour étoiles et poussières, images pour les débris, anneaux et arcs pré-alloués) : aucune allocation
   dans la boucle de rendu, aucun calcul audio par image (une recherche binaire dans la carte).
-- Textures générées une fois ; pas de shader de post-traitement.
+- Textures générées une fois ; pas de shader de post-traitement. La faille est une fissure irrégulière (bords dentelés, ramifications,
+  graine fixe : même aspect à chaque lancement), pas un ruban lisse.
+- Coût mesuré (`scripts/perf.mjs`, émulation mobile ×4 ralentie, rendu logiciel, 10 s) : `app.frame` 2,6 ms (sans ambiance) → 3,5 ms
+  (stade 1) → 3,9 ms (stade 5), soit ≈ +1,3 ms par image à ×4 de ralentissement. Le coût GPU réel (remplissage des lueurs additives) n'est
+  **pas** mesurable sans téléphone : les niveaux de qualité réduisent le nombre de nébuleuses (3/2/1) en plus des particules.
 - **Qualité adaptative** : 3 niveaux (étoiles 220/150/90, poussières 150/90/45, débris 12/8/4, anneaux 6/4/2, arcs 3/2/1,
-  segments du quadrillage 96/64/40). Descente si les images dépassent ~22 ms pendant 3 s ; remontée après 20 s fluides.
+  nébuleuses 3/2/1, segments du quadrillage 128/96/64). Descente si les images dépassent ~22 ms pendant 3 s ; remontée après 20 s fluides.
   Départ en qualité moyenne sur les appareils à 4 cœurs ou moins.
 - Pause : tout est figé ; arrière-plan : la partie se met en pause (comportement existant).
 
 ## Limites connues
-- Vérifié par compilation, tests unitaires et build ; **aucun test navigateur ni session de jeu automatisée** n'a été lancé :
-  le rendu réel (lisibilité, intensité, fluidité sur iPhone et Android) reste à valider à l'œil. Réglages : `src/config/ambience.ts`.
+- Vérifié par compilation, tests unitaires, build, **captures ponctuelles de jeu réel** (Chromium sans GPU, 390×844 et 1280×720, stades 1 à 5,
+  secteur, laser, options) et **une session de 35 s** mesurant dérive (rapport position musicale / horloge : 1,0000), pause (position figée,
+  aucune réaction), compte à rebours et passage intro → boucle. Le rendu sur iPhone et Android (luminosité, fluidité, lisibilité, qualité
+  sonore) reste à valider sur appareils : voir `docs/VERIFICATIONS_MOBILE.md`. Réglages : `src/config/ambience.ts`.
 - La position entendue dépend de la latence annoncée par le navigateur ; sur certains casques Bluetooth la latence réelle est plus
   grande que l'annoncée (décalage visible possible, corrigeable par `AMBIENCE.music.lead`).
 - Le début de l'intro est peu rythmé : peu de battements y dépassent le seuil (voulu, pas de fausse pulsation).

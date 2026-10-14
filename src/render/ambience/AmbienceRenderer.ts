@@ -76,6 +76,6 @@ export class AmbienceRenderer {
     // Voile : plus l'ambiance est lumineuse, plus la zone de jeu est protégée (plafonné)
     const d = AMBIENCE.shape.veilRadius * 2 * v.scale;
     this.veil.setPosition(v.cx, v.cy).setDisplaySize(d, d);
-    this.veil.setAlpha(AMBIENCE.caps.veilAlpha * Math.min(1, 0.3 + s.stage / 5 + s.drop * 0.2 + s.bass * 0.1));
+    this.veil.setAlpha(AMBIENCE.caps.veilAlpha * Math.min(1, 0.55 + (0.45 * s.stage) / 4 + s.drop * 0.1));
   }
 }

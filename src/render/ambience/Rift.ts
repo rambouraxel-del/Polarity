@@ -1,11 +1,9 @@
 import Phaser from 'phaser';
 import { AMBIENCE, AMBIENCE_COLORS } from '../../config/ambience';
 import type { AmbienceState } from '../../ambience/director';
-import { AMB_TEX } from './textures';
+import { AMB_TEX, RIFT_LENS } from './textures';
 import { clamp01, lerpColor, type AmbienceView } from './view';
 
-/** Part de la hauteur de la texture du contour occupée par la lentille (voir textures.ts). */
-const RIM_LENS = 0.52;
 const NEBULAE = [
   { color: AMBIENCE_COLORS.cyan, angle: 0.9, dist: 0.42, size: 1.25, heat: -1 },
   { color: AMBIENCE_COLORS.violet, angle: 3.6, dist: 0.5, size: 1.4, heat: 0.5 },
@@ -55,6 +53,12 @@ export class Rift {
     const glowBoost = 0.75 + 0.5 * s.bass + 0.3 * s.build + 0.45 * s.drop + 0.25 * s.intensity;
     NEBULAE.forEach((n, i) => {
       const img = this.nebulae[i];
+      // Qualité réduite : moins de grandes lueurs additives (coût de remplissage du GPU sur mobile)
+      if (i >= s.quality.nebulae) {
+        img.setVisible(false);
+        return;
+      }
+      img.setVisible(true);
       const a = n.angle + s.time * 0.012 * motion * (i % 2 === 0 ? 1 : -1);
       const d = n.dist * v.halfDiag;
       img.setPosition(v.cx + Math.cos(a) * d, v.cy + Math.sin(a) * d);
@@ -75,9 +79,9 @@ export class Rift {
     this.halo.setDisplaySize(len * 0.9, Math.max(6 * v.dpr, shape.riftWidth * 5 * aperture * v.scale * (1 + caps.beatScale * s.beat)));
     this.halo.setAlpha(Math.min(caps.riftAlpha, glow * 0.55));
 
-    const rimTint = lerpColor(AMBIENCE_COLORS.cyan, AMBIENCE_COLORS.ice, s.beat * 0.6 + s.drop * 0.4);
+    const rimTint = lerpColor(lerpColor(AMBIENCE_COLORS.azure, AMBIENCE_COLORS.violet, p.heat * 0.5), AMBIENCE_COLORS.ice, s.beat * 0.3 + s.drop * 0.25);
     this.rim.setPosition(v.cx, v.cy).setRotation(rot).setTint(rimTint);
-    this.rim.setDisplaySize(len, Math.max(3 * v.dpr, (2 * shape.riftWidth * aperture * v.scale) / RIM_LENS));
+    this.rim.setDisplaySize(len, Math.max(3 * v.dpr, (2 * shape.riftWidth * aperture * v.scale) / RIFT_LENS));
     this.rim.setAlpha(Math.min(caps.riftAlpha, glow * (0.55 + 0.45 * clamp01(aperture * 2))));
 
     this.core.setPosition(v.cx, v.cy).setRotation(rot).setTint(AMBIENCE_COLORS.ice);

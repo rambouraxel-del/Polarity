@@ -134,7 +134,8 @@ export class Effects {
 
     const g = this.g;
     g.clear();
-    const heatColor = lerpColor(AMBIENCE_COLORS.violet, AMBIENCE_COLORS.magenta, s.p.heat);
+    // Violet seulement dans les traits : le magenta est réservé aux secteurs électriques (danger)
+    const heatColor = lerpColor(AMBIENCE_COLORS.azure, AMBIENCE_COLORS.violet, s.p.heat);
 
     // Anneaux et ondes
     const span = AMBIENCE.shape.ringTo - AMBIENCE.shape.ringFrom;

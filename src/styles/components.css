@@ -561,6 +561,17 @@
   border-bottom: 1px solid rgb(var(--c-white-rgb) / 0.07);
 }
 
+.setting--slider {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.setting--slider .slider {
+  flex: 1 0 100%;
+  max-width: none;
+  height: 34px;
+}
+
 .setting__icon {
   flex: none;
   color: var(--c-cyan);

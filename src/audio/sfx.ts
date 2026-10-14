@@ -8,8 +8,11 @@ export type SoundName = 'flip' | 'collect' | 'cycle' | 'warn' | 'activate' | 'hi
 export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** Bus des effets sonores (mixage relatif, sous le volume général) ; la musique a le sien (audio/music.ts). */
+  private sfxBus: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private volume = 0.7;
+  private sfxLevel = 1;
   private muted = false;
   private lastPlayed: Partial<Record<SoundName, number>> = {};
 
@@ -25,7 +28,7 @@ export class Sfx {
   /** À appeler depuis un gestionnaire d'événement utilisateur. */
   unlock(): void {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => undefined);
+      this.resume();
       return;
     }
     const Ctor: typeof AudioContext | undefined =
@@ -35,6 +38,8 @@ export class Sfx {
       this.ctx = new Ctor();
       this.master = this.ctx.createGain();
       this.master.connect(this.ctx.destination);
+      this.sfxBus = this.ctx.createGain();
+      this.sfxBus.connect(this.master);
       this.applyGain();
       const len = Math.floor(this.ctx.sampleRate * 0.4);
       this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -50,6 +55,12 @@ export class Sfx {
     this.applyGain();
   }
 
+  /** Mixage des effets sonores (0–1) : courbe quadratique, comme le volume général. */
+  setSfxVolume(v: number): void {
+    this.sfxLevel = Math.min(1, Math.max(0, v));
+    this.applyGain();
+  }
+
   setMuted(m: boolean): void {
     this.muted = m;
     this.applyGain();
@@ -60,13 +71,15 @@ export class Sfx {
   }
 
   resume(): void {
-    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume().catch(() => undefined);
+    // Safari iPhone passe en « interrupted » (appel, verrouillage) : à reprendre comme « suspended », au prochain geste
+    if (this.ctx && (this.ctx.state as string) !== 'running' && (this.ctx.state as string) !== 'closed') void this.ctx.resume().catch(() => undefined);
   }
 
   private applyGain(): void {
     if (!this.master || !this.ctx) return;
     const g = this.muted ? 0 : this.volume * this.volume * 0.5;
     this.master.gain.setTargetAtTime(g, this.ctx.currentTime, 0.01);
+    this.sfxBus?.gain.setTargetAtTime(this.sfxLevel * this.sfxLevel, this.ctx.currentTime, 0.01);
   }
 
   play(name: SoundName, param = 0): void {
@@ -144,7 +157,7 @@ export class Sfx {
     g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g);
-    g.connect(this.master!);
+    g.connect(this.sfxBus!);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -164,7 +177,7 @@ export class Sfx {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(filter);
     filter.connect(g);
-    g.connect(this.master!);
+    g.connect(this.sfxBus!);
     src.start(t);
     src.stop(t + dur + 0.02);
   }
