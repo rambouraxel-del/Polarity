@@ -1,0 +1,65 @@
+# Déploiement du classement : service Node/SQLite + Caddy (HTTPS). À lancer depuis le dossier deploy/ :
+#   cp env.example .env          (puis remplir : voir docs/GUIDE_DEPLOIEMENT.md)
+#   docker compose up -d --build
+# Le service n'est PAS exposé directement : seul Caddy (ports 80/443) l'est. Les données vivent dans le volume « donnees ».
+name: ${COMPOSE_PROJECT_NAME:-polar-rift-classement}
+
+services:
+  classement:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      TICKET_SECRET: ${TICKET_SECRET:?TICKET_SECRET manquant (openssl rand -hex 32)}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS manquant (ex. https://utilisateur.github.io)}
+      DATABASE_PATH: /data/leaderboard.sqlite
+      TRUST_PROXY: "1"
+      REQUIRE_HTTPS: "1"
+      BLOCKED_WORDS: ${BLOCKED_WORDS:-}
+      MAX_REPLAYS_PER_MINUTE: ${MAX_REPLAYS_PER_MINUTE:-30}
+    volumes:
+      - donnees:/data
+    expose:
+      - "8787"
+    # Ressources bornées : un rejeu coûteux ne doit pas faire tomber la machine
+    mem_limit: 512m
+    cpus: 1.0
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      classement:
+        condition: service_healthy
+    environment:
+      LEADERBOARD_DOMAIN: ${LEADERBOARD_DOMAIN:?LEADERBOARD_DOMAIN manquant (ex. classement.mon-domaine.fr)}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  donnees:
+  caddy_data:
+  caddy_config:

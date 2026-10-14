@@ -1,0 +1,11 @@
+# Reverse proxy : HTTPS automatique (certificat Let's Encrypt obtenu et renouvelé par Caddy, rien à créer à la main).
+# LEADERBOARD_DOMAIN : nom de domaine du service (ex. classement.mon-domaine.fr), dont l'enregistrement DNS pointe vers ce serveur.
+# Caddy ajoute lui-même X-Forwarded-For (adresse réelle du client) et X-Forwarded-Proto (https) : le service s'y fie avec TRUST_PROXY=1.
+{$LEADERBOARD_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy classement:8787
+	# Journaux sur la sortie standard (docker compose logs caddy) ; aucun corps de requête n'est journalisé
+	log {
+		output stdout
+	}
+}

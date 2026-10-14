@@ -1,5 +1,8 @@
 import { REPLAY_FORMAT, validNickname, normalizeNickname, type BalancesResponse, type LeaderboardResponse, type MeResponse, type RegisterResponse, type RejectReason, type Replay, type RunResponse, type RunSubmission, type Ticket, type TicketsResponse } from './protocol';
 import type { KeyValueStore } from '../save/save';
+import { sanitizeBaseUrl } from './baseUrl';
+
+export { sanitizeBaseUrl };
 
 /**
  * Client du classement mondial (navigateur). Le jeu reste entièrement jouable hors ligne :
@@ -13,7 +16,7 @@ export const TICKETS_KEY = 'polarite.classement.tickets';
 export const PENDING_KEY = 'polarite.classement.attente';
 
 /** URL du service, fixée à la construction du jeu (variable d'environnement publique : aucune clé secrète). */
-export const LEADERBOARD_URL: string = ((import.meta.env?.VITE_LEADERBOARD_URL as string | undefined) ?? '').trim().replace(/\/+$/, '');
+export const LEADERBOARD_URL: string = sanitizeBaseUrl(import.meta.env?.VITE_LEADERBOARD_URL as string | undefined);
 
 export interface Identity {
   playerId: string;
@@ -165,6 +168,8 @@ export class LeaderboardClient {
     const res = await this.request<RegisterResponse>('POST', '/api/register', { body: { nickname: nick } });
     if (!res.ok) return res;
     const id: Identity = { playerId: res.data.playerId, token: res.data.token, nickname: res.data.nickname };
+    // Les tickets sont liés au profil qui les a reçus : ceux d'un ancien profil seraient refusés par le serveur
+    this.write(TICKETS_KEY, []);
     this.write(IDENTITY_KEY, id);
     return { ok: true, data: id };
   }
@@ -179,6 +184,33 @@ export class LeaderboardClient {
     const next = { ...id, nickname: res.data.nickname };
     this.write(IDENTITY_KEY, next);
     return { ok: true, data: next };
+  }
+
+  /** Oublie le profil local (identité, tickets, résultats en attente) : à utiliser après suppression, ou si le service ne le reconnaît plus. */
+  forgetProfile(): void {
+    this.o.store.remove(IDENTITY_KEY);
+    this.o.store.remove(TICKETS_KEY);
+    this.o.store.remove(PENDING_KEY);
+  }
+
+  /**
+   * Suppression du profil : le serveur efface pseudo, parties, journaux et records (irréversible). Le profil local n'est oublié que si le serveur
+   * confirme (ou ne le connaît déjà plus) ; hors ligne, rien n'est perdu et la demande peut être refaite.
+   */
+  async deleteProfile(): Promise<NetResult<{ deleted: boolean }>> {
+    const res = await this.request<{ deleted: boolean }>('DELETE', '/api/me', { auth: true });
+    if (res.ok || (!res.ok && res.kind === 'unauthorized')) {
+      this.forgetProfile();
+      return { ok: true, data: { deleted: true } };
+    }
+    return res;
+  }
+
+  /** Signale un pseudo offensant (examiné par l'opérateur ; aucun effet automatique). */
+  report(nickname: string): Promise<NetResult<{ ok: boolean; message: string }>> {
+    const nick = normalizeNickname(nickname);
+    if (!validNickname(nick)) return Promise.resolve({ ok: false, kind: 'http', status: 400, message: 'Pseudo invalide.' });
+    return this.request('POST', '/api/report', { body: { nickname: nick }, auth: true });
   }
 
   top(balance?: number): Promise<NetResult<LeaderboardResponse>> {
@@ -249,7 +281,8 @@ export class LeaderboardClient {
         // Hors ligne, limite de débit ou authentification : on réessaiera
         cur.lastError = res.kind === 'offline' ? 'Hors ligne' : res.message;
         this.savePending(list);
-        if (res.kind === 'offline' || res.kind === 'unauthorized') break;
+        // Hors ligne, profil non reconnu ou limite de débit : inutile d'insister sur les résultats suivants
+        if (res.kind === 'offline' || res.kind === 'unauthorized' || res.status === 429) break;
         continue;
       }
       this.savePending(list);

@@ -25,10 +25,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      # Classement mondial : adresse PUBLIQUE du service (variable du dépôt LEADERBOARD_URL). Absente = classement désactivé dans le jeu.
+      # Classement mondial : adresse PUBLIQUE du service (variable du dépôt LEADERBOARD_URL, https://hôte sans chemin). Absente = classement
+      # désactivé dans le jeu (entièrement jouable). Une valeur mal formée ou en http fait ÉCHOUER la construction (vite.config.ts) : rien n'est publié.
+      # Aucun secret du service (TICKET_SECRET…) n'est jamais donné à ce workflow.
       - run: npm run build
         env:
           VITE_LEADERBOARD_URL: ${{ vars.LEADERBOARD_URL }}
+      # Garde-fou : aucun secret ni code serveur dans le dossier publié
+      - run: npm run check:bundle
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

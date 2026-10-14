@@ -11,6 +11,7 @@ import {
   type LeaderboardResponse,
   type MeResponse,
   type RegisterResponse,
+  type ReportRequest,
   type RejectReason,
   type RunResponse,
   type RunSubmission,
@@ -19,6 +20,7 @@ import {
 } from '../src/net/protocol';
 import { hashToken, newPlayerId, newTicketParts, newToken, parseBearer, signTicket, tokenMatches, verifyTicketSig } from './auth';
 import { transaction, type Db } from './db';
+import { checkNickname } from './moderation';
 import { replaySurvival } from './verify';
 
 /**
@@ -32,6 +34,13 @@ export interface AppConfig {
   now?: () => number;
   /** Version d'équilibrage acceptée (celle du code de simulation embarqué). */
   balance?: number;
+  /** Mots interdits supplémentaires dans les pseudos (voir server/moderation.ts). */
+  blockedWords?: readonly string[];
+  /**
+   * Plafonds GLOBAUX (toutes adresses et tous joueurs confondus) : un rejeu occupe le processeur du service ; sans plafond global, de nombreux
+   * comptes pourraient le saturer malgré les limites par joueur. Défauts : 30 rejeux/minute, 100 inscriptions/heure.
+   */
+  limits?: { replaysPerMinute?: number; registrationsPerHour?: number };
 }
 
 export interface HttpRequest {
@@ -90,7 +99,12 @@ interface PlayerRow {
   id: string;
   nickname: string;
   token_hash: string;
+  /** 0 normal ; 1 pseudo masqué par l'opérateur ; 2 exclu du classement. */
+  moderation: number;
 }
+
+const NICKNAME_REFUSED = 'Ce pseudo n’est pas autorisé : choisissez-en un autre.';
+const isUniqueViolation = (e: unknown): boolean => e instanceof Error && /UNIQUE constraint/i.test(e.message);
 
 export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpResponse {
   if (!cfg.ticketSecret || cfg.ticketSecret.length < 16) throw new Error('ticketSecret (16 caractères minimum) requis');
@@ -98,9 +112,12 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
   const balance = cfg.balance ?? BALANCE_VERSION;
   const limiter = new RateLimiter(now);
   const HOUR = 3_600_000;
+  const maxReplays = cfg.limits?.replaysPerMinute ?? 30;
+  const maxRegistrations = cfg.limits?.registrationsPerHour ?? 100;
 
   const q = {
-    player: db.prepare('SELECT id, nickname, token_hash FROM players WHERE id = ?'),
+    player: db.prepare('SELECT id, nickname, token_hash, moderation FROM players WHERE id = ?'),
+    byNickname: db.prepare('SELECT id, nickname FROM players WHERE nickname_key = ?'),
     nickTaken: db.prepare('SELECT id FROM players WHERE nickname_key = ?'),
     insertPlayer: db.prepare('INSERT INTO players (id, nickname, nickname_key, token_hash, created_at) VALUES (?, ?, ?, ?, ?)'),
     rename: db.prepare('UPDATE players SET nickname = ?, nickname_key = ? WHERE id = ?'),
@@ -113,14 +130,23 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
     upsertBest: db.prepare(
       'INSERT INTO bests (player_id, balance, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, balance) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at',
     ),
+    // Les joueurs exclus par l'opérateur (moderation = 2) ne comptent ni au classement ni dans les rangs
     rank: db.prepare(
-      'SELECT COUNT(*) + 1 AS rank FROM bests WHERE balance = ? AND (steps > ? OR (steps = ? AND score > ?) OR (steps = ? AND score = ? AND achieved_at < ?))',
+      'SELECT COUNT(*) + 1 AS rank FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND (b.steps > ? OR (b.steps = ? AND b.score > ?) OR (b.steps = ? AND b.score = ? AND b.achieved_at < ?))',
     ),
-    total: db.prepare('SELECT COUNT(*) AS n FROM bests WHERE balance = ?'),
+    total: db.prepare('SELECT COUNT(*) AS n FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2'),
     top: db.prepare(
-      'SELECT b.player_id, p.nickname, b.steps, b.score, b.achieved_at FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? ORDER BY b.steps DESC, b.score DESC, b.achieved_at ASC LIMIT ?',
+      'SELECT b.player_id, p.nickname, b.steps, b.score, b.achieved_at FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 ORDER BY b.steps DESC, b.score DESC, b.achieved_at ASC LIMIT ?',
     ),
-    balances: db.prepare('SELECT balance, COUNT(*) AS players FROM bests GROUP BY balance ORDER BY balance DESC'),
+    balances: db.prepare('SELECT b.balance AS balance, COUNT(*) AS players FROM bests b JOIN players p ON p.id = b.player_id WHERE p.moderation < 2 GROUP BY b.balance ORDER BY b.balance DESC'),
+    insertReport: db.prepare('INSERT OR IGNORE INTO reports (reporter_id, target_id, target_nickname, reason, created_at) VALUES (?, ?, ?, ?, ?)'),
+    delTickets: db.prepare('DELETE FROM tickets WHERE player_id = ?'),
+    delBests: db.prepare('DELETE FROM bests WHERE player_id = ?'),
+    delRuns: db.prepare('DELETE FROM runs WHERE player_id = ?'),
+    delReports: db.prepare('DELETE FROM reports WHERE reporter_id = ? OR target_id = ?'),
+    delPlayer: db.prepare('DELETE FROM players WHERE id = ?'),
+    log: db.prepare('INSERT INTO moderation_log (at, action, player_id, nickname, note) VALUES (?, ?, NULL, NULL, ?)'),
+    ping: db.prepare('SELECT 1 AS ok'),
   };
 
   const dt = 1 / 120;
@@ -146,29 +172,75 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
   // ————————————————————————— routes
 
   function register(req: HttpRequest): HttpResponse {
-    if (!limiter.allow(`reg:${req.ip}`, 5, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    if (!limiter.allow(`reg:${req.ip}`, 5, HOUR) || !limiter.allow('reg:global', maxRegistrations, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
     const body = req.body as { nickname?: unknown } | undefined;
     const nick = typeof body?.nickname === 'string' ? normalizeNickname(body.nickname) : '';
-    if (!validNickname(nick)) return err(400, 'bad_nickname', `Pseudo invalide : ${LIMITS.nickname.min} à ${LIMITS.nickname.max} caractères (lettres, chiffres, espace, point, tiret).`);
+    if (!validNickname(nick)) return err(400, 'bad_nickname', `Pseudo invalide : ${LIMITS.nickname.min} à ${LIMITS.nickname.max} caractères (lettres latines, chiffres, espace, point, tiret).`);
+    if (!checkNickname(nick, cfg.blockedWords).ok) return err(400, 'nickname_refused', NICKNAME_REFUSED);
     const key = nicknameKey(nick);
     if (q.nickTaken.get(key)) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
     const playerId = newPlayerId();
     const token = newToken();
-    q.insertPlayer.run(playerId, nick, key, hashToken(token), now());
+    try {
+      q.insertPlayer.run(playerId, nick, key, hashToken(token), now());
+    } catch (e) {
+      if (isUniqueViolation(e)) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
+      throw e;
+    }
     const res: RegisterResponse = { playerId, token, nickname: nick };
     return json(201, res);
   }
 
   function rename(req: HttpRequest, me: PlayerRow): HttpResponse {
     if (!limiter.allow(`rename:${me.id}`, 5, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    // Pseudo masqué ou joueur exclu par l'opérateur : le pseudo ne peut plus être changé par le joueur
+    if (me.moderation !== 0) return err(403, 'locked', 'Votre pseudo a été modifié par la modération et ne peut plus être changé.');
     const body = req.body as { nickname?: unknown } | undefined;
     const nick = typeof body?.nickname === 'string' ? normalizeNickname(body.nickname) : '';
     if (!validNickname(nick)) return err(400, 'bad_nickname', `Pseudo invalide : ${LIMITS.nickname.min} à ${LIMITS.nickname.max} caractères.`);
+    if (!checkNickname(nick, cfg.blockedWords).ok) return err(400, 'nickname_refused', NICKNAME_REFUSED);
     const key = nicknameKey(nick);
     const other = q.nickTaken.get(key) as { id: string } | undefined;
     if (other && other.id !== me.id) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
-    q.rename.run(nick, key, me.id);
+    try {
+      q.rename.run(nick, key, me.id);
+    } catch (e) {
+      if (isUniqueViolation(e)) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
+      throw e;
+    }
     return json(200, { playerId: me.id, nickname: nick });
+  }
+
+  /** Signalement d'un pseudo offensant par un joueur authentifié : enregistré pour l'opérateur (server/admin.ts), sans effet automatique. */
+  function report(req: HttpRequest, me: PlayerRow): HttpResponse {
+    if (!limiter.allow(`report:${me.id}`, 10, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    const body = req.body as Partial<ReportRequest> | undefined;
+    const nick = typeof body?.nickname === 'string' ? normalizeNickname(body.nickname) : '';
+    // Texte libre : borné et débarrassé des caractères de contrôle (jamais interprété)
+    const reason = (typeof body?.reason === 'string' ? body.reason : '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200);
+    if (!validNickname(nick)) return err(400, 'bad_nickname', 'Pseudo à signaler invalide.');
+    const target = q.byNickname.get(nicknameKey(nick)) as { id: string; nickname: string } | undefined;
+    if (!target) return err(404, 'not_found', 'Aucun joueur ne porte ce pseudo.');
+    if (target.id === me.id) return err(400, 'self_report', 'Vous ne pouvez pas vous signaler vous-même.');
+    q.insertReport.run(me.id, target.id, target.nickname, reason || 'pseudo offensant', now());
+    return json(202, { ok: true, message: 'Signalement enregistré. Merci : il sera examiné par la modération.' });
+  }
+
+  /**
+   * Suppression par le joueur de TOUTES les données de son profil (pseudo, empreinte du secret, tickets, parties et journaux d'entrées, meilleurs
+   * résultats, signalements). Autorisée par la seule possession du secret du profil ; irréversible. Aucune trace nominative n'est conservée.
+   */
+  function deleteMe(me: PlayerRow): HttpResponse {
+    if (!limiter.allow(`delete:${me.id}`, 3, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    transaction(db, () => {
+      q.delTickets.run(me.id);
+      q.delBests.run(me.id);
+      q.delRuns.run(me.id);
+      q.delReports.run(me.id, me.id);
+      q.delPlayer.run(me.id);
+      q.log.run(now(), 'suppression_par_le_joueur', null);
+    });
+    return json(200, { deleted: true });
   }
 
   function tickets(me: PlayerRow): HttpResponse {
@@ -191,6 +263,7 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
     if (!limiter.allow(`run:${me.id}`, 30, HOUR) || !limiter.allow(`run-gap:${me.id}`, 1, 3000)) return json(429, { status: 'rejected', reason: 'rate_limited', message: REJECT_MESSAGES.rate_limited } satisfies RunResponse);
     const sub = req.body as Partial<RunSubmission> | undefined;
     const reject = (reason: RejectReason, status = 422): HttpResponse => json(status, { status: 'rejected', reason, message: REJECT_MESSAGES[reason] } satisfies RunResponse);
+    if (me.moderation === 2) return json(403, { status: 'rejected', reason: 'bad_ticket', message: 'Ce profil a été exclu du classement par la modération.' } satisfies RunResponse);
     // Structure
     if (!sub || typeof sub !== 'object' || !sub.ticket || !sub.replay || !sub.claimed || !sub.client) return reject('bad_replay', 400);
     const t = sub.ticket as Ticket;
@@ -205,6 +278,8 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
     if (row.used_at !== null) return reject('ticket_used');
     if (Math.floor(now() / 1000) > row.exp) return reject('ticket_expired');
 
+    // Budget global de rejeux (calcul coûteux, exécuté dans le processus du service) : refus SANS consommer le ticket, le client réessaiera
+    if (!limiter.allow('replay:global', maxReplays, 60_000)) return json(429, { status: 'rejected', reason: 'rate_limited', message: REJECT_MESSAGES.rate_limited } satisfies RunResponse);
     // Rejeu : le résultat est celui du serveur (graine du ticket + entrées du journal)
     const rep = replaySurvival(row.seed, sub.replay.flips);
     const consume = (): boolean => (q.useTicket.run(now(), row.id) as unknown as { changes: number }).changes === 1;
@@ -267,18 +342,23 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
     const route = `${req.method} ${req.path}`;
     try {
       switch (route) {
-        case 'GET /api/health': return json(200, { ok: true, balance });
+        case 'GET /api/health': {
+          q.ping.get(); // la base répond-elle ? (sinon 500 : le contrôle de santé échoue)
+          return json(200, { ok: true, balance });
+        }
         case 'GET /api/leaderboard': return leaderboard(req);
         case 'GET /api/balances': return balances();
         case 'POST /api/register': return register(req);
         default: break;
       }
       // Routes authentifiées
-      if (route === 'GET /api/me' || route === 'PATCH /api/me' || route === 'POST /api/tickets' || route === 'POST /api/runs') {
+      if (route === 'GET /api/me' || route === 'PATCH /api/me' || route === 'DELETE /api/me' || route === 'POST /api/report' || route === 'POST /api/tickets' || route === 'POST /api/runs') {
         const me = authenticate(req);
         if (!me) return err(401, 'unauthorized', 'Authentification requise.');
         if (route === 'GET /api/me') return meRoute(req, me);
         if (route === 'PATCH /api/me') return rename(req, me);
+        if (route === 'DELETE /api/me') return deleteMe(me);
+        if (route === 'POST /api/report') return report(req, me);
         if (route === 'POST /api/tickets') return tickets(me);
         return submitRun(req, me);
       }

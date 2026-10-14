@@ -65,6 +65,12 @@ export interface TicketsResponse {
   tickets: Ticket[];
 }
 
+export interface ReportRequest {
+  /** Pseudo signalé, tel qu'affiché au classement. */
+  nickname: string;
+  reason?: string;
+}
+
 export type RejectReason =
   | 'unsupported_balance'
   | 'bad_ticket'
@@ -119,18 +125,21 @@ export interface ErrorResponse {
   message: string;
 }
 
-/** Pseudo normalisé : espaces fusionnés et rognés. */
+/** Pseudo normalisé : forme NFC (é en un seul caractère), espaces fusionnés et rognés. */
 export function normalizeNickname(raw: string): string {
-  return raw.replace(/\s+/g, ' ').trim();
+  return raw.normalize('NFC').replace(/\s+/g, ' ').trim();
 }
 
-/** Lettres (accents compris), chiffres, espace, tiret, point et tiret bas ; 3 à 16 caractères. */
+/**
+ * Lettres latines (accents compris), chiffres, espace, tiret, point et tiret bas ; 3 à 16 caractères.
+ * Alphabet latin seulement : pas de lettres cyrilliques ou grecques identiques à des lettres latines (usurpation de pseudo).
+ */
 export function validNickname(raw: unknown): raw is string {
   if (typeof raw !== 'string') return false;
   const n = normalizeNickname(raw);
   if (n !== raw) return false;
   if (n.length < LIMITS.nickname.min || n.length > LIMITS.nickname.max) return false;
-  return /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(n);
+  return /^[\p{Script=Latin}\p{N}][\p{Script=Latin}\p{N} ._-]*$/u.test(n);
 }
 
 /** Clé de comparaison d'unicité (insensible à la casse et aux accents). */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE_VERSION } from '../src/config/version';
 import { GameSession } from '../src/game/session';
-import { IDENTITY_KEY, LeaderboardClient, PENDING_KEY, TICKETS_KEY } from '../src/net/leaderboard';
+import { IDENTITY_KEY, LeaderboardClient, PENDING_KEY, TICKETS_KEY, sanitizeBaseUrl } from '../src/net/leaderboard';
 import { MemoryStore, defaultSave } from '../src/save/save';
 import { createApp } from '../server/app';
 import { openDb } from '../server/db';
@@ -186,5 +186,74 @@ describe('classement : client', () => {
     expect(html).toContain('data-form="lb-rename"');
     expect(S.leaderboardScreen({ ...view, identity: null })).toContain('data-form="lb-register"');
     expect(S.leaderboardScreen({ ...view, top: null, error: 'Service injoignable' })).toContain('Classement indisponible');
+  });
+});
+
+describe('classement : client — sécurité, profil et repli', () => {
+  it('adresse du service : https obligatoire (http seulement en local), sans chemin ni identifiants ; sinon classement désactivé', () => {
+    expect(sanitizeBaseUrl('https://classement.exemple.org/')).toBe('https://classement.exemple.org');
+    expect(sanitizeBaseUrl(' https://classement.exemple.org:8443 ')).toBe('https://classement.exemple.org:8443');
+    expect(sanitizeBaseUrl('http://localhost:8787')).toBe('http://localhost:8787');
+    expect(sanitizeBaseUrl('http://127.0.0.1:8787')).toBe('http://127.0.0.1:8787');
+    for (const bad of ['http://classement.exemple.org', 'ftp://x.org', 'classement.exemple.org', 'https://u:p@x.org', 'https://x.org/api', 'https://x.org?a=1', 'javascript:alert(1)', '']) expect(sanitizeBaseUrl(bad), bad).toBe('');
+    expect(sanitizeBaseUrl(undefined)).toBe('');
+  });
+
+  it('accueil : le bouton Classement est masqué sans service configuré, présent sinon', () => {
+    const save = defaultSave();
+    expect(S.homeScreen(save, '2026-10-12', false, false, undefined, false)).not.toContain('data-action="leaderboard"');
+    expect(S.homeScreen(save, '2026-10-12', false, false, undefined, true)).toContain('data-action="leaderboard"');
+  });
+
+  it('nouveau profil : les tickets de l’ancien profil sont écartés', async () => {
+    const { client, store } = setup();
+    await client.register('Axel');
+    await client.ensureTickets();
+    expect(client.ticketCount()).toBeGreaterThan(0);
+    store.set(IDENTITY_KEY, 'illisible');
+    expect(client.identity()).toBeNull();
+    await client.register('Bea');
+    expect(client.ticketCount()).toBe(0);
+  });
+
+  it('suppression du profil : le serveur efface, le profil local est oublié ; hors ligne, rien n’est perdu', async () => {
+    const { client, online, store } = setup();
+    await client.register('Axel');
+    await client.ensureTickets();
+    online.value = false;
+    const off = await client.deleteProfile();
+    expect(off.ok).toBe(false);
+    expect(client.identity()).not.toBeNull();
+    online.value = true;
+    expect((await client.deleteProfile()).ok).toBe(true);
+    expect(client.identity()).toBeNull();
+    expect(store.get(TICKETS_KEY)).toBeNull();
+    expect(store.get(PENDING_KEY)).toBeNull();
+    // Profil déjà inconnu du service (supprimé ailleurs) : le profil local est quand même nettoyé
+    await client.register('Bea');
+    const { client: other, store: s2 } = setup();
+    s2.set(IDENTITY_KEY, JSON.stringify({ playerId: '00000000-0000-4000-8000-000000000000', token: 'A'.repeat(43), nickname: 'Fantome' }));
+    expect((await other.deleteProfile()).ok).toBe(true);
+    expect(other.identity()).toBeNull();
+  });
+
+  it('signalement : réservé aux profils ; pseudo invalide refusé sans requête', async () => {
+    const { client } = setup();
+    const noProfile = await client.report('Axel');
+    expect(noProfile.ok).toBe(false);
+    await client.register('Axel');
+    expect((await client.report('x')).ok).toBe(false);
+  });
+
+  it('profil non reconnu par le service : l’envoi s’arrête et les résultats restent en attente', async () => {
+    const { client, store } = setup();
+    await client.register('Axel');
+    store.set(IDENTITY_KEY, JSON.stringify({ playerId: '00000000-0000-4000-8000-000000000000', token: 'A'.repeat(43), nickname: 'Axel' }));
+    const ticket = { id: 't1', seed: 5, exp: 2_000_000_000, sig: 's' };
+    client.recordRun(ticket, [1, 2], { time: 3, score: 4 });
+    const list = await client.flush();
+    expect(list[0].status).toBe('pending');
+    const me = await client.me();
+    expect(!me.ok && me.kind).toBe('unauthorized');
   });
 });

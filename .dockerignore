@@ -1,0 +1,21 @@
+# Contexte de construction du service de classement : seuls package*.json, src/, server/ et tsconfig.json servent.
+.git
+.github
+node_modules
+dist
+dist-beta
+dist-lb
+data
+screenshots
+test-results
+art
+public
+docs
+tests
+scripts
+deploy
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*.bak

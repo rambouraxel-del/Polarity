@@ -18,6 +18,18 @@
 - [x] `src/sim/*`, Survie, défi quotidien, défis classiques, classement et `BALANCE_VERSION` inchangés
 - [ ] **Validation humaine** : durées et difficulté réelles (surtout niveaux 4, 5, 7, 9), lisibilité des scènes sur téléphones, ressenti des défis secondaires. `scripts/e2e.mjs` mis à jour pour 10 niveaux mais **non rejoué**.
 
+## Classement mondial : robustesse et préparation au déploiement (branche `v1-finalisation-audiovisuelle`, commit local, ni poussée ni fusionnée)
+- [x] Serveur : couche HTTP durcie (`server/http.ts` : CORS strict, `Content-Type` exigé, HTTPS exigé derrière proxy, IP lue depuis la droite de `X-Forwarded-For`, délais, taille, en-têtes), configuration validée au démarrage, arrêt propre, exceptions fatales journalisées
+- [x] Pseudos : lettres latines seulement (anti-homoglyphes), filtre d'insultes/noms réservés (`server/moderation.ts`), courses d'inscription gérées (409)
+- [x] Données : `DELETE /api/me` (suppression complète par le joueur, authentifiée), `POST /api/report` (signalement), CLI opérateur `server/admin.ts` (`stats`, `check`, `backup`, `reports`, `hide`, `ban`, `unban`, `export`, `delete-player`, `prune` — simulation par défaut, `--yes` requis) ; **aucune route HTTP d'administration**
+- [x] Base : schéma versionné (`user_version`, migration v2 : modération, signalements, journal), sauvegarde auto avant migration, refus d'une base plus récente, sauvegarde à chaud `VACUUM INTO`, contrôle d'intégrité, budget global de rejeux (429 sans consommer le ticket), jamais de purge automatique
+- [x] Client : adresse `https` obligatoire (ou `http://localhost`), tickets d'un ancien profil écartés, envoi interrompu sur 429/401, profil non reconnu signalé, suppression de profil et signalement depuis le menu, bouton « Classement » masqué si non configuré
+- [x] Construction : `VITE_LEADERBOARD_URL` vérifiée (échec de build si invalide), `npm run check:bundle` (aucun secret ni code serveur dans `dist/`, ajouté au workflow Pages), `npm run build:beta`
+- [x] Déploiement prêt à intégrer (rien déployé) : `server/Dockerfile` (non-root, healthcheck), `deploy/` (compose + Caddy HTTPS, `env.example`, `sauvegarde.sh`), `.env.example`, **`docs/GUIDE_DEPLOIEMENT.md`**
+- [x] Tests : `tests/leaderboard-hardening.test.ts` (15) + client (6 nouveaux) ; suite complète : 433 tests verts ; `tsc` et build propres. **Aucun e2e, aucun serveur persistant, aucune image Docker construite** (contrainte)
+- [ ] **Mise en service — non faite, à votre charge** : serveur + domaine, `deploy/.env` (`TICKET_SECRET` : `openssl rand -hex 32`), variable GitHub `LEADERBOARD_URL`, vérification de production (`docs/GUIDE_DEPLOIEMENT.md` §4). **Le classement n'est pas en ligne.**
+- [ ] `scripts/e2e-classement.mjs` non rejoué (la saisie de pseudo, le serveur local et le bouton sont inchangés en principe) ; Dockerfile et compose validés seulement par `docker compose config`
+
 ## Finalisation audiovisuelle V1 (branche `v1-finalisation-audiovisuelle`, non fusionnée)
 - [x] Carte musicale recalée sur les attaques réelles (+9,1 ms mesurés, écart résiduel ≈ 0 ms) ; grille de battements continue aux raccords
 - [x] Silence, sourdine, pause, compte à rebours, contexte suspendu/« interrupted » : aucune réaction musicale, aucun battement manqué rejoué
@@ -69,7 +81,7 @@ Dialogues, 5 illustrations WebP, 5 missions (durées 150–200 s pour le joueur 
 - [x] Menu **Cosmétiques** (Apparences + Boutique fusionnés) : catégories Vaisseaux / Traînées / Packs, filtres Tous / Possédés / À débloquer, aperçu animé, actions Acheter / Équiper / Équipé / Succès requis ; soldes une seule fois ; possessions et équipements préservés
 - [x] **27 succès** (découverte, Survie, niveaux, collectes, maîtrise) centralisés (`config/achievements.ts`), objectifs progressifs sans dépense, récompense en Éclats versée une seule fois (notification + sauvegarde), 2 traînées exclusives ; migration (sauvegarde format 4) : succès déjà obtenus récompensés une fois
 - [x] **Classement mondial** de Survie : service Node + SQLite (`server/`), identité stable + authentification par secret, tickets de graine signés, **validation par rejeu** (graine + journal des entrées), top 100, résultats séparés par version d'équilibrage (anciens conservés), parties démo/debug exclues, mode hors ligne (résultat « en attente » / « non validé » signalé), aucun secret dans le jeu
-- [ ] **Mise en service du classement** : héberger le service, définir `TICKET_SECRET` / `ALLOWED_ORIGINS`, renseigner la variable `LEADERBOARD_URL` du dépôt (voir `docs/CLASSEMENT.md`) — **non fait** : le classement n'est pas opérationnel tant que ce n'est pas fait
+- [ ] **Mise en service du classement** : héberger le service, définir `TICKET_SECRET` / `ALLOWED_ORIGINS`, renseigner la variable `LEADERBOARD_URL` du dépôt (voir `docs/GUIDE_DEPLOIEMENT.md`) — **non fait** : le classement n'est pas opérationnel tant que ce n'est pas fait
 - [x] Tests (250 unitaires dont 29 de classement), e2e (cosmétiques, succès, migration) et `e2e:classement` (vrai serveur local), documentation (`docs/CLASSEMENT.md`)
 
 ## v1.5 — économie : Éclats, Prismes, boutique (terminée)

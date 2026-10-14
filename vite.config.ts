@@ -1,7 +1,9 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { GAME_NAME } from './src/config/brand';
+import { sanitizeBaseUrl } from './src/net/baseUrl';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -31,7 +33,21 @@ const brand = {
   transformIndexHtml: (html: string): string => html.replaceAll('%GAME_NAME%', GAME_NAME),
 };
 
-export default defineConfig({
+/**
+ * Classement mondial : l'adresse du service (VITE_LEADERBOARD_URL, publique) est vérifiée AVANT la construction. Une valeur mal formée ou en http
+ * distant ferait un jeu qui croit avoir un classement alors qu'il ne peut pas l'utiliser : mieux vaut échouer ici que publier ce jeu.
+ * Absente ou vide = classement désactivé (le jeu reste entièrement jouable).
+ */
+function checkLeaderboardUrl(mode: string): void {
+  const raw = (process.env.VITE_LEADERBOARD_URL ?? loadEnv(mode, process.cwd(), 'VITE_').VITE_LEADERBOARD_URL ?? '').trim();
+  if (raw && !sanitizeBaseUrl(raw)) {
+    throw new Error(`VITE_LEADERBOARD_URL invalide : « ${raw} ». Attendu : https://hôte (sans chemin, sans « / » final) ; http n'est accepté que pour localhost. Laissez la variable vide pour désactiver le classement.`);
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  checkLeaderboardUrl(mode);
+  return {
   plugins: [brand, versionFile],
   base: './',
   define: {
@@ -47,4 +63,5 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60000,
   },
+  };
 });

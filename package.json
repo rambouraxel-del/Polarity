@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:beta": "tsc --noEmit && vite build --mode beta --outDir dist-beta",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -19,6 +20,8 @@
     "music-map": "python3 -I scripts/analyze-music.py",
     "cost": "vite-node scripts/cost.ts",
     "server": "tsx server/index.ts",
+    "server:admin": "tsx server/admin.ts",
+    "check:bundle": "node scripts/check-bundle.mjs",
     "e2e:classement": "node scripts/e2e-classement.mjs"
   },
   "dependencies": {

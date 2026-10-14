@@ -42,7 +42,7 @@ export interface SaveNotices {
   load: 'corrupt' | 'future' | null;
 }
 
-export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false, saveNotices: SaveNotices = { storageFailed: false, load: null }): string {
+export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false, saveNotices: SaveNotices = { storageFailed: false, load: null }, leaderboard = true): string {
   const legacy = legacySurvivalBest(save);
   const surv =
     save.survival.bestTime > 0
@@ -105,7 +105,7 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
         ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
       </div>
       <div class="btn-row">
-        ${button({ action: 'leaderboard', label: 'Classement', icon: 'podium', variant: 'secondary', size: 'compact' })}
+        ${leaderboard ? button({ action: 'leaderboard', label: 'Classement', icon: 'podium', variant: 'secondary', size: 'compact' }) : ''}
         ${button({ action: 'options', label: 'Options', icon: 'gear', variant: 'secondary', size: 'compact' })}
       </div>
       <p class="small home__help">${homeHelp(touch)}</p>
@@ -446,6 +446,12 @@ export interface LeaderboardView {
   nickMessage: string | null;
   /** Résultat de Survie local (record actuel). */
   localBest: { time: number; score: number } | null;
+  /** Le service ne reconnaît plus le profil de ce navigateur (supprimé ou service réinitialisé). */
+  profileLost?: boolean;
+  /** Confirmation de suppression du profil affichée. */
+  confirmDelete?: boolean;
+  /** Message sur le dernier signalement ou la dernière suppression. */
+  reportMessage?: string | null;
 }
 
 function pendingRow(p: PendingRun): string {
@@ -485,6 +491,25 @@ export function leaderboardScreen(v: LeaderboardView): string {
     ? `<div class="lb-id"><span class="kind-label">Votre pseudo</span><strong class="lb-id__name">${escapeHtml(v.identity.nickname)}</strong></div>${nickForm('lb-rename', 'Changer', '')}`
     : `<p class="sub" style="margin:10px 0">Choisissez un pseudo pour participer au classement mondial (3 à 16 caractères, visible par tous).</p>${nickForm('lb-register', 'Créer mon profil', '')}`;
   const msg = v.nickMessage ? `<p class="shop-note" role="status" id="nick-msg">${escapeHtml(v.nickMessage)}</p>` : '';
+  const lost = v.profileLost
+    ? `<div role="alert" class="notice">Le service ne reconnaît plus votre profil (supprimé, ou service réinitialisé). Vos résultats locaux sont intacts. ${button({ action: 'lb-forget', label: 'Créer un nouveau profil', variant: 'secondary', size: 'sm' })}</div>`
+    : '';
+  // Signalement et suppression : seulement avec un profil (le service exige votre secret ; aucune action possible sans lui)
+  const reportMsg = v.reportMessage ? `<p class="shop-note" role="status">${escapeHtml(v.reportMessage)}</p>` : '';
+  const account = v.identity
+    ? `<h3 class="section-title">Mon profil et signalements</h3>
+      <form class="nick-form" data-form="lb-report" autocomplete="off" novalidate>
+        <label class="sr-only" for="report-input">Pseudo à signaler</label>
+        <input id="report-input" class="input" name="report" type="text" maxlength="16" placeholder="Pseudo offensant à signaler" spellcheck="false" autocapitalize="off" />
+        ${button({ action: 'lb-report', label: 'Signaler', variant: 'secondary', size: 'sm', attrs: 'type="submit"' })}
+      </form>${reportMsg}
+      ${
+        v.confirmDelete
+          ? `<div role="alert" class="notice"><strong>Supprimer votre profil du classement ?</strong> Votre pseudo, vos parties envoyées et vos meilleurs résultats mondiaux seront effacés du service, définitivement. Vos records et votre progression sur cet appareil ne changent pas.
+              <div class="btn-row">${button({ action: 'lb-delete-cancel', label: 'Annuler', variant: 'primary', size: 'sm', attrs: 'data-autofocus' })}${button({ action: 'lb-delete-confirm', label: 'Oui, supprimer', icon: 'trash', variant: 'danger', size: 'sm' })}</div></div>`
+          : button({ action: 'lb-delete-ask', label: 'Supprimer mon profil du classement', icon: 'trash', variant: 'ghost', size: 'sm' })
+      }`
+    : '';
   const me = v.me
     ? v.me.best
       ? `<div class="stats">${stat('Votre rang', `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
@@ -514,7 +539,7 @@ export function leaderboardScreen(v: LeaderboardView): string {
       }`
     : '';
   return `<div class="panel panel--wide">${head}
-    ${identity}${msg}${me}${versions}${table}${pending}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
+    ${lost}${identity}${msg}${me}${versions}${table}${pending}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
   </div>`;
 }
 

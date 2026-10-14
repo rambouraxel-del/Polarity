@@ -82,6 +82,9 @@ export class App {
   private lbMe: MeResponse | null = null;
   private lbBalances: BalancesResponse | null = null;
   private lbNickMessage: string | null = null;
+  private lbProfileLost = false;
+  private lbConfirmDelete = false;
+  private lbReportMessage: string | null = null;
   save: SaveData;
   /** Résultat du chargement (sauvegarde illisible ou plus récente que le jeu : signalé à l'accueil). */
   private loadStatus: LoadResult['status'] = 'new';
@@ -232,6 +235,7 @@ export class App {
       e.preventDefault();
       const kind = (e.target as HTMLElement).dataset.form;
       if (kind === 'lb-register' || kind === 'lb-rename') void this.submitNickname(kind);
+      else if (kind === 'lb-report') void this.submitReport();
     });
     // Retour en ligne : envoi des résultats en attente et renouvellement des tickets
     window.addEventListener('online', () => {
@@ -902,7 +906,7 @@ export class App {
     const today = utcDateString();
     let html = '';
     switch (id) {
-      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable, this.saveNotices()); break;
+      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable, this.saveNotices(), this.lb.configured); break;
       case 'campaign': html = C.campaignScreen(this.save); break;
       case 'chapter': html = C.chapterScreen(this.save); break;
       case 'mission': html = C.missionScreen(this.save, this.selectedMission); break;
@@ -995,7 +999,12 @@ export class App {
       // Les formulaires de pseudo sont traités à l'envoi (touche Entrée comprise), pas au clic
       case 'lb-register':
       case 'lb-rename':
+      case 'lb-report':
         break;
+      case 'lb-delete-ask': this.lbConfirmDelete = true; this.rerenderLeaderboard(); break;
+      case 'lb-delete-cancel': this.lbConfirmDelete = false; this.rerenderLeaderboard(); break;
+      case 'lb-delete-confirm': void this.deleteLeaderboardProfile(); break;
+      case 'lb-forget': this.lb.forgetProfile(); this.lbProfileLost = false; this.lbMe = null; this.lbNickMessage = null; this.rerenderLeaderboard(); break;
       case 'options': this.showScreen('options'); break;
       case 'survival': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
       case 'play-daily': {
@@ -1204,6 +1213,9 @@ export class App {
       pending: this.lb.pending(),
       nickMessage: this.lbNickMessage,
       localBest: this.save.survival.bestTime > 0 ? { time: this.save.survival.bestTime, score: this.save.survival.bestScore } : null,
+      profileLost: this.lbProfileLost,
+      confirmDelete: this.lbConfirmDelete,
+      reportMessage: this.lbReportMessage,
     };
   }
 
@@ -1218,6 +1230,8 @@ export class App {
   /** Ouvre le menu puis charge le classement (envoie d'abord les résultats en attente). */
   private openLeaderboard(): void {
     this.lbNickMessage = null;
+    this.lbConfirmDelete = false;
+    this.lbReportMessage = null;
     this.showScreen('leaderboard');
     void this.refreshLeaderboard();
   }
@@ -1239,8 +1253,32 @@ export class App {
       this.lbError = top.message;
     }
     this.lbMe = me && me.ok ? me.data : null;
+    this.lbProfileLost = !!me && !me.ok && me.kind === 'unauthorized';
     this.lbBalances = balances.ok ? balances.data : this.lbBalances;
     this.rerenderLeaderboard();
+  }
+
+  private async submitReport(): Promise<void> {
+    const input = this.screenEl.querySelector('#report-input') as HTMLInputElement | null;
+    const res = await this.lb.report(input?.value ?? '');
+    this.lbReportMessage = res.ok ? 'Signalement enregistré. Merci : il sera examiné.' : res.message;
+    this.rerenderLeaderboard();
+  }
+
+  /** Suppression du profil de classement (le serveur efface tout ; le profil local n'est oublié qu'après confirmation du serveur). */
+  private async deleteLeaderboardProfile(): Promise<void> {
+    this.lbConfirmDelete = false;
+    const res = await this.lb.deleteProfile();
+    if (res.ok) {
+      this.lbMe = null;
+      this.lbProfileLost = false;
+      this.lbReportMessage = null;
+      this.lbNickMessage = 'Profil supprimé : le service a effacé vos données de classement.';
+    } else {
+      this.lbReportMessage = res.kind === 'offline' ? 'Suppression impossible hors connexion : réessayez une fois en ligne (rien n’a été effacé).' : res.message;
+    }
+    this.rerenderLeaderboard();
+    if (res.ok) void this.refreshLeaderboard();
   }
 
   private async submitNickname(kind: 'lb-register' | 'lb-rename'): Promise<void> {
