@@ -9,3 +9,10 @@
 		output stdout
 	}
 }
+
+# Variante : service publié sous un préfixe de chemin d'un domaine partagé (LEADERBOARD_URL=https://domaine/polarity) — le préfixe est retiré avant le service :
+#   domaine {
+#       handle_path /polarity/* {
+#           reverse_proxy classement:8787
+#       }
+#   }

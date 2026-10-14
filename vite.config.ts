@@ -41,7 +41,7 @@ const brand = {
 function checkLeaderboardUrl(mode: string): void {
   const raw = (process.env.VITE_LEADERBOARD_URL ?? loadEnv(mode, process.cwd(), 'VITE_').VITE_LEADERBOARD_URL ?? '').trim();
   if (raw && !sanitizeBaseUrl(raw)) {
-    throw new Error(`VITE_LEADERBOARD_URL invalide : « ${raw} ». Attendu : https://hôte (sans chemin, sans « / » final) ; http n'est accepté que pour localhost. Laissez la variable vide pour désactiver le classement.`);
+    throw new Error(`VITE_LEADERBOARD_URL invalide : « ${raw} ». Attendu : https://hôte[/préfixe] (sans « / » final, sans paramètres) ; http n'est accepté que pour localhost. Laissez la variable vide pour désactiver le classement.`);
   }
 }
 

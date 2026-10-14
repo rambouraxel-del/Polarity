@@ -83,7 +83,7 @@ Tout est décrit pas à pas dans **`docs/GUIDE_DEPLOIEMENT.md`** : prérequis, s
 Livrables intégrables : `server/Dockerfile` (utilisateur non privilégié, sonde de santé), `deploy/docker-compose.yml` + `deploy/Caddyfile` (HTTPS automatique), `deploy/env.example`, `deploy/sauvegarde.sh`, `.env.example` (jeu), `scripts/check-bundle.mjs`, `.github/workflows/pages.yml`.
 
 Variables du service : `TICKET_SECRET` (obligatoire, ≥ 32 car.), `ALLOWED_ORIGINS` (obligatoire pour qu'un navigateur ou une application l'utilise ; GitHub Pages + `https://localhost` + `capacitor://localhost` si les applications mobiles sont publiées), `DATABASE_PATH`, `PORT`, `HOST`, `TRUST_PROXY` (nombre de proxys de confiance ; 1 avec Caddy), `REQUIRE_HTTPS` (1 en production, exige `TRUST_PROXY ≥ 1`), `BLOCKED_WORDS`, `MAX_REPLAYS_PER_MINUTE`. Une configuration incohérente (secret court, origine `*` ou en clair, port invalide) empêche le démarrage avec un message clair.
-Variable du jeu : `VITE_LEADERBOARD_URL` (publique ; `https://hôte` sans chemin, ou `http://localhost…` en développement). Une valeur invalide **fait échouer la construction** (`vite.config.ts`) ; vide = classement désactivé. `npm run build:beta` construit une version de test (`.env.beta`, dossier `dist-beta/`).
+Variable du jeu : `VITE_LEADERBOARD_URL` (publique ; `https://hôte` ou `https://hôte/préfixe` (reverse proxy qui retire le préfixe), ou `http://localhost…` en développement). Une valeur invalide **fait échouer la construction** (`vite.config.ts`) ; vide = classement désactivé. `npm run build:beta` construit une version de test (`.env.beta`, dossier `dist-beta/`).
 
 ## API (JSON)
 | Route | Accès | Rôle |

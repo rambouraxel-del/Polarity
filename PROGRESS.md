@@ -18,6 +18,11 @@
 - [x] `src/sim/*`, Survie, défi quotidien, défis classiques, classement et `BALANCE_VERSION` inchangés
 - [ ] **Validation humaine** : durées et difficulté réelles (surtout niveaux 4, 5, 7, 9), lisibilité des scènes sur téléphones, ressenti des défis secondaires. `scripts/e2e.mjs` mis à jour pour 10 niveaux mais **non rejoué**.
 
+## Audit pré-bêta (branche `release/v1-rc1`, commit local, non poussé)
+- [x] **e2e complet rejoué (un seul passage)** : **380 contrôles ✔, 0 ✘, sortie 0** — les six anciens échecs sont résolus (La Survie se joue ; Éclats gagnés / Mort sans recrédit ; ordre des boutons de l'accueil ; niveau 2 débloqué ; aucune erreur console du bureau)
+- [x] **P0 trouvé et corrigé** : le workflow Pages de `50a75a4` a échoué (`npm run build`) car `LEADERBOARD_URL` contient un préfixe de chemin (`…/polarity`) que la vérification d'URL refusait ; le site en ligne est resté à `0b72fb6`. Correctif : `sanitizeBaseUrl` accepte un préfixe simple (testé, build de CI reproduit en local). **Rien n'est redéployé tant que `main` n'est pas poussée avec ce correctif.**
+- [x] `npm run check` : typecheck + 458 tests + build ; `check:bundle` ; `mobile:sync` idempotent
+
 ## V1 candidate — audit final de non-régression (branche `v1-finalisation-audiovisuelle`, commit local ; branche candidate locale `release/v1-rc1`)
 Verdict : **NO-GO pour une sortie publique** (bloquants §C du rapport : aucun build natif, aucun serveur public, droits des contenus, juridique, validation humaine) ; **le code est prêt pour une bêta web** dès que vous le décidez (fusion + Pages). Détail : `CHANGELOG.md` (décisions requises, points bloquants).
 - [x] Faits vérifiés : `main` = `0b72fb6` contient la campagne 1–10 ; la branche porte 5 commits locaux non poussés ; `src/sim/`, `src/modes/`, `src/core/`, configs de difficulté et `BALANCE_VERSION = 3` **identiques à `main`** (`git diff`)

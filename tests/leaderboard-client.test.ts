@@ -190,13 +190,16 @@ describe('classement : client', () => {
 });
 
 describe('classement : client — sécurité, profil et repli', () => {
-  it('adresse du service : https obligatoire (http seulement en local), sans chemin ni identifiants ; sinon classement désactivé', () => {
+  it('adresse du service : https obligatoire (http seulement en local), sans identifiants ni paramètres, préfixe de chemin simple accepté ; sinon classement désactivé', () => {
     expect(sanitizeBaseUrl('https://classement.exemple.org/')).toBe('https://classement.exemple.org');
     expect(sanitizeBaseUrl(' https://classement.exemple.org:8443 ')).toBe('https://classement.exemple.org:8443');
     expect(sanitizeBaseUrl('http://localhost:8787')).toBe('http://localhost:8787');
     expect(sanitizeBaseUrl('http://127.0.0.1:8787')).toBe('http://127.0.0.1:8787');
-    for (const bad of ['http://classement.exemple.org', 'ftp://x.org', 'classement.exemple.org', 'https://u:p@x.org', 'https://x.org/api', 'https://x.org?a=1', 'javascript:alert(1)', '']) expect(sanitizeBaseUrl(bad), bad).toBe('');
+    for (const bad of ['http://classement.exemple.org', 'ftp://x.org', 'classement.exemple.org', 'https://u:p@x.org', 'https://x.org/a/../b', 'https://x.org//api', 'https://x.org/a b', 'https://x.org?a=1', 'https://x.org/api#x', 'javascript:alert(1)', '']) expect(sanitizeBaseUrl(bad), bad).toBe('');
     expect(sanitizeBaseUrl(undefined)).toBe('');
+    // Service derrière un reverse proxy sous un préfixe de chemin (cas réel de la variable GitHub LEADERBOARD_URL)
+    expect(sanitizeBaseUrl('https://vps-f5907180.vps.ovh.net/polarity')).toBe('https://vps-f5907180.vps.ovh.net/polarity');
+    expect(sanitizeBaseUrl('https://exemple.org/classement/v1/')).toBe('https://exemple.org/classement/v1');
   });
 
   it('accueil : le bouton Classement est masqué sans service configuré, présent sinon', () => {
@@ -255,5 +258,18 @@ describe('classement : client — sécurité, profil et repli', () => {
     expect(list[0].status).toBe('pending');
     const me = await client.me();
     expect(!me.ok && me.kind).toBe('unauthorized');
+  });
+
+  it('service sous un préfixe de chemin : toutes les requêtes visent https://hôte/préfixe/api/… (le proxy retire le préfixe)', async () => {
+    const urls: string[] = [];
+    const fetchFn = (async (url: string | URL | Request) => {
+      urls.push(String(url));
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    const store = new MemoryStore();
+    const client = new LeaderboardClient({ baseUrl: sanitizeBaseUrl('https://vps.exemple.net/polarity/'), store, fetchFn, balance: BALANCE_VERSION, build: 'test' });
+    await client.top();
+    await client.balances();
+    expect(urls).toEqual([`https://vps.exemple.net/polarity/api/leaderboard?balance=`.replace('?balance=', ''), 'https://vps.exemple.net/polarity/api/balances']);
   });
 });
