@@ -17,8 +17,8 @@ avec `npm run sim`, tests de non-régression de la sauvegarde.
 - Vitesse du vaisseau au-delà de 100 % de la référence (plafonnée à 100 % pour cette version).
 - Mesure GPU sur appareils mobiles réels.
 
-## Campagne : niveaux 6 à 15
-Les niveaux 1 à 5 de « Douze ans de silence » sont livrés (`docs/CAMPAGNE.md`) ; la suite du chapitre est annoncée « À venir ». Procédure d'ajout : `docs/CAMPAGNE.md`, « Ajouter les niveaux suivants ». Amélioration progressive du vaisseau (hangar) prévue : données conservées, désactivées.
+## Campagne : niveaux 11 à 15 (suite du chapitre)
+Les niveaux 1 à 10 de « Douze ans de silence » sont livrés (`docs/CAMPAGNE.md`) ; la suite du chapitre est annoncée « À venir ». Procédure d'ajout : `docs/CAMPAGNE.md`, « Ajouter les niveaux suivants ». Amélioration progressive du vaisseau (hangar) prévue : données conservées, désactivées.
 
 ## Améliorations de campagne payées en Éclats de campagne (logique prête, hangar fermé)
 L'économie (v1.5) fournit le solde d'Éclats, les achats atomiques et le catalogue. Une future campagne pourrait proposer des améliorations achetées en Éclats ;

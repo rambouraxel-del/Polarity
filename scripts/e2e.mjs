@@ -30,6 +30,8 @@ function chromiumPath() {
 }
 
 const PORT = 4179;
+/** Niveaux de campagne livrés (src/config/campaign.ts) : 10 ; le niveau 1 est ouvert au départ, le 2 après sa réussite. */
+const MISSIONS_TOTAL = 10;
 const URL = `http://127.0.0.1:${PORT}/`;
 mkdirSync('screenshots', { recursive: true });
 
@@ -74,7 +76,11 @@ async function newPage(viewport, opts = {}) {
     if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-  page.on('requestfailed', (r) => errors.push(`requête échouée : ${r.url()}`));
+  page.on('requestfailed', (r) => {
+    // Le contrôle de version (version.json) peut être interrompu par un rechargement ou une navigation : sans conséquence
+    if (/version\.json/.test(r.url()) && /ABORTED/.test(r.failure()?.errorText ?? '')) return;
+    errors.push(`requête échouée : ${r.url()}`);
+  });
   page.on('response', (r) => {
     if (r.status() >= 400) errors.push(`HTTP ${r.status()} : ${r.url()}`);
   });
@@ -227,7 +233,8 @@ const state = (page) =>
   await page.click('[data-action="home"], [data-action="levels"]');
   await page.evaluate(() => window.__polarite.showScreen('home'));
   await page.click('[data-action="survival"]');
-  await page.waitForTimeout(4000);
+  // Le temps de jeu suit l'horloge réelle, plafonnée par image : sur un rendu logiciel lent il avance moins vite que le temps réel (attente active, pas un délai fixe)
+  await page.waitForFunction(() => (window.__polarite.session?.sim.time ?? 0) > 3, null, { timeout: 30000 }).catch(() => undefined);
   await page.screenshot({ path: 'screenshots/07-survie.png' });
   st = await state(page);
   check(st.phase === 'running' && st.time > 3, 'La Survie se joue');
@@ -628,7 +635,9 @@ const state = (page) =>
   check((await sim(() => window.__polarite.save.wallet.shards)) === w0 + 5, 'Disparition : aucun gain');
   // Mort : les Éclats restent acquis ; le résultat les affiche sans les recréditer
   await sim(() => { const s = window.__polarite.session.sim; s.invincible = false; for (let i = 0; i < 120 * 90 && s.state === 'running'; i++) s.step(); });
-  await page.waitForTimeout(1800);
+  // Le résultat s'affiche après le délai de mort (mesuré en temps de jeu plafonné : attente active)
+  await page.waitForFunction(() => window.__polarite.screen === 'result', null, { timeout: 30000 }).catch(() => undefined);
+  await page.waitForTimeout(300);
   const resultText = await page.locator('#screen').innerText();
   check(/Éclats collectés sur l’orbite/.test(resultText) && /\+5/.test(resultText) && /Nouveau solde/.test(resultText), 'Résultat : Éclats gagnés, origine et nouveau solde');
   // Les succès de la partie (récompensés à part) s'ajoutent au solde une seule fois ; les Éclats collectés restent acquis
@@ -796,7 +805,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
     check(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Orbitron') || getComputedStyle(document.querySelector('.btn')).fontFamily.includes('Orbitron')), 'Police Orbitron appliquée aux boutons');
     check(await page.evaluate(() => !document.querySelector('#space').classList.contains('hidden')), 'Fond spatial visible dans les menus');
     const order = await page.evaluate(() => [...document.querySelectorAll('#screen .home__menu [data-action]')].map((b) => b.dataset.action));
-    check(order.join() === 'survival,campaign,daily,cosmetics,achievements,leaderboard,options', `Accueil : ordre des boutons (${order.join(', ')})`);
+    check(order.join() === 'survival,campaign,daily,cosmetics,achievements,options', `Accueil : ordre des boutons, « Classement » masqué sans service configuré (${order.join(', ')})`);
   }
   await go('home');
   const help = await page.locator('.home__help').innerText();
@@ -1005,7 +1014,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check((await stored()).campaign.reserve === reserve1 && !/Première réussite/i.test(await page.locator('#screen').innerText()), `Réussite répétée : aucune récompense versée deux fois (réserve ${reserve1})`);
   // Échec : réessayer, aucune conclusion, aucune récompense
   await go('chapter');
-  check((await page.locator('.mission-node:disabled').count()) === 3, 'Niveau 2 débloqué par la réussite du niveau 1');
+  check((await page.locator('.mission-node:disabled').count()) === MISSIONS_TOTAL - 2, 'Niveau 2 débloqué par la réussite du niveau 1 (les autres restent verrouillés)');
   await app(() => window.__polarite.selectedMission = 2);
   await app(() => window.__polarite.launchMission(2));
   await waitStory();

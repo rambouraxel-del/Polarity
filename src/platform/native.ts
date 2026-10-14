@@ -70,3 +70,15 @@ export async function hideNativeSplash(): Promise<void> {
     /* le délai de sécurité de capacitor.config.ts le masquera de toute façon */
   }
 }
+
+export type BackAction = 'exit' | 'home' | 'escape';
+
+/**
+ * Bouton Retour d'Android — décision pure (testée) : en partie ou dans un menu = même effet que la touche Échap (pause, reprise, écran précédent) ;
+ * sur un écran de résultat = accueil ; à l'accueil sans partie = l'application se ferme.
+ */
+export function backAction(inRun: boolean, screen: string | null): BackAction {
+  if (!inRun && (screen === 'home' || screen === null)) return 'exit';
+  if (!inRun && (screen === 'result' || screen === 'campaign-result')) return 'home';
+  return 'escape';
+}

@@ -25,14 +25,14 @@
     "check:bundle": "node scripts/check-bundle.mjs",
     "e2e:classement": "node scripts/e2e-classement.mjs",
     "mobile:icons": "python3 -I scripts/make-mobile-icons.py",
-    "mobile:assets": "capacitor-assets generate --iosProject ios/App --androidProject android --assetPath assets --splashBackgroundColor \"#070b1f\" --splashBackgroundColorDark \"#070b1f\" --iconBackgroundColor \"#070b1f\" --iconBackgroundColorDark \"#070b1f\"",
+    "mobile:assets": "npx --yes @capacitor/assets@3.0.5 generate --iosProject ios/App --androidProject android --assetPath assets --splashBackgroundColor \"#070b1f\" --splashBackgroundColorDark \"#070b1f\" --iconBackgroundColor \"#070b1f\" --iconBackgroundColorDark \"#070b1f\"",
     "mobile:sync": "npm run build:native && node scripts/check-bundle.mjs dist-native && cap sync",
     "mobile:set-id": "tsx scripts/mobile-config.ts set-id",
     "mobile:version": "tsx scripts/mobile-config.ts version",
     "mobile:bump": "tsx scripts/mobile-config.ts bump",
     "mobile:check": "tsx scripts/mobile-config.ts check",
     "mobile:android:debug": "npm run mobile:sync && cd android && ./gradlew assembleDebug",
-    "mobile:android:aab": "npm run mobile:check && npm run mobile:sync && cd android && ./gradlew bundleRelease",
+    "mobile:android:aab": "npm run mobile:check -- --release && npm run mobile:sync && cd android && ./gradlew bundleRelease",
     "mobile:open:android": "cap open android",
     "mobile:open:ios": "cap open ios"
   },
@@ -46,7 +46,6 @@
     "phaser": "3.90.0"
   },
   "devDependencies": {
-    "@capacitor/assets": "3.0.5",
     "@capacitor/cli": "8.5.3",
     "@types/node": "22.20.5",
     "tsx": "^4.23.15",

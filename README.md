@@ -6,7 +6,7 @@ Jeu d'arcade web au néon, jouable sur ordinateur et mobile. Un petit vaisseau t
 **un clic, un toucher ou Espace inverse sa direction**. Évitez les tirs et les secteurs électriques, collectez
 les six balises pour enchaîner les cycles et faire monter le multiplicateur.
 
-- **Niveaux** : 12 niveaux de 90 secondes. Survivre jusqu'au bout débloque le suivant ; le score donne jusqu'à 3 étoiles.
+- **Campagne** « Douze ans de silence » (chapitre 1, niveaux 1 à 10) : récit illustré avant et après chaque niveau, objectifs variés, étoiles, **Éclats de campagne** (réserve séparée). Elle ne touche ni à la Survie, ni aux succès, ni aux cosmétiques (`docs/CAMPAGNE.md`). Les 12 **Défis classiques** (90 s, étoiles au score) sont accessibles depuis la Campagne.
 - **Survie** : sans limite de durée, la difficulté monte progressivement. Le record est le temps de survie. Le vaisseau part à **40 % de sa vitesse de référence**
   et gagne 5 points de pourcentage toutes les 30 s (100 % à 6 min). Des **événements** rythment la partie : *pluie de météores* (12 s) et *tempête électrique* (10 s),
   annoncés 2 s avant, suivis de 3 s de respiration. Trois dangers s'y ajoutent peu à peu : **astéroïde fragmenté**, **convoi d'astéroïdes**, **laser balayeur**.
@@ -22,12 +22,12 @@ Interface « Néon premium » (v1.3) : logo, thème centralisé (`src/ui/theme.t
 (masqué pendant les parties, statique avec l'option « Effets réduits »), écrans accueil / niveaux / pause / résultat / options / apparences / succès
 harmonisés. Voir `docs/INTERFACE.md`. Pour renommer le jeu : `src/config/brand.ts` (`GAME_NAME`) ; ne pas toucher à `STORAGE_NAMESPACE` (progression).
 
-Aucun serveur, aucun compte : les sprites sont des fichiers locaux, les sons sont générés (Web Audio).
-Les records sont enregistrés localement (navigateur) ; il n'existe pas de classement en ligne.
+Aucun compte obligatoire : les sprites sont des fichiers locaux, les effets sonores sont générés (Web Audio) et la musique est embarquée (`docs/MUSIQUE.md`).
+Progression et records sont enregistrés **localement** (navigateur ou application). Le **classement mondial de Survie** est facultatif et **n'est pas en ligne** tant qu'un service n'est pas déployé : sans service configuré, son bouton est masqué et tout le jeu reste jouable (`docs/CLASSEMENT.md`, `docs/GUIDE_DEPLOIEMENT.md`).
 
 ## Installation et lancement
 
-Prérequis : Node.js 20.19+ ou 22.12+.
+Prérequis : Node.js 22.13+ (le service de classement et Capacitor 8 l'exigent ; le jeu seul se construit aussi avec 20.19+).
 
 ```bash
 npm install
@@ -59,6 +59,8 @@ npm test           # tests unitaires (Vitest)
 npm run check      # typecheck + tests + build
 npm run e2e        # test navigateur Chromium (Playwright requis, non inclus) après npm run build
 npm run e2e:classement  # classement mondial : vrai serveur local + navigateur
+npm run check:bundle    # aucun secret ni code serveur dans dist/ (après npm run build)
+npm run mobile:sync     # jeu embarqué + cap sync Android/iOS ; npm run mobile:check pour les paramètres en attente (docs/BUILD_MOBILE.md)
 npm run server     # service de classement (voir docs/CLASSEMENT.md ; Node 22.13+)
 npm run sim        # outil d'équilibrage : bots sur les 12 niveaux, courbe et mix de motifs de la Survie
 npm run cost       # coût du directeur de vagues (validateur d'évitement inclus)
@@ -96,7 +98,7 @@ Les annonces se distinguent des dangers actifs par la forme (pointillés/contour
 
 ## Sauvegarde et records
 
-Sauvegarde locale versionnée (format 2). Les **records de Survie et du défi quotidien dépendent de la version d'équilibrage** (3 depuis la v1.2 :
+Sauvegarde locale versionnée (**format 6** ; migration de toutes les anciennes versions, copies de sécurité conservées ; `src/save/save.ts`). **Web et applications natives ont chacune leur sauvegarde, sans synchronisation** (`docs/BUILD_MOBILE.md` §9). Les **records de Survie et du défi quotidien dépendent de la version d'équilibrage** (3 depuis la v1.2 :
 vitesse progressive, nouveaux dangers, événements) : les anciens records (v1.0 et v1.1) sont **conservés à part** (« ancien équilibrage »),
 affichés à titre indicatif et jamais comparés aux nouveaux ; les nouveaux records repartent de zéro. Niveaux débloqués, étoiles, meilleurs
 scores, succès, apparences et options sont **préservés tels quels**. Une copie de l'ancienne sauvegarde est gardée dans le navigateur
@@ -120,7 +122,8 @@ Voir `CLAUDE.md` (architecture et règles), `docs/EQUILIBRAGE.md` (paramètres, 
   `survival.ts` (difficulté), `hitbox.ts` (hitboxes), `visuals.ts` (tailles et effets), `balance.ts` (plafonds, score, combo).
 - Le validateur d'évitement écarte les combinaisons manifestement inévitables selon un modèle de joueur (décision toutes
   les 0,125 s, marge de sécurité) ; ce n'est pas une garantie mathématique pour un humain.
-- Tests réalisés en Chromium (bureau et émulation mobile). Safari iOS et Firefox n'ont pas été testés sur appareil réel.
+- Tests réalisés en Chromium (bureau et émulation mobile). **Safari iOS, Firefox et les applications Android/iOS n'ont pas été testés sur appareil réel** ; aucun APK/AAB/IPA n'a été compilé (`docs/BUILD_MOBILE.md`, `docs/VERIFICATIONS_MOBILE.md`).
+- Droits des contenus (musique, illustrations, sprites générés par IA) : origine et licences à documenter avant toute publication commerciale (voir `CHANGELOG.md`, « Points bloquants »).
 - Le rendu utilise WebGL (repli Canvas automatique via Phaser) ; le paquet JS fait ~1,3 Mo (≈ 340 Ko gzip), essentiellement Phaser,
   plus ≈ 125 Ko de sprites.
 - La vitesse progressive du vaisseau, les événements et les nouveaux dangers sont calibrés avec des robots et par tests : à valider par des joueurs (début de partie plus lent, montée de vitesse, lisibilité des lasers et des fragments sur petit écran).

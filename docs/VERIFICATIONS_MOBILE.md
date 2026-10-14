@@ -4,6 +4,8 @@
 Version à tester : l'adresse de la branche ou du déploiement ; la version est affichée en bas de l'écran Options.
 Astuce : ajouter `?stade=1` à `?stade=5` à l'adresse lance l'ambiance directement au début du stade choisi (la partie, elle, est normale).
 
+> Applications Android/iOS : ces vérifications valent aussi pour les applications natives (WebView) ; la liste spécifique (bouton Retour, arrière-plan, zones sûres, classement via WebView, sauvegarde) est dans `docs/BUILD_MOBILE.md` §8 et §11. Elles n'ont **pas** été faites : aucun appareil ni build natif.
+
 ## Audio
 1. **Déverrouillage** : première partie après ouverture de la page → la musique démarre-t-elle au premier toucher, sans second geste ? Sur iPhone, interrupteur « silencieux » activé : le comportement attendu est celui d'Apple (sons Web Audio coupés) ; vérifier qu'il n'y a pas de blocage au retour.
 2. **Qualité perçue** : intro → boucle (raccord à ≈ 24 s : aucun clic, aucune coupure), boucle sur plusieurs tours (≈ 2 min 33 s : aucun silence ni saut), fin de partie → outro en fondu. Écoute au casque filaire et aux haut-parleurs.

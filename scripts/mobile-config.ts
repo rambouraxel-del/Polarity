@@ -5,6 +5,7 @@
  *   npm run mobile:version                   applique la version (package.json) et les numéros de build (mobile/release.json) aux projets natifs
  *   npm run mobile:bump                      incrémente les numéros de build (Android versionCode, iOS build) avant un nouvel envoi aux magasins
  *   npm run mobile:check                     contrôle la cohérence (code, projets natifs, origines du classement) ; signale les paramètres en attente
+ *   npm run mobile:check -- --release        contrôle de publication : échoue tant qu'un paramètre est en attente (identifiant « exemple », clé de signature)
  *
  * Rien n'est inventé : l'identifiant est « com.example.polarrift » (refusé par les magasins) tant que l'éditeur n'a pas choisi le sien.
  */
@@ -14,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 import { NATIVE_APP_ORIGINS } from '../src/net/origins';
 
 export const PLACEHOLDER_ID = 'com.example.polarrift';
+/** Identifiants « exemple » : refusés par les magasins, jamais publiables. */
+export const isPlaceholderId = (id: string): boolean => /^(com|org|net)\.example(\.|$)/.test(id) || id === PLACEHOLDER_ID;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export interface Release {
@@ -150,7 +153,7 @@ export function check(root = ROOT): Report {
   const iScheme = grab(/iosScheme:\s*'([^']*)'/g, cfg)[0];
   const expected = [`${aScheme}://${host}`, `${iScheme}://${host}`];
   if (expected.join() !== NATIVE_APP_ORIGINS.join()) errors.push(`origines WebView du capacitor.config.ts (${expected.join(', ')}) ≠ src/net/origins.ts (${NATIVE_APP_ORIGINS.join(', ')})`);
-  if (!rel.appIdConfirmed || rel.appId === PLACEHOLDER_ID) pending.push(`identifiant d'application non choisi (« ${rel.appId} ») : npm run mobile:set-id -- <identifiant>`);
+  if (!rel.appIdConfirmed || isPlaceholderId(rel.appId)) pending.push(`identifiant d'application non choisi (« ${rel.appId} ») : npm run mobile:set-id -- <identifiant>`);
   if (!existsSync(join(root, 'android/keystore.properties')) && !process.env.POLAR_RIFT_KEYSTORE) pending.push('clé de signature Android absente (android/keystore.properties) : voir docs/BUILD_MOBILE.md');
   return { errors, pending };
 }
@@ -169,11 +172,13 @@ function main(): void {
       console.log('Numéros de build :', bump());
       break;
     case 'check': {
+      // --release : contrôle de PUBLICATION (AAB/IPA) — tout paramètre en attente (identifiant « exemple », clé de signature absente) est bloquant
+      const release = process.argv.includes('--release');
       const r = check();
       for (const e of r.errors) console.error(`ERREUR : ${e}`);
-      for (const p of r.pending) console.log(`EN ATTENTE : ${p}`);
+      for (const p of r.pending) (release ? console.error : console.log)(`${release ? 'BLOQUANT' : 'EN ATTENTE'} : ${p}`);
       if (r.errors.length === 0) console.log('Configuration mobile cohérente.');
-      process.exit(r.errors.length === 0 ? 0 : 1);
+      process.exit(r.errors.length === 0 && !(release && r.pending.length > 0) ? 0 : 1);
       break;
     }
     default:

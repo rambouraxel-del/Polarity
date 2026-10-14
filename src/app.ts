@@ -30,7 +30,7 @@ import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
-import { hideNativeSplash, initNative, nativePlatform } from './platform/native';
+import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
 import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
 import { escapeHtml, formatScore } from './ui/format';
 import { Hud } from './ui/hud';
@@ -560,8 +560,9 @@ export class App {
   handleBack(): boolean {
     const s = this.session;
     const inRun = !!s && ['running', 'countdown', 'ending', 'paused'].includes(s.phase);
-    if (!inRun && (this.screen === 'home' || this.screen === null)) return false;
-    if (!inRun && (this.screen === 'result' || this.screen === 'campaign-result')) this.showScreen('home');
+    const action = backAction(inRun, this.screen);
+    if (action === 'exit') return false;
+    if (action === 'home') this.showScreen('home');
     else this.onPauseKey();
     return true;
   }

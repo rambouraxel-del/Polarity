@@ -18,6 +18,16 @@
 - [x] `src/sim/*`, Survie, défi quotidien, défis classiques, classement et `BALANCE_VERSION` inchangés
 - [ ] **Validation humaine** : durées et difficulté réelles (surtout niveaux 4, 5, 7, 9), lisibilité des scènes sur téléphones, ressenti des défis secondaires. `scripts/e2e.mjs` mis à jour pour 10 niveaux mais **non rejoué**.
 
+## V1 candidate — audit final de non-régression (branche `v1-finalisation-audiovisuelle`, commit local ; branche candidate locale `release/v1-rc1`)
+Verdict : **NO-GO pour une sortie publique** (bloquants §C du rapport : aucun build natif, aucun serveur public, droits des contenus, juridique, validation humaine) ; **le code est prêt pour une bêta web** dès que vous le décidez (fusion + Pages). Détail : `CHANGELOG.md` (décisions requises, points bloquants).
+- [x] Faits vérifiés : `main` = `0b72fb6` contient la campagne 1–10 ; la branche porte 5 commits locaux non poussés ; `src/sim/`, `src/modes/`, `src/core/`, configs de difficulté et `BALANCE_VERSION = 3` **identiques à `main`** (`git diff`)
+- [x] `npm run check` : typecheck + **457 tests** + build OK ; `npm run check:bundle` OK (aucun secret/code serveur) ; `npm run mobile:sync` idempotent (aucune dérive des projets natifs)
+- [x] `npm run e2e` (**un seul passage**, Chromium) : **323 contrôles passés, 6 en échec** — tous des attentes de test périmées ou fragiles, **aucun défaut de jeu** : ordre des boutons (« Classement » masqué sans service), 10 niveaux de campagne, attente du temps de jeu sur rendu logiciel lent (×0,45), interruption bénigne de `version.json`. Attentes corrigées dans `scripts/e2e.mjs` **mais non rejouées en entier** (couvertes par `tests/v1-regression.test.ts`)
+- [x] `npm run e2e:classement` (**un passage**, vrai serveur local) : tous les contrôles passés (rejeu, hors ligne, falsification, démo exclue, persistance, versions)
+- [x] Écrans 320×568, 390×844, 844×390, 768×1024, bureau : aucun débordement, aucune erreur console (e2e) ; contrastes WCAG testés
+- [x] Corrections : décision du bouton Retour d'Android isolée et testée ; **contrôle de publication** (`mobile:check -- --release`) ; dépendance de développement vulnérable `@capacitor/assets` retirée ; README/ROADMAP réconciliés
+- [ ] **Non vérifié ici** : tout ce qui exige un appareil, un SDK Android, un Mac, un compte de magasin ou un serveur public (voir `CHANGELOG.md` §« Points bloquants »)
+
 ## Distribution V1 : web, Android, iOS (branche `v1-finalisation-audiovisuelle`, commit local, ni poussée ni fusionnée)
 - [x] Web statique : base relative, icônes PNG + apple-touch + manifeste (`public/`), favicon, `version.json` (mise à jour web) ; aucun secret ni appel externe dans le bundle (`check:bundle`)
 - [x] Enveloppe **Capacitor 8.5.3** (un seul code) : `capacitor.config.ts` (origines WebView épinglées), projets `android/` (cible/compile 36, minSdk 24, permission `INTERNET` seule) et `ios/` (cible iOS 15, manifeste de confidentialité, chiffrement exempté), icônes et écrans de démarrage générés depuis `art/source/`, plugins `app` + `splash-screen` seulement
@@ -131,7 +141,7 @@ Jeu complet : 12 niveaux, Survie, défi quotidien, succès, apparences, sauvegar
 - **Évolutions futures notées, non implémentées** : balise bonus temporaire, secteurs thématiques des niveaux (`docs/ROADMAP.md`)
 - Essais avec de vrais joueurs : équilibrage de la courbe v1.1, seuils d'étoiles (à réexaminer avec les hitboxes agrandies)
 - Tests sur appareils réels (Safari iOS, Firefox, Android) et mesure GPU mobile
-- Classement en ligne : évolution future (non prévu)
+- Classement en ligne : code prêt et durci, **service non déployé** (`docs/GUIDE_DEPLOIEMENT.md`)
 
 ## Vérifications exécutées (v1.1)
 | Commande | Résultat |
@@ -147,4 +157,4 @@ Jeu complet : 12 niveaux, Survie, défi quotidien, succès, apparences, sauvegar
 Voir `docs/EQUILIBRAGE.md`. Assets : `docs/ASSETS.md`.
 
 ## Blocages
-Aucun.
+Voir `CHANGELOG.md` (« Décisions requises » et « Points bloquants restants avant une sortie publique »).
