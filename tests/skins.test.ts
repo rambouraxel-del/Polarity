@@ -3,8 +3,8 @@ import { playerHitRadius } from '../src/config/hitbox';
 import { CLASSIC_SKIN_ID, HAZARD_HUES, MIN_HAZARD_HUE_GAP, SHIP_MODELS, SKINS, hazardHueGap, hueSat } from '../src/config/skins';
 import { VISUAL, shipRadius } from '../src/config/visuals';
 import { ACHIEVEMENTS } from '../src/progression/achievements';
-import { isKnownSkin, isSkinOwned, resolveEquipped, skinById, unlockCondition } from '../src/progression/skins';
-import { CATALOG, catalogItem } from '../src/config/catalog';
+import { isKnownSkin, isSkinOwned, resolveEquipped, skinById } from '../src/progression/skins';
+import { CATALOG, LEGACY_ACHIEVEMENT_ITEMS, catalogItem } from '../src/config/catalog';
 import { LEGACY_SKIN_ACHIEVEMENTS } from '../src/config/economy';
 import { SHIP_PALETTE, recolorShip } from '../src/render/shipPalette';
 import { defaultSave, loadSave, writeSave, type KeyValueStore } from '../src/save/save';
@@ -17,19 +17,17 @@ describe('configuration des apparences', () => {
     expect(CLASSIC_SKIN_ID).toBe('classique');
   });
 
-  it('chaque apparence a une obtention au catalogue ; exclusivités de succès sur des succès existants', () => {
+  it('chaque apparence a une obtention au catalogue (Médailles ou Prismes) ; plus aucune exclusivité de succès', () => {
     for (const sk of SKINS) {
       const item = catalogItem(sk.id);
       expect(item?.kind, sk.id).toBe('ship');
-      if (item?.acquire.type === 'achievement') {
-        const id = item.acquire.id;
-        expect(ACHIEVEMENTS.some((a) => a.id === id)).toBe(true);
-      }
+      expect(['default', 'price'], sk.id).toContain(item?.acquire.type);
     }
-    // Quelques récompenses restent exclusives aux succès
-    expect(['glace', 'solaire', 'prisme'].every((id) => catalogItem(id)?.acquire.type === 'achievement')).toBe(true);
-    // Anciennes conditions de déblocage conservées pour la migration
+    // Les vaisseaux débloqués autrefois par un succès s'achètent désormais en Médailles
+    expect(['glace', 'solaire', 'prisme'].every((id) => { const a = catalogItem(id)?.acquire; return a?.type === 'price' && a.currency === 'medals'; })).toBe(true);
+    // Déblocages d'avant conservés pour la migration des sauvegardes
     expect(Object.keys(LEGACY_SKIN_ACHIEVEMENTS).sort()).toEqual(['ambre', 'aurore', 'glace', 'menthe', 'prisme', 'solaire']);
+    expect(Object.entries(LEGACY_ACHIEVEMENT_ITEMS).every(([item, ach]) => !!catalogItem(item) && ACHIEVEMENTS.some((x) => x.id === ach))).toBe(true);
     expect(CATALOG.filter((i) => i.kind === 'ship').length).toBe(SKINS.length);
   });
 
@@ -67,7 +65,7 @@ describe('configuration des apparences', () => {
 });
 
 describe('possession et équipement', () => {
-  const own = (achievements: Record<string, number> = {}, owned: string[] = []) => ({ achievements, owned });
+  const own = (owned: string[] = []) => ({ owned });
 
   it('apparence inconnue → modèle classique', () => {
     expect(skinById('inconnue').id).toBe('classique');
@@ -77,19 +75,15 @@ describe('possession et équipement', () => {
 
   it('une apparence non possédée n’est jamais équipée', () => {
     expect(resolveEquipped('glace', own()).id).toBe('classique');
-    expect(resolveEquipped('glace', own({ max_combo: 1 })).id).toBe('glace');
+    expect(resolveEquipped('glace', own(['glace'])).id).toBe('glace');
     expect(resolveEquipped('aurore', own()).id).toBe('classique');
-    expect(resolveEquipped('aurore', own({}, ['aurore'])).id).toBe('aurore');
-    expect(resolveEquipped('absente', own({ max_combo: 1 })).id).toBe('classique');
+    expect(resolveEquipped('aurore', own(['aurore'])).id).toBe('aurore');
+    expect(resolveEquipped('absente', own(['glace'])).id).toBe('classique');
   });
 
-  it('condition de succès précise pour les exclusivités', () => {
-    const c = unlockCondition(skinById('glace'))!;
-    expect(c.name).toBe('Pleine charge');
-    expect(c.description).toContain('multiplicateur');
-    expect(unlockCondition(skinById('classique'))).toBeNull();
-    expect(unlockCondition(skinById('aurore'))).toBeNull();
+  it('un succès n’ouvre plus aucun vaisseau : seul l’achat (ou une possession conservée) compte', () => {
     expect(isSkinOwned(skinById('glace'), own())).toBe(false);
+    expect(isSkinOwned(skinById('glace'), own(['glace']))).toBe(true);
     expect(isSkinOwned(skinById('classique'), own())).toBe(true);
   });
 

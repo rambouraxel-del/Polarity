@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { backupTo, integrityCheck, openDb, transaction, type Db } from './db';
 import { maskedNickname } from './moderation';
+import { balancesOf, eraseProfile } from './profile';
 
 /**
  * Outil d'administration du classement — EN LIGNE DE COMMANDE, à lancer sur la machine qui héberge la base (il n'existe aucune route HTTP
@@ -64,9 +65,11 @@ export function runAdmin(db: Db, args: string[], now: () => number = Date.now): 
       return [
         `Joueurs : ${n('SELECT COUNT(*) AS n FROM players')} (masqués : ${n('SELECT COUNT(*) AS n FROM players WHERE moderation = 1')}, exclus : ${n('SELECT COUNT(*) AS n FROM players WHERE moderation = 2')})`,
         `Parties enregistrées : ${n('SELECT COUNT(*) AS n FROM runs')} (journaux d'entrées : ${Math.round(n('SELECT COALESCE(SUM(LENGTH(flips)), 0) AS n FROM runs') / 1024)} Ko)`,
-        `Records : ${n('SELECT COUNT(*) AS n FROM bests')} ; versions d'équilibrage : ${n('SELECT COUNT(DISTINCT balance) AS n FROM bests')}`,
+        `Records : ${n('SELECT COUNT(*) AS n FROM bests')} (sans bonus : ${n("SELECT COUNT(*) AS n FROM bests WHERE category = 'plain'")}, avec bonus : ${n("SELECT COUNT(*) AS n FROM bests WHERE category = 'bonus'")}) ; versions d'équilibrage : ${n('SELECT COUNT(DISTINCT balance) AS n FROM bests')}`,
         `Tickets : ${n('SELECT COUNT(*) AS n FROM tickets')} (non utilisés : ${n('SELECT COUNT(*) AS n FROM tickets WHERE used_at IS NULL')})`,
         `Signalements ouverts : ${n('SELECT COUNT(*) AS n FROM reports WHERE handled_at IS NULL')}`,
+        `Comptes : ${n('SELECT COUNT(DISTINCT player_id) AS n FROM identities')} profils avec méthode de connexion, ${n('SELECT COUNT(*) AS n FROM players WHERE guest = 1')} invités, ${n('SELECT COUNT(*) AS n FROM merges')} fusions`,
+        `Registre des monnaies : ${n('SELECT COUNT(*) AS n FROM ledger')} lignes (Éclats en circulation : ${n("SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE currency = 'shards'")}, Prismes : ${n("SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE currency = 'prisms'")})`,
       ];
     }
     case 'check': {
@@ -111,10 +114,14 @@ export function runAdmin(db: Db, args: string[], now: () => number = Date.now): 
       const p = findPlayer(db, pos[0]);
       const data = {
         profil: { id: p.id, pseudo: p.nickname, moderation: p.moderation, cree_le: iso(p.created_at) },
-        records: db.prepare('SELECT balance, steps, score, achieved_at FROM bests WHERE player_id = ?').all(p.id),
+        records: db.prepare('SELECT balance, category, steps, score, achieved_at FROM bests WHERE player_id = ?').all(p.id),
         parties: db.prepare('SELECT id, balance, seed, steps, score, client_build, created_at FROM runs WHERE player_id = ? ORDER BY id').all(p.id),
         signalements_emis: db.prepare('SELECT target_nickname, reason, created_at FROM reports WHERE reporter_id = ?').all(p.id),
         signalements_recus: db.prepare('SELECT reason, created_at FROM reports WHERE target_id = ?').all(p.id),
+        methodes_de_connexion: db.prepare('SELECT provider, email, created_at FROM identities WHERE player_id = ?').all(p.id),
+        soldes: balancesOf(db, p.id),
+        registre_des_monnaies: db.prepare('SELECT kind, currency, amount, ref, at FROM ledger WHERE player_id = ? ORDER BY id').all(p.id),
+        installations: db.prepare('SELECT install_id, earned, legacy_imported, first_seen, last_sync FROM installs WHERE player_id = ?').all(p.id),
       };
       return [JSON.stringify(data, null, 2)];
     }
@@ -127,14 +134,8 @@ export function runAdmin(db: Db, args: string[], now: () => number = Date.now): 
       };
       const what = `« ${p.nickname} » (${p.id}) : ${counts.parties} parties, ${counts.records} records, ${counts.tickets} tickets, signalements liés`;
       if (!yes) return [`SIMULATION — serait supprimé : ${what}.`, 'Relancez avec --yes pour appliquer (irréversible : faites d’abord « backup »).'];
-      transaction(db, () => {
-        db.prepare('DELETE FROM tickets WHERE player_id = ?').run(p.id);
-        db.prepare('DELETE FROM bests WHERE player_id = ?').run(p.id);
-        db.prepare('DELETE FROM runs WHERE player_id = ?').run(p.id);
-        db.prepare('DELETE FROM reports WHERE reporter_id = ? OR target_id = ?').run(p.id, p.id);
-        db.prepare('DELETE FROM players WHERE id = ?').run(p.id);
-        log(db, 'suppression_par_operateur', null, `profil supprimé (${counts.parties} parties)`);
-      });
+      eraseProfile(db, p.id);
+      log(db, 'suppression_par_operateur', null, `profil supprimé (${counts.parties} parties)`);
       return [`Supprimé : ${what}.`];
     }
     case 'prune': {

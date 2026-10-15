@@ -11,6 +11,8 @@ Joueur ──▶ jeu sur GitHub Pages ──HTTPS──▶ Caddy (HTTPS auto) �
 - Le **service** tourne sur UN petit serveur à vous (Docker). Il détient le seul secret : `TICKET_SECRET`.
 - Si le service tombe ou n'existe pas : le jeu reste jouable, les résultats éligibles restent « en attente » et partent au retour du service.
 
+> **Mise à jour « Économie v3 »** : la procédure complète de publication (ordre serveur puis jeu, sauvegarde, migration sur copie, contrôle, retour arrière) est dans **`docs/PUBLICATION_BETA.md`**. Contrôle d'une migration sur une copie : `npm run server:migrate-check -- <sauvegarde.sqlite>`. Attention : `server:admin` ouvre la base avec le code courant et la **migre** si son schéma est plus ancien.
+
 ## 1. Prérequis
 | Quoi | Détail |
 |---|---|
@@ -27,6 +29,11 @@ Joueur ──▶ jeu sur GitHub Pages ──HTTPS──▶ Caddy (HTTPS auto) �
 | `LEADERBOARD_DOMAIN` | `deploy/.env` | le domaine choisi (sans `https://`) | non |
 | `ALLOWED_ORIGINS` | `deploy/.env` | l'origine du jeu : `https://<utilisateur>.github.io` (le domaine seulement, sans le nom du dépôt ni `/` final). **Si vous publiez les applications mobiles**, ajoutez exactement `https://localhost` (Android) et `capacitor://localhost` (iOS) : `https://<utilisateur>.github.io,https://localhost,capacitor://localhost` (voir `docs/BUILD_MOBILE.md`) | non |
 | `LEADERBOARD_URL` | **variable** du dépôt GitHub (*Settings → Secrets and variables → Actions → onglet Variables*) | `https://classement.mon-domaine.fr` | non (publique : visible dans le jeu). Un **préfixe de chemin** est accepté (`https://hôte/polarity`) à condition que votre reverse proxy le **retire** avant de transmettre au service (Caddy : `handle_path /polarity/* { reverse_proxy classement:8787 }`) ; l'origine CORS (`ALLOWED_ORIGINS`) ne contient jamais de chemin |
+
+| `RESEND_API_KEY`, `MAIL_FROM`, `APP_PUBLIC_URL` | `deploy/.env` | compte Resend (courriels de connexion) ; adresse publique du jeu | `RESEND_API_KEY` : **OUI** |
+| `GOOGLE_CLIENT_IDS`, `GOOGLE_WEB_CLIENT_ID`, `APPLE_CLIENT_IDS`, `APPLE_WEB_CLIENT_ID` | `deploy/.env` | consoles Google / Apple (voir `docs/COMPTES.md`) | non (identifiants clients publics) |
+
+Comptes joueurs (facultatifs, économie v3) : toute méthode sans valeur reste désactivée ; le service a besoin d'être redéployé (schéma v3 additif, sauvegarde automatique avant migration). Détail : `docs/COMPTES.md`. Achats et publicités (facultatifs, désactivés sans variables) : `docs/MONETISATION.md` ; adresses à déclarer chez les fournisseurs : `/api/payments/notify/apple`, `/api/payments/notify/google`, `/api/ads/ssv`.
 
 Règles : un secret **différent** par instance (bêta ≠ production) ; ne le réutilisez nulle part ; ne le collez jamais dans une conversation (y compris avec une IA).
 Perte ou fuite du `TICKET_SECRET` : générez-en un nouveau, mettez à jour `deploy/.env`, `docker compose up -d` — les tickets en cours deviennent invalides (les joueurs en reçoivent de nouveaux automatiquement) ; profils et records ne sont pas touchés.
@@ -72,16 +79,24 @@ Les signalements ne produisent aucun effet automatique : c'est vous qui décidez
 Recommandé : une fois par jour (tâche `cron`) **et avant toute mise à jour** ; copier ensuite les fichiers **hors du serveur** (autre machine, stockage externe).
 Ne copiez jamais le fichier `leaderboard.sqlite` « à la main » pendant que le service tourne (mode WAL : la copie serait incohérente) : utilisez la commande ci-dessus.
 
-**Restaurer** (remplace la base actuelle ; la base remplacée est conservée dans `/data/avant-restauration/`). `VOL` = nom du volume : `<COMPOSE_PROJECT_NAME>_donnees`, soit `polar-rift-prod_donnees` avec le `.env` fourni (`docker volume ls` le confirme).
+**Restaurer** (remplace la base active ; la base remplacée est TOUJOURS conservée, dans un dossier daté `/data/avant-restauration-AAAAMMJJ-HHMMSS/` : aucun écrasement silencieux, la commande s'arrête si la copie échoue). `VOL` = nom du volume : `<COMPOSE_PROJECT_NAME>_donnees`, soit `polar-rift-prod_donnees` avec le `.env` fourni (`docker volume ls` le confirme).
 ```sh
 VOL=polar-rift-prod_donnees
 FICHIER=classement-AAAAMMJJ-HHMMSS.sqlite          # dans deploy/sauvegardes/
+sh sauvegarde.sh                                   # d'abord : copie de l'état COURANT (jamais restaurer sans elle)
 docker compose stop classement
 docker run --rm -v "$VOL":/data -v "$PWD/sauvegardes":/s:ro node:22-slim sh -c '
-  mkdir -p /data/avant-restauration && cp -a /data/leaderboard.sqlite* /data/avant-restauration/ 2>/dev/null;
-  rm -f /data/leaderboard.sqlite-wal /data/leaderboard.sqlite-shm;
-  cp /s/'"$FICHIER"' /data/leaderboard.sqlite && chown 1000:1000 /data/leaderboard.sqlite'
-docker compose start classement
+  set -e
+  D=/data/avant-restauration-$(date -u +%Y%m%d-%H%M%S)
+  test ! -e "$D"
+  mkdir "$D"
+  cp -a /data/leaderboard.sqlite* "$D"/
+  test -s "$D"/leaderboard.sqlite
+  rm -f /data/leaderboard.sqlite-wal /data/leaderboard.sqlite-shm
+  cp /s/'"$FICHIER"' /data/leaderboard.sqlite
+  chown 1000:1000 /data/leaderboard.sqlite
+  echo "Base remplacée conservée dans $D"'
+docker compose start classement      # (retour arrière de CODE : faire d'abord le « git checkout » voulu puis « docker compose up -d --build » à la place)
 docker compose exec classement node node_modules/tsx/dist/cli.mjs server/admin.ts check
 ```
 Supprimer les fichiers `-wal` et `-shm` est indispensable : ils appartiennent à l'ancienne base. Test conseillé : restaurer une fois à blanc (bêta) avant d'en avoir besoin.
@@ -122,3 +137,6 @@ puis le même avec `--yes`. Les parties qui sont des records en cours, tous les 
 | Erreur CORS dans la console du navigateur | `ALLOWED_ORIGINS` ne correspond pas exactement à l'origine du jeu | corriger `.env`, `docker compose up -d` |
 | Joueurs bloqués derrière la même adresse (réseau d'école…) | limites par adresse IP : 5 inscriptions/h | normal ; réessayer plus tard |
 | Parties refusées avec « Trop de requêtes : réessayez plus tard. » pour tout le monde | plafond global de rejeux atteint | attendre 1 minute ; augmenter `MAX_REPLAYS_PER_MINUTE` si la machine le permet |
+
+## Achats et publicités récompensées (phase 5, facultatif)
+Schéma SQLite **v8** (migration additive automatique, copie `.avant-vN.bak`). Variables : `deploy/env.example` (section phase 5) ; chaque fournisseur reste désactivé si une variable manque. Adresses à déclarer chez les fournisseurs : `/api/payments/notify/apple`, `/api/payments/notify/google` (authentification : jeton OIDC Pub/Sub recommandé, ou `?token=`), `/api/ads/ssv`. Le service doit rester joignable en HTTPS et en continu. Détail et liste complète : `docs/MONETISATION.md`.

@@ -14,13 +14,24 @@ import { eventDef } from './config/events';
 import { BALANCE_VERSION } from './config/version';
 import { randomSeed } from './core/rng';
 import { InputController } from './game/input';
+import { POWER_CODES, REVIVE, type PowerKind } from './config/powers';
+import { getAdProvider, initNativeAds } from './monetization/ads';
+import { getPaymentProvider, initNativePayments } from './monetization/payments';
+import { StoreService } from './monetization/store';
+import { reviveWithAd as adRevive } from './monetization/adReward';
+import * as ST from './ui/storeScreens';
+import { PowersBar, POWER_KEYS } from './ui/powers';
 import { GameSession, type Phase } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
 import { reconcileAchievements } from './progression/achievements';
-import { catalogItem } from './config/catalog';
+import { catalogItem, type CatalogItem } from './config/catalog';
 import { creditShards, equip, isOwned, itemState, purchase } from './progression/shop';
+import { buyBonus } from './economy/bonus';
+import { bonusDef } from './config/economy';
+import { claimAllMedals, claimMedals } from './progression/achievements';
+import { isPremium } from './config/catalog';
 import { resolveEquipped, skinById, type Skin } from './progression/skins';
 import { CAMPAIGN_SKIN } from './config/skins';
 import { DEFAULT_TRAIL_ID } from './config/trails';
@@ -29,18 +40,26 @@ import { BrowserStore, SAVE_KEY, loadSave, parseSave, resetProgress, writeSave, 
 import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
+import { AccountService } from './account/AccountService';
+import { mountGoogleButton, signInNative, signInWithAppleWeb } from './account/providers';
+import { INSTALL_KEY, ensureInstallId, useInstallStore } from './economy/ids';
+import { accountScreen } from './ui/accountScreens';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
 import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
-import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
-import { escapeHtml, formatScore } from './ui/format';
+import type { BalancesResponse, Category, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
+import { CURRENCY_NAME } from './ui/components';
+import { escapeHtml, formatScore, formatTime } from './ui/format';
 import { Hud } from './ui/hud';
 import { bannerHelp, isTouchPrimary } from './ui/controls';
 import { ShipPreview } from './ui/shipPreview';
 import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 import * as C from './ui/campaignScreens';
+import * as RW from './ui/rewardsScreens';
+import { applyLoyaltyClaim } from './economy/loyalty';
+import type { DailyAttempt, DailyBoard } from './net/rewardsProtocol';
 
-type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | 'revive' | 'loyalty' | 'notices' | 'confirm-prisms' | null;
 
 /** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
 const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
@@ -49,6 +68,10 @@ const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
   mission: 'chapter',
   journal: 'campaign',
   levels: 'campaign',
+  account: 'options',
+  prep: 'home',
+  loyalty: 'home',
+  'confirm-prisms': 'cosmetics',
 };
 
 /** Scène en cours d'affichage : réplique courante, avancement du texte progressif et suite à donner. */
@@ -70,13 +93,17 @@ interface StoryState {
 export class App {
   private readonly store: KeyValueStore = new BrowserStore();
   /** Classement mondial (service facultatif ; le jeu reste jouable hors ligne). */
-  readonly lb = new LeaderboardClient({ baseUrl: LEADERBOARD_URL, store: this.store, balance: BALANCE_VERSION, build: __APP_VERSION__ });
+  readonly lb = new LeaderboardClient({ baseUrl: LEADERBOARD_URL, store: this.store, balance: BALANCE_VERSION, build: __APP_VERSION__, clientInfo: () => ({ installId: this.save.economy.installId || undefined, bonusBought: { ...this.save.economy.bonusBought } }) });
+  /** Compte, synchronisation et migration (économie v3) : facultatifs, jamais bloquants ; inactifs si le service n'est pas configuré. */
+  readonly account: AccountService;
   /** ?demo (joueur automatique) ou ?debug : jamais éligible au classement. */
   private readonly devMode = new URLSearchParams(location.search).has('demo') || new URLSearchParams(location.search).has('debug');
   private nextTicket: Ticket | null = null;
   private runTicket: Ticket | null = null;
   private runLb: S.RunLbStatus = { kind: 'hidden' };
   private lbBalance = BALANCE_VERSION;
+  /** Classement affiché : « Sans bonus » par défaut. */
+  private lbCategory: Category = 'plain';
   private lbLoading = false;
   private lbError: string | null = null;
   private lbTop: LeaderboardResponse | null = null;
@@ -93,6 +120,14 @@ export class App {
   private storageFailed = false;
   private saveNoticeDismissed = false;
   private shopMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  /** Achat de bonus en attente de confirmation et écran d'où il vient. */
+  private bonusOrder: { kind: string; qty: number; back: 'cosmetics' | 'prep' } | null = null;
+  private prepMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  private achMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  /** Succès réclamés à l'instant (animation courte, affichée une fois). */
+  private justClaimed: string[] = [];
+  /** Achat premium en cours auprès du service (le bouton de confirmation est neutralisé). */
+  private purchaseBusy = false;
   private readonly sfx = new Sfx();
   /** Musique de partie : partage le contexte audio, le volume et la sourdine de `sfx`. */
   readonly music = new Music({ context: () => this.sfx.context, output: () => this.sfx.output });
@@ -142,13 +177,75 @@ export class App {
   private tutorialActive = false;
   private lastCountdownShown = -1;
   private demoBot: Bot | null = null;
+  /** Commandes Boost / Gel / Bouclier (hors de l'aire de jeu). */
+  private readonly powersBar = new PowersBar((k) => this.onPower(k));
+  /** Résultat CLASSÉ de la partie de Survie en cours (figé à la première mort ; les reprises ne le modifient jamais). */
+  private firstReport: RunReport | null = null;
+  /** Identifiant aléatoire de la partie : clé d'idempotence du paiement des reprises en Prismes. */
+  private runId = '';
+  /** Paiement d'une reprise en cours de vérification par le service (boutons neutralisés). */
+  private reviveBusy = false;
+  private reviveMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  /** Dépense de Prismes en attente de confirmation (écran de reprise). */
+  private reviveConfirm = false;
+  /** Achats de Prismes (boutique) : vérifiés par le service avant tout crédit. */
+  private readonly prismStore: StoreService = new StoreService(
+    {
+      get configured() {
+        return LEADERBOARD_URL.length > 0;
+      },
+      api: (m, p, o) => this.lb.api(m, p, o),
+      hasIdentity: () => !!this.lb.identity(),
+      isAccount: () => (this.account?.state.profile ? this.account.state.profile.canBuyPremium : null),
+      commit: (mutate) => {
+        mutate(this.save);
+        this.persist(false);
+      },
+    },
+    () => {
+      if (this.session) return;
+      if (this.screen === 'cosmetics' && this.cosmeticsTab === 'prisms') this.showScreen('cosmetics', false);
+    },
+  );
+  private pendingPrismPack: string | null = null;
+  // Récompenses gratuites (phase 4)
+  /** Le service a répondu à la validation de présence pendant cette ouverture (sinon : dernier état connu). */
+  private loyaltyOnline = false;
+  private loyaltyBusy: string | null = null;
+  private loyaltyMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  private loyaltyJust: string[] = [];
+  private dailyBoard: { board: DailyBoard | null; loading: boolean; error: string | null } = { board: null, loading: false, error: null };
+  /** Gains à annoncer au lancement : résultats du Défi quotidien (rang, Prismes) et drops rares confirmés. */
+  private gainQueue: RW.GainNotice[] = [];
+  /** Tentative du Défi quotidien démarrée auprès du service (preuve d'horaire) pour la partie en cours. */
+  private dailyAttempt: Promise<DailyAttempt | null> | null = null;
 
   constructor() {
     const res = loadSave(this.store);
     this.loadStatus = res.status;
     this.save = res.data;
+    // Le service de compte lit la sauvegarde : il est créé APRÈS son chargement (et avant toute écriture)
+    this.account = new AccountService({
+      lb: this.lb,
+      store: this.store,
+      getSave: () => this.save,
+      commit: (mutate) => {
+        mutate(this.save);
+        this.persist(false);
+      },
+      isPlaying: () => this.session !== null && this.session.phase !== 'over',
+      onChange: () => {
+        if (this.session) return;
+        if (this.screen === 'account') this.rerenderAccount();
+        // Soldes confirmés par le service : les écrans de boutique, succès et préparation se mettent à jour (jamais pendant un achat à confirmer)
+        // Actualisation silencieuse (soldes confirmés) : les messages d'achat et l'animation de réclamation restent affichés jusqu'à la prochaine action
+      else if (this.screen === 'cosmetics' || this.screen === 'achievements' || this.screen === 'prep' || this.screen === 'home') this.showScreen(this.screen, false);
+      },
+    });
     this.applyAudioOptions();
     this.normalizeSave();
+    useInstallStore(this.store);
+    ensureInstallId(this.save);
     this.storageFailed = !storageWorks(this.store);
     // Sauvegarde modifiée par un AUTRE onglet : on adopte la plus récente (jamais d'écrasement silencieux, aucune récompense en double)
     window.addEventListener('storage', (e) => this.onRemoteSave(e));
@@ -160,6 +257,8 @@ export class App {
    */
   private normalizeSave(): boolean {
     // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
+    // Un service de comptes est-il configuré ? Alors seuls les soldes confirmés financent un achat hors ligne (economy/funds.ts)
+    this.save.economy.managed = this.lb.configured;
     this.save.skin = resolveEquipped(this.save.skin, this.save).id;
     if (!isOwned(this.save, this.save.trail)) this.save.trail = DEFAULT_TRAIL_ID;
     // Nouveaux objectifs déjà atteints grâce à la progression existante : succès débloqués et récompensés une seule fois
@@ -206,6 +305,10 @@ export class App {
       pauseKey: () => this.onPauseKey(),
       inGame: () => this.session !== null && ['running', 'countdown', 'ending'].includes(this.session.phase),
       firstInteraction: () => this.unlockAudio(),
+      power: (key) => {
+        const kind = POWER_KEYS[key];
+        if (kind) this.onPower(kind);
+      },
     }).attach();
     // Scène illustrée : Entrée ou Espace = révéler / avancer (mêmes règles que le toucher) ; un bouton focalisé garde son propre rôle
     document.addEventListener('keydown', (e) => {
@@ -237,17 +340,33 @@ export class App {
       const kind = (e.target as HTMLElement).dataset.form;
       if (kind === 'lb-register' || kind === 'lb-rename') void this.submitNickname(kind);
       else if (kind === 'lb-report') void this.submitReport();
+      else if (kind === 'acct-email') void this.account.emailRequest(((e.target as HTMLElement).querySelector('input') as HTMLInputElement | null)?.value.trim() ?? '');
+      else if (kind === 'acct-code') {
+        const st = this.account.state.email;
+        const code = (((e.target as HTMLElement).querySelector('input') as HTMLInputElement | null)?.value ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (st.requestId) void this.account.emailVerify(st.requestId, code, false);
+      }
     });
     // Retour en ligne : envoi des résultats en attente et renouvellement des tickets
     window.addEventListener('online', () => {
       void this.lb.flush();
+      void this.lb.flushDaily();
+      void this.refreshLoyalty();
       void this.lb.ensureTickets();
+      void this.account.syncNow(true);
     });
     void this.lb.flush();
     void this.lb.ensureTickets();
+    void this.lb.flushDaily();
+    void this.account.start().then(() => {
+      this.cleanMagicLink();
+      return this.initRewards();
+    }).then(() => this.initStore());
     void this.checkForUpdate();
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) void this.checkForUpdate();
+      // Application restée ouverte au-delà de minuit UTC : la présence du nouveau jour est validée au retour
+      if (!document.hidden && !this.session) void this.refreshLoyalty();
       if (document.hidden) {
         this.pause();
         this.sfx.suspend();
@@ -422,10 +541,11 @@ export class App {
     }
     if (cfg.mode === 'campaign') {
       this.hud.updateCampaign(session);
-    } else if (this.hud.update(session, label, cfg.mode === 'level' ? null : this.bestAtStart, !eventActive)) {
+    } else if (this.hud.update(session, session.sim.life > 1 ? 'Survie libre · non classée' : label, cfg.mode === 'level' ? null : session.sim.life > 1 ? 0 : this.bestAtStart, !eventActive)) {
       this.sfx.play('record');
       this.renderer?.ring(COLORS.gold);
     }
+    if (cfg.mode === 'survival') this.powersBar.update(session);
     if (session.phase === 'countdown') {
       const n = Math.ceil(session.countdown / UI.resumeStep);
       if (n !== this.lastCountdownShown) {
@@ -445,10 +565,22 @@ export class App {
 
   startRun(cfg: RunConfig): void {
     this.endSession();
+    // Survie : les charges de l'inventaire sont le stock de la partie (le service vérifie ensuite chaque activation par rejeu)
+    if (cfg.mode === 'survival') cfg = { ...cfg, stock: { boost: this.save.inventory.boost, gel: this.save.inventory.gel } };
+    this.firstReport = null;
+    this.runId = randomRunId();
+    this.reviveBusy = false;
+    this.reviveMessage = null;
     this.lastConfig = cfg;
     this.runTicket = cfg.mode === 'survival' ? this.nextTicket : null;
     this.nextTicket = null;
     this.runLb = { kind: 'hidden' };
+    // Récompenses gratuites : le départ est enregistré par le SERVICE (preuve d'horaire du Défi quotidien ; condition du drop rare en Survie)
+    this.dailyAttempt = null;
+    if (cfg.mode === 'daily' && cfg.date && this.lb.configured && !this.devMode && this.lb.identity()) {
+      this.dailyAttempt = this.lb.dailyStart(cfg.date).then((r) => (r.ok ? r.data.attempt : null), () => null);
+    }
+    if (cfg.mode === 'survival' && this.runTicket && !this.devMode) void this.lb.startTicket(this.runTicket.id);
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.showScreen(null);
     this.renderer?.clearEffects();
@@ -458,6 +590,7 @@ export class App {
     this.eventKey = '';
     this.creditedShards.clear();
     this.hud.show(true);
+    this.setPowersVisible(cfg.mode === 'survival');
     if (cfg.mode === 'survival') this.bestAtStart = this.save.survival.bestTime;
     else if (cfg.mode === 'daily') this.bestAtStart = this.save.daily[cfg.date ?? '']?.bestTime ?? 0;
     else this.bestAtStart = 0;
@@ -470,6 +603,9 @@ export class App {
       onPhase: (p, s) => this.onSessionPhase(p, s),
       onCampaignEvent: (e, s) => this.onCampaignEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
+      onFirstDeath: (summary, s) => this.onFirstDeath(summary, s),
+      canOffer: (s) => !this.devMode && !s.sim.assisted && this.lb.configured,
+      onOffer: (life, s) => this.showRevive(life === 3 ? 3 : 2, s),
     });
     this.session = session;
     this.music.startGame();
@@ -524,12 +660,26 @@ export class App {
     if (this.session && ['running', 'paused', 'countdown'].includes(this.session.phase)) this.music.stop();
     if (this.session) this.session.abort();
     this.session = null;
+    // Partie abandonnée avant sa première mort : ses charges consommées sont DÉCLARÉES au service (usage non classé)
+    const live = this.save.economy.liveUse;
+    if (live.boost > 0 || live.gel > 0) {
+      this.save.economy.liveUse = { boost: 0, gel: 0 };
+      this.persist();
+    }
+    this.setPowersVisible(false);
     this.countdownEl.classList.add('hidden');
     this.lastCountdownShown = -1;
   }
 
   private onAction(): void {
     if (this.session?.action()) this.sfx.play('flip');
+  }
+
+  /** Activation d'un pouvoir (bouton ou raccourci) : jamais une inversion ; la simulation juge la demande au prochain pas. */
+  private onPower(kind: PowerKind): void {
+    const s = this.session;
+    if (!s || s.config.mode !== 'survival') return;
+    s.power(kind);
   }
 
   private onPauseKey(): void {
@@ -542,6 +692,8 @@ export class App {
       this.resume();
       return;
     }
+    // Reprise proposée : on choisit explicitement (reprendre ou terminer), jamais d'abandon accidentel par Échap ou Retour
+    if (this.screen === 'revive') return;
     if (this.screen === 'confirm-purchase') {
       this.showScreen('cosmetics');
       return;
@@ -660,9 +812,38 @@ export class App {
         this.sfx.play('success');
         r?.ring(COLORS.gold);
         break;
+      case 'power':
+        if (e.stage === 'start') this.onPowerStart(e.kind, e.charged);
+        else if (e.reason === 'expire') this.sfx.play('tick');
+        break;
+      case 'shield-ready':
+        this.sfx.play('success');
+        r?.ring(COLORS.shield);
+        break;
+      case 'shield-absorb':
+        this.sfx.play('hit');
+        r?.impact(e.hitX, e.hitY, e.x, e.y, e.by);
+        r?.ring(COLORS.shield);
+        break;
+      case 'revive':
+        this.sfx.play('success');
+        r?.ring(COLORS.cyan);
+        break;
       default:
         break;
     }
+  }
+
+  /** Pouvoir activé : effet sonore et visuel ; si une charge achetée est consommée, l'inventaire local baisse tout de suite (provisoire). */
+  private onPowerStart(kind: PowerKind, charged: boolean): void {
+    this.sfx.play(kind === 'shield' ? 'success' : 'activate');
+    this.renderer?.ring(kind === 'boost' ? COLORS.gold : kind === 'gel' ? COLORS.cyan : COLORS.shield);
+    if (!charged || kind === 'shield') return;
+    const e = this.save.economy;
+    this.save.inventory[kind] = Math.max(0, this.save.inventory[kind] - 1);
+    e.bonusUsed[kind]++;
+    e.liveUse[kind]++;
+    this.persist(false);
   }
 
   /** Fin de partie : résultat appliqué une seule fois (la session garantit l'unicité de l'appel). */
@@ -672,12 +853,334 @@ export class App {
       this.onMissionEnd(summary);
       return;
     }
-    const report = applyRun(this.save, summary);
-    this.persist();
-    if (summary.mode === 'survival') this.afterSurvivalRun(summary, s);
+    let report: RunReport;
+    if (summary.mode === 'survival') {
+      // Le résultat classé a été appliqué à la première mort (jamais deux fois) ; la survie libre éventuelle n'est qu'un complément d'affichage
+      report = this.firstReport ?? applyRun(this.save, summary);
+      report.run.free = summary.free;
+      this.persist();
+      // Charges et achats en attente : synchronisation puis nouvel envoi des parties classées (le service demande parfois de synchroniser d'abord)
+      void this.account.syncNow().then(() => this.lb.flush()).then(() => this.refreshRunLbFromPending());
+    } else {
+      report = applyRun(this.save, summary);
+      this.persist();
+      if (summary.mode === 'daily') this.afterDailyRun(summary, s);
+    }
     this.hud.show(false);
+    this.setPowersVisible(false);
     this.hideBanner();
     this.showResult(report);
+  }
+
+  /**
+   * PREMIÈRE MORT en Survie : la tentative classée est figée et traitée tout de suite — records locaux, succès, soumission au classement (en attente si
+   * hors ligne) — sans jamais attendre ni dépendre d'une éventuelle reprise.
+   */
+  private onFirstDeath(summary: RunSummary, s: GameSession): void {
+    if (s !== this.session) return;
+    this.firstReport = applyRun(this.save, summary);
+    this.persist();
+    this.afterSurvivalRun(summary, s);
+  }
+
+  // ————————————————————————————————————————————— récompenses gratuites (phase 4)
+
+  private loyaltyView(): RW.LoyaltyView {
+    return {
+      state: this.save.loyalty.snapshot,
+      online: this.loyaltyOnline,
+      provisional: !this.loyaltyOnline && this.save.loyalty.localDay === utcDateString(),
+      busy: this.loyaltyBusy,
+      message: this.loyaltyMessage,
+      justClaimed: this.loyaltyJust,
+      now: Date.now(),
+    };
+  }
+
+  private dailyBoardView(): RW.DailyBoardView {
+    return { ...this.dailyBoard, configured: this.lb.configured, pending: this.lb.pendingDaily(), now: Date.now() };
+  }
+
+  /** Valide la présence du jour auprès du service (heure du SERVICE) et met à jour le calendrier. Hors ligne : présence PROVISOIRE seulement (jamais créditée). */
+  private async refreshLoyalty(): Promise<void> {
+    if (!this.lb.configured) return;
+    const res = await this.lb.loyaltyCheckin();
+    if (res.ok) {
+      this.loyaltyOnline = true;
+      this.save.loyalty.snapshot = res.data;
+      this.save.loyalty.localDay = '';
+    } else {
+      this.loyaltyOnline = false;
+      this.save.loyalty.localDay = utcDateString();
+    }
+    this.persist(false);
+    if (this.session) return;
+    if (this.screen === 'loyalty' && this.loyaltyBusy === null) this.showScreen('loyalty', false);
+    else if (this.screen === 'home') this.showScreen('home', false);
+  }
+
+  /** Au lancement : présence, résultats du Défi quotidien et drops en attente d'annonce ; jamais pendant une partie ni par-dessus un autre écran. */
+  private async initRewards(): Promise<void> {
+    if (!this.lb.configured) return;
+    await this.refreshLoyalty();
+    if (this.lb.identity()) {
+      await this.lb.flush();
+      const n = await this.lb.dailyNotices();
+      if (n.ok) for (const x of n.data.notices) if (!this.gainQueue.some((g) => g.kind === 'daily' && g.date === x.date)) this.gainQueue.push({ kind: 'daily', ...x });
+    }
+    this.gainQueue = this.gainQueue.filter((g) => g.kind !== 'drop');
+    for (const p of this.lb.unseenDrops()) if (p.result?.drop) this.gainQueue.push({ kind: 'drop', prisms: p.result.drop.prisms });
+    if (this.session || this.screen !== 'home') return;
+    if (this.gainQueue.length > 0) this.showScreen('notices');
+    else this.maybeShowCalendar();
+  }
+
+  /** Le calendrier s'ouvre tout seul à la première ouverture de chaque jour UTC (jour du service si connu). */
+  private maybeShowCalendar(): void {
+    const today = this.loyaltyOnline && this.save.loyalty.snapshot ? this.save.loyalty.snapshot.today : utcDateString();
+    if (this.save.loyalty.shownDay === today) return;
+    this.save.loyalty.shownDay = today;
+    this.persist(false);
+    this.loyaltyMessage = null;
+    this.loyaltyJust = [];
+    this.showScreen('loyalty');
+  }
+
+  private async finishNotices(): Promise<void> {
+    const dates = this.gainQueue.filter((g): g is Extract<RW.GainNotice, { kind: 'daily' }> => g.kind === 'daily').map((g) => g.date);
+    this.gainQueue = [];
+    if (dates.length > 0) void this.lb.dailyAck(dates);
+    for (const p of this.lb.unseenDrops()) this.lb.markDropSeen(p.id);
+    this.showScreen('home');
+    this.maybeShowCalendar();
+    // Les Prismes crédités par le service apparaissent au solde confirmé après la synchronisation
+    void this.account.syncNow(true);
+  }
+
+  /** Réclamation MANUELLE d'une récompense du calendrier : le service décide (atomique, une seule fois) ; l'appareil reflète sa réponse. */
+  private async claimLoyalty(cycle: number, day: number): Promise<void> {
+    if (this.loyaltyBusy !== null || !Number.isInteger(cycle) || !Number.isInteger(day)) return;
+    this.loyaltyBusy = `${cycle}:${day}`;
+    this.loyaltyMessage = null;
+    this.rerenderLoyalty();
+    const res = await this.lb.loyaltyClaim(cycle, day);
+    this.loyaltyBusy = null;
+    if (res.ok) {
+      applyLoyaltyClaim(this.save, res.data);
+      this.persist(false);
+      this.loyaltyOnline = true;
+      if (res.data.credited) {
+        this.loyaltyJust = [`${cycle}:${day}`];
+        this.sfx.play(res.data.reward.kind === 'prisms' ? 'record' : 'success');
+        this.loyaltyMessage = { kind: 'ok', text: `Récupéré : ${RW.rewardLabel(res.data.reward)}.` };
+        void this.account.syncNow(true);
+      } else {
+        this.loyaltyMessage = { kind: 'ok', text: 'Cette récompense avait déjà été récupérée : rien n’a été ajouté.' };
+      }
+    } else {
+      this.loyaltyMessage = { kind: 'error', text: res.kind === 'offline' ? 'Connexion requise pour récupérer une récompense : elle reste disponible.' : res.message };
+    }
+    this.rerenderLoyalty();
+  }
+
+  private rerenderLoyalty(): void {
+    if (this.screen === 'loyalty') this.showScreen('loyalty', false);
+  }
+
+  /** Classement mondial du jour : consultation (le service reste l'autorité sur les rangs, les ex æquo et les Prismes). */
+  private async refreshDailyBoard(): Promise<void> {
+    if (!this.lb.configured) return;
+    this.dailyBoard = { ...this.dailyBoard, loading: true, error: null };
+    if (this.screen === 'daily') this.showScreen('daily', false);
+    void this.lb.flushDaily().then(() => {
+      if (this.screen === 'daily') this.showScreen('daily', false);
+    });
+    const res = await this.lb.dailyBoard();
+    this.dailyBoard = res.ok ? { board: res.data, loading: false, error: null } : { board: this.dailyBoard.board, loading: false, error: res.message };
+    if (this.screen === 'daily') this.showScreen('daily', false);
+  }
+
+  private dailyStatusOf(p: import('./net/leaderboard').PendingDaily | undefined): S.RunLbStatus {
+    if (!p) return { kind: 'hidden' };
+    if (p.status === 'accepted' && p.result) return { kind: 'daily-accepted', rank: p.result.rank, eligible: p.result.eligible, late: p.result.late, state: p.result.state };
+    if (p.status === 'rejected') return { kind: 'rejected', message: p.message ?? 'refusé par le service' };
+    return { kind: 'pending', offline: !!p.lastError };
+  }
+
+  /**
+   * Fin d'une partie du Défi quotidien : si la tentative a été DÉMARRÉE en ligne (le service connaît l'heure de début), son journal est conservé « en attente »
+   * puis envoyé ; le service rejoue et décide. Sinon : résultat local seulement, expliqué.
+   */
+  private afterDailyRun(summary: RunSummary, s: GameSession): void {
+    this.runLb = { kind: 'hidden' };
+    const attempt = this.dailyAttempt;
+    this.dailyAttempt = null;
+    if (!this.lb.configured || this.devMode || s.sim.assisted) return;
+    if (!attempt) {
+      this.runLb = { kind: 'daily-local' };
+      return;
+    }
+    this.runLb = { kind: 'sending' };
+    const flips = [...s.sim.flipLog];
+    void attempt.then(async (att) => {
+      if (!att) {
+        this.runLb = { kind: 'daily-local' };
+        this.refreshRunLbStatus();
+        return;
+      }
+      this.lb.recordDaily(att, flips, { time: summary.time, score: summary.score });
+      const list = await this.lb.flushDaily();
+      this.runLb = this.dailyStatusOf(list.find((x) => x.id === att.id));
+      this.refreshRunLbStatus();
+      if (this.screen === 'daily') void this.refreshDailyBoard();
+    });
+  }
+
+  // ————————————————————————————————————————————— boutique : achats de Prismes
+
+  private storeName(): string {
+    const st = getPaymentProvider().store;
+    return st === 'apple' ? ST.STORE_NAMES.apple : st === 'google' ? ST.STORE_NAMES.google : ST.STORE_NAMES.web;
+  }
+
+  private storeView(): ST.StoreView {
+    return {
+      availability: this.prismStore.availability(),
+      state: this.prismStore.state,
+      confirmedPrisms: this.save.economy.confirmed?.prisms ?? null,
+      canRestore: !!getPaymentProvider().pending && getPaymentProvider().isAvailable(),
+      storeName: this.storeName(),
+    };
+  }
+
+  /** Au démarrage : plugins natifs (s'ils existent), configuration du service, achats non terminés à revérifier. Sans plugin ni service : rien ne change. */
+  private async initStore(): Promise<void> {
+    await initNativePayments();
+    await initNativeAds();
+    if (!this.lb.configured) return;
+    await this.prismStore.loadConfig();
+    await this.account.loadProfile();
+    await this.prismStore.restore(true);
+  }
+
+  // ————————————————————————————————————————————— reprise (deuxième / troisième chance)
+
+  /** Affiche ou masque les commandes des pouvoirs et recalcule la taille de l'arène (la barre réserve sa place). */
+  private setPowersVisible(visible: boolean): void {
+    this.powersBar.show(visible);
+    this.layout();
+  }
+
+  /** Écran de reprise : la partie classée est déjà enregistrée ; la suite est une survie libre non classée. */
+  private showRevive(_life: 2 | 3, s: GameSession): void {
+    if (s !== this.session) return;
+    this.reviveBusy = false;
+    this.reviveMessage = null;
+    this.reviveConfirm = false;
+    this.setPowersVisible(false);
+    this.hud.show(false);
+    this.hideBanner();
+    this.screen = 'revive';
+    this.renderRevive();
+  }
+
+  private renderRevive(): void {
+    const s = this.session;
+    if (!s || this.screen !== 'revive') return;
+    const life = s.sim.life >= 2 ? 3 : 2;
+    const report = this.firstReport;
+    const price = REVIVE.prisms[life];
+    const conf = this.save.economy.confirmed?.prisms ?? null;
+    let blocked: string | null = null;
+    if (!this.lb.configured) blocked = 'Indisponible dans cette version';
+    else if (!this.lb.identity()) blocked = 'Connexion au service requise';
+    else if (typeof navigator !== 'undefined' && navigator.onLine === false) blocked = 'Hors connexion : paiement impossible';
+    else if (conf !== null && conf < price) blocked = `Prismes insuffisants (${conf} sur ${price})`;
+    const adView = this.adView(life);
+    this.screenEl.innerHTML = S.reviveScreen({
+      life,
+      time: report?.run.time ?? 0,
+      score: report?.run.score ?? 0,
+      category: report?.run.category ?? 'plain',
+      ad: adView,
+      prisms: { price, balance: conf, blocked },
+      busy: this.reviveBusy,
+      confirm: this.reviveConfirm && !blocked,
+      message: this.reviveMessage,
+      lb: this.runLb,
+    });
+    this.screenEl.classList.remove('hidden', 'no-anim');
+    this.screenEl.classList.add('dim');
+    this.screenEl.scrollTop = 0;
+    this.screenEl.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true });
+  }
+
+  /**
+   * Reprise payée en Prismes : le SERVICE vérifie le solde et débite (idempotent par partie et par vie). Aucune reprise tant que le paiement n'est pas
+   * confirmé : réseau coupé, refus ou réponse perdue = pas de reprise, rien de débité localement ; une nouvelle tentative ne débite jamais deux fois.
+   */
+  private async reviveWithPrisms(): Promise<void> {
+    const s = this.session;
+    if (!s || this.reviveBusy || s.phase !== 'offer') return;
+    const life = s.sim.life >= 2 ? 3 : 2;
+    this.reviveBusy = true;
+    this.reviveMessage = null;
+    this.renderRevive();
+    const res = await this.account.payRevive(this.runId, life);
+    this.reviveConfirm = false;
+    if (this.session !== s || s.phase !== 'offer') return;
+    this.reviveBusy = false;
+    if (res.ok) this.startRevive(s);
+    else {
+      this.reviveMessage = { kind: 'error', text: res.message };
+      this.renderRevive();
+    }
+  }
+
+  /** Vue de l'option « publicité » : prête, indisponible (expliquée) ou masquée (fournisseur présent mais aucune publicité prête). */
+  private adView(life: 2 | 3): { offered: boolean; available: boolean; hidden?: boolean; reason?: string } {
+    if (life !== 2 || !REVIVE.adLives.includes(2)) return { offered: false, available: false };
+    const ad = getAdProvider();
+    if (ad.kind !== 'native') return { offered: true, available: false, reason: 'Indisponible dans cette version' };
+    if (this.prismStore.config && !this.prismStore.config.ads.enabled) return { offered: true, available: false, reason: 'Publicité non activée sur le service' };
+    if (!this.lb.identity() || (typeof navigator !== 'undefined' && navigator.onLine === false)) return { offered: true, available: false, hidden: !ad.isAvailable(), reason: 'Connexion requise' };
+    // Un fournisseur existe mais aucune publicité n'est prête : on ne montre pas l'option (jamais de bouton qui ne fait rien)
+    return { offered: true, available: ad.isAvailable() && this.prismStore.config?.ads.enabled === true, hidden: !ad.isAvailable() };
+  }
+
+  /**
+   * Reprise par publicité récompensée : session créée par le SERVICE → publicité (régie) → confirmation serveur à serveur → réclamation (usage unique).
+   * Publicité interrompue, fermée, échouée ou non confirmée : aucune reprise. Aucune minuterie ne remplace la confirmation. Aucun Prisme débité.
+   */
+  private async reviveWithAd(): Promise<void> {
+    const s = this.session;
+    const ad = getAdProvider();
+    const view = this.adView(2);
+    if (!s || this.reviveBusy || s.phase !== 'offer' || s.sim.life !== 1 || !view.available || view.hidden || !ad.isAvailable()) return;
+    this.reviveBusy = true;
+    this.reviveMessage = null;
+    this.renderRevive();
+    const res = await adRevive({ api: (m, p, o) => this.lb.api(m, p, o), provider: ad, runId: this.runId, onReturn: () => this.sfx.resume() });
+    if (this.session !== s || s.phase !== 'offer') return;
+    this.reviveBusy = false;
+    if (res.ok) {
+      this.startRevive(s);
+      return;
+    }
+    this.reviveMessage = { kind: 'error', text: res.message };
+    this.renderRevive();
+  }
+
+  private startRevive(s: GameSession): void {
+    this.screen = null;
+    this.screenEl.classList.add('hidden');
+    this.screenEl.classList.remove('dim');
+    this.screenEl.innerHTML = '';
+    this.music.startGame();
+    this.hud.show(true);
+    this.setPowersVisible(true);
+    this.lastCountdownShown = -1;
+    s.revive();
   }
 
   private showResult(report: RunReport): void {
@@ -927,26 +1430,36 @@ export class App {
     if (id !== 'pause') {
       this.endSession();
       this.hud.show(false);
+      this.setPowersVisible(false);
       this.hideBanner();
     }
     const today = utcDateString();
     let html = '';
     switch (id) {
-      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable, this.saveNotices(), this.lb.configured); break;
+      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable, this.saveNotices(), this.lb.configured, this.lb.configured ? { claimable: this.save.loyalty.snapshot?.claimable ?? 0 } : null); break;
       case 'campaign': html = C.campaignScreen(this.save); break;
       case 'chapter': html = C.chapterScreen(this.save); break;
       case 'mission': html = C.missionScreen(this.save, this.selectedMission); break;
       case 'journal': html = C.journalScreen(this.save); break;
       case 'levels': html = S.levelsScreen(this.save); break;
-      case 'daily': html = S.dailyScreen(this.save, today); break;
+      case 'daily': html = S.dailyScreen(this.save, today, RW.dailyBoardHtml(this.dailyBoardView())); break;
+      case 'loyalty': html = RW.loyaltyScreen(this.loyaltyView()); break;
+      case 'notices': html = RW.noticesScreen(this.gainQueue); break;
       case 'cosmetics':
-        html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage);
-        this.shopMessage = null; // affiché une seule fois
+        html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage, this.storeView());
         break;
-      case 'achievements': html = S.achievementsScreen(this.save); break;
+      case 'achievements':
+        html = S.achievementsScreen(this.save, this.achMessage, this.justClaimed);
+        break;
       case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
-      case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? ''); break;
-      case 'options': html = S.optionsScreen(this.save); break;
+      case 'confirm-prisms': html = ST.confirmPrismsScreen(this.pendingPrismPack ?? '', this.storeName()); break;
+      case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? '', this.purchaseBusy); break;
+      case 'confirm-bonus': html = S.confirmBonusScreen(this.save, this.bonusOrder?.kind ?? '', this.bonusOrder?.qty ?? 0, this.bonusOrder?.back ?? 'cosmetics'); break;
+      case 'prep':
+        html = S.prepScreen(this.save, this.prepMessage, this.save.survival.bestTime > 0 ? `Record : ${formatTime(this.save.survival.bestTime)}` : '');
+        break;
+      case 'options': html = S.optionsScreen(this.save, this.lb.configured); break;
+      case 'account': html = accountScreen({ state: this.account.state, methods: this.account.availability() }); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
       case 'pause': html = S.pauseScreen(this.modeLabel(), this.session?.config.mode === 'campaign'); break;
       default: break;
@@ -960,6 +1473,69 @@ export class App {
     const focus = this.screenEl.querySelector<HTMLElement>('[data-autofocus]');
     focus?.focus({ preventScroll: true });
     this.attachSkinPreview();
+    if (id === 'account') this.afterAccountRender();
+  }
+
+  /** Redessine l'écran Compte sans animation ni perte de saisie (l'adresse en cours est conservée). */
+  private rerenderAccount(): void {
+    const typed = (this.screenEl.querySelector('#acct-email') as HTMLInputElement | null)?.value;
+    this.showScreen('account', false);
+    const input = this.screenEl.querySelector('#acct-email') as HTMLInputElement | null;
+    if (input && typed) input.value = typed;
+  }
+
+  /** Après l'affichage de l'écran Compte : méthodes disponibles (chargées une fois) et bouton Google. */
+  private afterAccountRender(): void {
+    const acc = this.account;
+    if (!acc.state.configured) return;
+    if (!acc.state.providersLoaded) {
+      void acc.loadProviders();
+      void acc.loadProfile();
+      return;
+    }
+    const g = acc.availability().find((m) => m.provider === 'google');
+    const holder = this.screenEl.querySelector<HTMLElement>('#acct-google');
+    const cfg = acc.state.providers;
+    if (!g?.available || !holder || !cfg?.google.clientId) return;
+    if (g.via === 'native') {
+      holder.innerHTML = `<button class="btn btn--secondary btn--sm" data-action="acct-google-native" type="button">Continuer avec Google</button>`;
+      return;
+    }
+    void acc.fetchNonce().then((nonce) => {
+      if (!nonce || this.screen !== 'account') return;
+      return mountGoogleButton(holder, cfg.google.clientId!, nonce, (r) => void acc.loginOidc('google', r.idToken, nonce));
+    }).catch(() => {
+      holder.textContent = 'Google est injoignable pour le moment.';
+    });
+  }
+
+  /** Retire `?magic=…` de l'adresse après lecture (le code ne reste pas dans l'historique). */
+  private cleanMagicLink(): void {
+    try {
+      const u = new URL(location.href);
+      if (u.searchParams.has('magic')) {
+        u.searchParams.delete('magic');
+        history.replaceState(null, '', u.pathname + u.search + u.hash);
+      }
+    } catch {
+      /* sans conséquence */
+    }
+  }
+
+  private async socialLogin(provider: 'google' | 'apple'): Promise<void> {
+    const acc = this.account;
+    const cfg = acc.state.providers;
+    const m = acc.availability().find((x) => x.provider === provider);
+    if (!cfg || !m?.available) return;
+    const nonce = await acc.fetchNonce();
+    if (!nonce) return;
+    try {
+      const clientId = cfg[provider].clientId ?? '';
+      const r = m.via === 'native' ? await signInNative(provider, cfg, nonce) : await signInWithAppleWeb(clientId, nonce);
+      await acc.loginOidc(provider, r.idToken, nonce);
+    } catch {
+      /* fenêtre fermée ou connexion annulée : rien à faire */
+    }
   }
 
   /** Grand aperçu du menu Apparences : rotation lente et réacteur animé (figé en effets réduits). */
@@ -983,6 +1559,11 @@ export class App {
     if (!target || (target as HTMLButtonElement).disabled) return;
     this.unlockAudio();
     const action = target.dataset.action!;
+    // Messages d'achat / de réclamation : affichés jusqu'à la prochaine action du joueur (une synchronisation en arrière-plan ne les efface pas)
+    this.shopMessage = null;
+    this.prepMessage = null;
+    this.achMessage = null;
+    this.justClaimed = [];
     if (action !== 'replay' && action !== 'resume') this.sfx.play('ui');
     switch (action) {
       case 'home': this.showScreen('home'); break;
@@ -1010,14 +1591,77 @@ export class App {
       case 'story-advance': this.advanceStory(); break;
       case 'story-skip': this.finishStory(); break;
       case 'levels': this.showScreen('levels'); break;
-      case 'daily': this.showScreen('daily'); break;
-      case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); break;
+      case 'daily': this.showScreen('daily'); void this.refreshDailyBoard(); break;
+      case 'daily-refresh': void this.refreshDailyBoard(); break;
+      case 'loyalty': this.loyaltyMessage = null; this.loyaltyJust = []; this.showScreen('loyalty'); void this.refreshLoyalty(); break;
+      case 'loyalty-claim': void this.claimLoyalty(Number(target.dataset.cycle), Number(target.dataset.day)); break;
+      case 'notices-continue': void this.finishNotices(); break;
+      case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); void this.account.syncNow(); break;
       case 'back-cosmetics': this.pendingPurchase = null; this.showScreen('cosmetics'); break;
-      case 'achievements': this.showScreen('achievements'); break;
+      case 'achievements': this.showScreen('achievements'); void this.account.syncNow(); break;
+      case 'claim-medal': {
+        const res = claimMedals(this.save, target.dataset.ach ?? '');
+        if (res.ok) {
+          this.persist();
+          this.sfx.play('success');
+          this.justClaimed = [res.achievement.id];
+          this.achMessage = { kind: 'ok', text: `+${formatScore(res.medals)} Médailles : ${res.achievement.name}. Solde : ${formatScore(res.balance)} Médailles.` };
+          void this.account.syncNow(true);
+        } else {
+          this.achMessage = { kind: 'error', text: res.reason === 'already' ? 'Ces Médailles ont déjà été récupérées.' : 'Succès non accompli : rien à récupérer.' };
+        }
+        this.showScreen('achievements', false);
+        break;
+      }
+      case 'claim-all': {
+        const res = claimAllMedals(this.save);
+        if (res.claimed.length > 0) {
+          this.persist();
+          this.sfx.play('success');
+          this.justClaimed = res.claimed.map((a) => a.id);
+          this.achMessage = { kind: 'ok', text: `+${formatScore(res.medals)} Médailles récupérées (${res.claimed.length} succès). Solde : ${formatScore(this.save.wallet.medals)} Médailles.` };
+          void this.account.syncNow(true);
+        }
+        this.showScreen('achievements', false);
+        break;
+      }
+      case 'bonus-ask': {
+        this.bonusOrder = { kind: target.dataset.bonus ?? '', qty: Number(target.dataset.qty) || 0, back: this.screen === 'prep' ? 'prep' : 'cosmetics' };
+        this.showScreen('confirm-bonus');
+        break;
+      }
+      case 'bonus-back': {
+        const back = this.bonusOrder?.back ?? 'cosmetics';
+        this.bonusOrder = null;
+        this.showScreen(back);
+        break;
+      }
+      case 'bonus-confirm': {
+        // Vérification des fonds, débit et crédit d'inventaire dans la même modification, puis une seule écriture (aucune charge consommée)
+        const back = this.bonusOrder?.back ?? 'cosmetics';
+        const res = buyBonus(this.save, target.dataset.bonus ?? '', Number(target.dataset.qty) || 0);
+        const msg = res.ok
+          ? { kind: 'ok' as const, text: `${bonusDef(res.kind)?.name ?? ''} × ${res.quantity} ajouté à votre inventaire (−${formatScore(res.spent)} Éclats). Éclats restants : ${formatScore(res.balance)} · stock : ${formatScore(res.stock)}.` }
+          : { kind: 'error' as const, text: res.reason === 'stock_full' ? 'Inventaire plein pour ce bonus : rien n’a été débité.' : 'Éclats insuffisants : rien n’a été débité.' };
+        if (res.ok) {
+          this.persist();
+          this.sfx.play('success');
+          void this.account.syncNow(true);
+        }
+        this.bonusOrder = null;
+        if (back === 'prep') this.prepMessage = msg;
+        else this.shopMessage = msg;
+        this.showScreen(back, false);
+        break;
+      }
       case 'leaderboard': this.openLeaderboard(); break;
       case 'lb-refresh': void this.refreshLeaderboard(); break;
       case 'lb-flush': void this.refreshLeaderboard(); break;
       case 'lb-clear': this.lb.clearDone(); this.rerenderLeaderboard(); break;
+      case 'lb-category':
+        this.lbCategory = target.dataset.category === 'bonus' ? 'bonus' : 'plain';
+        void this.refreshLeaderboard();
+        break;
       case 'lb-balance':
         this.lbBalance = Number(target.dataset.balance) || BALANCE_VERSION;
         void this.refreshLeaderboard();
@@ -1030,9 +1674,47 @@ export class App {
       case 'lb-delete-ask': this.lbConfirmDelete = true; this.rerenderLeaderboard(); break;
       case 'lb-delete-cancel': this.lbConfirmDelete = false; this.rerenderLeaderboard(); break;
       case 'lb-delete-confirm': void this.deleteLeaderboardProfile(); break;
-      case 'lb-forget': this.lb.forgetProfile(); this.lbProfileLost = false; this.lbMe = null; this.lbNickMessage = null; this.rerenderLeaderboard(); break;
+      case 'lb-forget': this.lb.forgetProfile('drop'); this.lbProfileLost = false; this.lbMe = null; this.lbNickMessage = null; this.rerenderLeaderboard(); break;
       case 'options': this.showScreen('options'); break;
-      case 'survival': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
+      case 'account': this.showScreen('account'); break;
+      case 'acct-sync': void this.account.syncNow(true); break;
+      case 'acct-apple': void this.socialLogin('apple'); break;
+      case 'acct-google-native': void this.socialLogin('google'); break;
+      case 'acct-merge-confirm': void this.account.confirmMerge(); break;
+      case 'acct-merge-cancel': this.account.cancelMerge(); break;
+      case 'acct-logout': void this.account.logout(); break;
+      case 'acct-unlink': void this.account.unlink(target.dataset.provider === 'google' ? 'google' : target.dataset.provider === 'apple' ? 'apple' : 'email'); break;
+      // Les formulaires du compte sont traités à l'envoi
+      case 'acct-email-send':
+      case 'acct-code':
+        break;
+      case 'survival':
+        // Préparation facultative (bonus) avant une partie de Survie ; on peut toujours lancer sans aucun bonus
+        this.prepMessage = null;
+        this.showScreen('prep');
+        void this.account.syncNow();
+        break;
+      case 'revive-prisms': this.reviveConfirm = true; this.renderRevive(); break;
+      case 'revive-prisms-back': if (!this.reviveBusy) { this.reviveConfirm = false; this.renderRevive(); } break;
+      case 'revive-prisms-confirm': void this.reviveWithPrisms(); break;
+      case 'prisms-buy': this.pendingPrismPack = target.dataset.pack ?? null; this.showScreen('confirm-prisms'); break;
+      case 'prisms-cancel': this.pendingPrismPack = null; this.showScreen('cosmetics'); break;
+      case 'prisms-confirm': {
+        const pack = target.dataset.pack ?? this.pendingPrismPack ?? '';
+        this.pendingPrismPack = null;
+        this.cosmeticsTab = 'prisms';
+        this.showScreen('cosmetics');
+        void this.prismStore.buy(pack).then(() => {
+          if (this.screen === 'cosmetics') this.showScreen('cosmetics', false);
+          void this.account.syncNow(true);
+        });
+        break;
+      }
+      case 'prisms-restore': void this.prismStore.restore().then(() => this.screen === 'cosmetics' && this.showScreen('cosmetics', false)); break;
+      case 'prisms-account': this.showScreen('account'); break;
+      case 'revive-ad': void this.reviveWithAd(); break;
+      case 'revive-decline': if (!this.reviveBusy) this.session?.decline(); break;
+      case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
       case 'play-daily': {
         const date = utcDateString();
         this.startRun({ mode: 'daily', seed: 0, date });
@@ -1058,6 +1740,13 @@ export class App {
       case 'cat-ships':
       case 'cat-trails':
       case 'cat-packs':
+      case 'cat-bonus':
+      case 'cat-prisms':
+        if (action === 'cat-prisms') {
+          this.prismStore.reset();
+          void this.prismStore.loadConfig();
+          void this.account.loadProfile();
+        }
         this.cosmeticsTab = action.slice('cat-'.length) as S.CosmeticsTab;
         this.selectedItem = null;
         this.showScreen('cosmetics', false);
@@ -1098,6 +1787,11 @@ export class App {
         break;
       }
       case 'confirm-buy': {
+        const wanted = catalogItem(target.dataset.item ?? '');
+        if (wanted && isPremium(wanted)) {
+          void this.confirmPremium(wanted);
+          break;
+        }
         // Vérification du solde, débit et déblocage dans la même modification, puis une seule écriture. Un article déjà possédé n'est jamais débité
         // (un double clic sur « Confirmer » ne peut donc pas payer deux fois : le second est refusé avec le motif « déjà possédé »).
         const res = purchase(this.save, target.dataset.item ?? '');
@@ -1105,7 +1799,8 @@ export class App {
           this.persist();
           this.sfx.play('success');
           this.selectedItem = res.item.id;
-          this.shopMessage = { kind: 'ok', text: `Achat effectué : ${res.item.name} (−${formatScore(res.spent)} Éclats). Solde : ${formatScore(res.balance)} Éclats.` };
+          this.shopMessage = { kind: 'ok', text: `Achat effectué : ${res.item.name} (−${formatScore(res.spent)} ${CURRENCY_NAME[res.currency]}). Solde : ${formatScore(res.balance)} ${CURRENCY_NAME[res.currency]}.` };
+          void this.account.syncNow(true);
         } else {
           const item = catalogItem(target.dataset.item ?? '');
           this.shopMessage = { kind: 'error', text: item ? S.purchaseRefusal(this.save, item) : 'Article inconnu : rien n’a été débité.' };
@@ -1149,6 +1844,10 @@ export class App {
       case 'ask-reset': this.showScreen('confirm-reset'); break;
       case 'confirm-reset': {
         this.save = resetProgress(this.store, this.save);
+        this.save.economy.managed = this.lb.configured;
+        this.store.remove(INSTALL_KEY); // remise à zéro volontaire : nouvelle installation
+        ensureInstallId(this.save);
+        this.persist(false);
         if (this.store.failed === true) this.storageFailed = true;
         this.showScreen('home');
         break;
@@ -1193,33 +1892,77 @@ export class App {
    */
   private afterSurvivalRun(summary: RunSummary, s: GameSession): void {
     this.runLb = { kind: 'hidden' };
-    if (!this.lb.configured) return;
-    if (this.devMode || s.sim.assisted) this.runLb = { kind: 'assisted' };
-    else if (!this.lb.identity()) this.runLb = { kind: 'no-identity' };
-    else if (!this.runTicket) this.runLb = { kind: 'no-ticket' };
-    else {
+    this.runLbTicketId = null;
+    // Charges consommées pendant la première vie : tranchées ici (envoyées avec le ticket, ou déclarées comme usage non classé)
+    const eco = this.save.economy;
+    const live = { ...eco.liveUse };
+    eco.liveUse = { boost: 0, gel: 0 };
+    const settled = (viaTicket: boolean): void => {
+      if (viaTicket) {
+        eco.bonusUsed.boost = Math.max(0, eco.bonusUsed.boost - live.boost);
+        eco.bonusUsed.gel = Math.max(0, eco.bonusUsed.gel - live.gel);
+      }
+      this.persist();
+    };
+    if (!this.lb.configured) return settled(false);
+    const first = s.sim.firstLife;
+    if (this.devMode || s.sim.assisted || !first) {
+      this.runLb = { kind: 'assisted' };
+      settled(false);
+    } else if (!this.lb.identity()) {
+      this.runLb = { kind: 'no-identity' };
+      settled(false);
+    } else if (!this.runTicket) {
+      this.runLb = { kind: 'no-ticket' };
+      settled(false);
+    } else {
       const ticket = this.runTicket;
-      this.lb.recordRun(ticket, s.sim.flipLog, { time: summary.time, score: summary.score });
+      this.runLbTicketId = ticket.id;
+      // Journal de la première vie (inversions + activations, en pas de simulation) : le service le REJOUE et déduit lui-même catégorie et durée
+      const acts = first.acts.map((a) => [a.step, POWER_CODES[a.kind]] as [number, number]);
+      this.lb.recordRun(ticket, { flips: first.flips, acts }, { time: summary.time, score: summary.score }, live);
+      settled(true);
       this.runLb = { kind: 'sending' };
       void this.lb.flush().then((list) => {
         const p = list.find((x) => x.id === ticket.id);
         this.runLb = this.statusOf(p);
+        if (p?.result?.drop) {
+          // Drop rare confirmé par le service : animation + solde confirmé à la prochaine synchronisation
+          this.sfx.play('record');
+          if (this.screen === 'result') this.lb.markDropSeen(p.id);
+          void this.account.syncNow(true);
+        }
         this.refreshRunLbStatus();
+        if (p?.needsSync) void this.account.syncNow(true).then(() => this.lb.flush()).then(() => this.refreshRunLbFromPending());
         if (this.screen === 'leaderboard') void this.refreshLeaderboard();
       });
     }
     this.runTicket = null;
   }
 
+  /** Ticket de la partie classée dont le statut est affiché (résultat et écran de reprise). */
+  private runLbTicketId: string | null = null;
+
+  /** Rafraîchit le statut mondial de la partie courante depuis la file « en attente » (après un renvoi ou une synchronisation). */
+  private refreshRunLbFromPending(): void {
+    const id = this.runLbTicketId;
+    if (!id) return;
+    const p = this.lb.pending().find((x) => x.id === id);
+    if (!p) return;
+    this.runLb = this.statusOf(p);
+    this.refreshRunLbStatus();
+  }
+
   private statusOf(p: PendingRun | undefined): S.RunLbStatus {
     if (!p) return { kind: 'hidden' };
-    if (p.status === 'accepted' && p.result) return { kind: 'accepted', rank: p.result.rank, best: p.result.personalBest };
+    if (p.status === 'accepted' && p.result) return { kind: 'accepted', rank: p.result.rank, best: p.result.personalBest, category: p.result.category, drop: p.result.drop?.prisms };
     if (p.status === 'rejected') return { kind: 'rejected', message: p.message ?? 'refusé par le serveur' };
     return { kind: 'pending', offline: !!p.lastError };
   }
 
   /** Met à jour la ligne de statut du résultat sans recréer l'écran (aucun crédit, aucune animation rejouée). */
   private refreshRunLbStatus(): void {
+    if (this.screen === 'revive') this.renderRevive();
     if (this.screen !== 'result') return;
     const el = this.screenEl.querySelector('#lb-status');
     if (el) el.innerHTML = S.runLbStatusHtml(this.runLb);
@@ -1236,9 +1979,14 @@ export class App {
       me: this.lbMe,
       balances: this.lbBalances,
       balance: this.lbBalance,
-      pending: this.lb.pending(),
+      category: this.lbCategory,
+      pending: this.lb.pendingOwn(),
+      foreignPending: this.lb.pendingForeign().filter((p) => p.status === 'pending').length,
       nickMessage: this.lbNickMessage,
-      localBest: this.save.survival.bestTime > 0 ? { time: this.save.survival.bestTime, score: this.save.survival.bestScore } : null,
+      localBest: (() => {
+        const r = this.lbCategory === 'bonus' ? this.save.survivalBonus : this.save.survival;
+        return r.bestTime > 0 ? { time: r.bestTime, score: r.bestScore } : null;
+      })(),
       profileLost: this.lbProfileLost,
       confirmDelete: this.lbConfirmDelete,
       reportMessage: this.lbReportMessage,
@@ -1269,7 +2017,7 @@ export class App {
     this.rerenderLeaderboard();
     await this.lb.flush();
     void this.lb.ensureTickets();
-    const [top, me, balances] = await Promise.all([this.lb.top(this.lbBalance), this.lb.identity() ? this.lb.me(this.lbBalance) : Promise.resolve(null), this.lb.balances()]);
+    const [top, me, balances] = await Promise.all([this.lb.top(this.lbBalance, this.lbCategory), this.lb.identity() ? this.lb.me(this.lbBalance, this.lbCategory) : Promise.resolve(null), this.lb.balances()]);
     this.lbLoading = false;
     if (top.ok) {
       this.lbTop = top.data;
@@ -1346,9 +2094,30 @@ export class App {
     this.bannerEl.classList.add('hidden');
   }
 
-  private persist(): void {
+  /** Achat d'un article premium : requête au service (débit atomique côté service) ; rien n'est débité ni accordé localement avant sa réponse. */
+  private async confirmPremium(item: CatalogItem): Promise<void> {
+    if (this.purchaseBusy) return;
+    this.purchaseBusy = true;
+    this.showScreen('confirm-purchase', false);
+    const res = await this.account.buyPremium(item.id);
+    this.purchaseBusy = false;
+    if (res.ok) {
+      this.persist();
+      this.sfx.play('success');
+      this.selectedItem = item.id;
+      this.shopMessage = { kind: 'ok', text: res.charged ? `Achat effectué : ${item.name} (−${formatScore(res.price)} Prismes).` : `${item.name} est déjà possédé : aucun Prisme n’a été débité.` };
+    } else {
+      this.shopMessage = { kind: 'error', text: `${res.message} Rien n’a été débité.` };
+    }
+    this.pendingPurchase = null;
+    if (this.screen === 'confirm-purchase') this.showScreen('cosmetics');
+  }
+
+  private persist(schedule = true): void {
     writeSave(this.store, this.save);
     if (this.store.failed === true) this.storageFailed = true;
+    // Les gains et achats seront confirmés par le service (regroupés, jamais pendant une partie)
+    if (schedule) this.account.scheduleSync();
   }
 }
 
@@ -1359,6 +2128,13 @@ function ambiencePreviewOffset(): number {
 }
 
 /** Le stockage du navigateur accepte-t-il les écritures ? (sonde sur une clé à part ; navigation privée, quota, accès bloqué → non) */
+/** Identifiant aléatoire d'une partie (clé d'idempotence du paiement des reprises). */
+function randomRunId(): string {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
 function storageWorks(store: KeyValueStore): boolean {
   const key = 'polarite.sonde';
   store.set(key, '1');

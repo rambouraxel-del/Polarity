@@ -1,5 +1,45 @@
 # Suivi d'avancement
 
+## Économie v3 — phase 6 : finalisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
+- [x] Audit fonctionnel (chiffres validés figés dans `tests/phase6-spec.test.ts`) et audit de sécurité (paiements, publicités, récompenses, tickets, UTC, invités)
+- [x] Corrections : réconciliation Google/Apple + schéma v8, OIDC des notifications Google, drop refusé aux invités, clés de dette uniques, variables de déploiement des achats, limites des notifications
+- [x] `scripts/e2e.mjs` modernisé (service local réel, 120 contrôles, migration d'une sauvegarde de `main`), ancien jeu vérifié contre le nouveau service
+- [x] `npm run server:migrate-check`, `docs/PUBLICATION_BETA.md` (publication, retour arrière), 767 tests, build, `check:bundle`
+- [x] Vérifications finales (invités + pseudo, plafond 3 activations, compteurs au retour arrière, retour arrière serveur v8) : 778 tests, build, `check:bundle`
+- [ ] **Publication : en attente de l'accord explicite du propriétaire**
+
+## Économie v3 — phase 5 : monétisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
+- [x] Vérifs phase 4 (pseudo suffit pour les récompenses ; preuve de fin des scores quotidiens tardifs par engagement horodaté)
+- [x] Serveur : achats Apple / Google / web modulaire, crédit idempotent, remboursement + dette, notifications re-vérifiées, publicité récompensée (SSV), SQLite v7
+- [x] Client : onglet Prismes, confirmation de dépense en reprise, reprise par publicité, contrats de plugins natifs (aucun SDK)
+- [x] 746 tests (fournisseurs simulés), typecheck, build, `check:bundle`, contrôle navigateur léger ; **non fait** : paiement/publicité réels (configuration externe, `docs/MONETISATION.md`), E2E complet, phase 6
+
+## Économie v3 — phase 4 : récompenses gratuites (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
+- [x] Vérifications phase 3 : reprise sûre, pas de 4ᵉ vie, rejeu exact du Bouclier (tests)
+- [x] Calendrier de connexion (10 jours, UTC service, absences, réclamation idempotente, stock plein, Prismes avec pseudo), écran néon + accueil + ouverture quotidienne
+- [x] Défi quotidien mondial : rejeu, départ en ligne, grâce 00 h 15, ex æquo, Top 10 en Prismes, clôture rejouable, notifications
+- [x] Drop rare de Prismes (0,02 %/balise, HMAC serveur, 1 max, départ en ligne), `PRISM_SOURCES` futures désactivées
+- [x] SQLite v6, sauvegarde 10, 689 tests, build, `check:bundle`, contrôle navigateur léger ; **non fait** : E2E complet, achats réels et publicité (phase 5)
+
+## Économie v3 — phase 3 : pouvoirs, deux classements, reprises (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
+- [x] Simulation : Boost (×1,5, 5 s, recharge 10 s), Gel (menaces à 40 %, 6 s, recharge 20 s, par décalage des frises — physique sans bonus identique, `BALANCE_VERSION` inchangée), Bouclier gratuit (18 balises, 8 s, un impact), exclusivité, plafond 3, vies et reprise sécurisée (3 s d'invulnérabilité)
+- [x] Protocole de rejeu 2 (activations en pas de simulation), rejeu serveur, catégories `plain` / `bonus` déduites par le service, stocks consommés dans le registre (`use:`), usage déclaré (`bonusUsed`), SQLite v5 additif (anciens records → « Sans bonus »), `POST /api/revive` (5 / 10 Prismes, idempotent)
+- [x] Jeu : première mort figée et soumise avant toute reprise, écran de reprise (publicité désactivée honnêtement, Prismes via le service), survie libre non classée, commandes tactiles/clavier, rendu, deux onglets de classement, sauvegarde 9
+- [x] 628 tests, build, `check:bundle`, contrôle navigateur léger (390×844, 844×390, 1280×720) ; **non fait** : E2E complet (à réécrire en phase 6), publicité réelle (aucun fournisseur)
+
+## Économie v3 — phase 2 : trois monnaies, Médailles, cosmétiques, bonus (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`)
+- [x] Correctif phase 1 : parties classées en attente conservées après déconnexion (rattachées à leur profil, jamais envoyées avec une autre identité, sans doublon) ; plantage de démarrage de la phase 1 corrigé
+- [x] Médailles : 27 succès = 1 650, à réclamer (« Récupérer »), rétroactif, anciens Éclats et cosmétiques conservés ; cosmétiques non premium en Médailles (1 640), premium en Prismes (Néon 150, Nébuleuse 75, pack 200) ; anciens packs supprimés
+- [x] Bonus Boost 50 / Gel 100 Éclats : inventaire persistant, boutique (onglet Bonus), écran « Préparer la partie » ; effets en partie = phase 3
+- [x] Sauvegarde format 8, schéma SQLite v4, service : médailles / bonus / achats premium (`POST /api/shop/prisms`), fonds confirmés vs provisoires, rejet des achats non financés
+- [x] 574 tests, build, `check:bundle`, contrôle navigateur léger ; **reste** : configuration externe (comptes), phase 3 (effets des bonus), e2e à réécrire (phase 6). Voir `docs/ETAT_MAJ_ECONOMIE.md`
+
+## Économie v3 — phase 1 : comptes, migration, synchronisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`)
+- [x] Sauvegarde v7 (`economy`), migration locale idempotente des anciennes sauvegardes (copie conservée), règles et fusion partagées jeu/serveur
+- [x] Serveur : schéma v3 additif, profils invités, accès par appareil, Google/Apple (OIDC, nonce) et lien magique (désactivés sans configuration), registre `ledger`, `/api/migrate`, `/api/sync`, fusion confirmée sans double crédit (38 tests)
+- [x] Client : `AccountService` (invité automatique, migration, synchronisation hors ligne), écran Options → Compte, fournisseurs web / Capacitor (19 tests)
+- [ ] **À configurer par le propriétaire** : identifiants OAuth Google/Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL`, module natif de connexion sociale (non installé), redéploiement du service. Détail : `docs/COMPTES.md`, suivi : `docs/ETAT_MAJ_ECONOMIE.md`
+
 ## Consolidation V1 : progression, boutique et interfaces dépendant de la sauvegarde (branche `v1-finalisation-audiovisuelle`, non fusionnée)
 - [x] Succès (27) : conditions relues et testées contre la configuration (niveaux, multiplicateur), récompense unique (rechargements, appels répétés, deux onglets, sauvegarde incohérente), aucune dépense requise, campagne exclue
 - [x] Boutique : packs partiellement possédés facturés au prorata (plus de double paiement d'un article), refus expliqués, messages annoncés aux lecteurs d'écran, clics répétés sans double débit

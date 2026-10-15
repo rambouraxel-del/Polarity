@@ -1,5 +1,6 @@
 import type { MissionReport } from '../campaign/simulation';
 import { LEVEL_REWARDS } from '../config/economy';
+import { noteEarned } from '../economy/local';
 import { LEVELS, levelById, type LevelDef } from '../config/levels';
 import { pruneDaily, type SaveData } from '../save/save';
 import { unlockAchievements, type AchievementDef } from './achievements';
@@ -25,6 +26,10 @@ export interface RunSummary {
   /** Campagne : mission jouée et bilan détaillé (voir campaign/progress.ts). */
   missionId?: number;
   report?: MissionReport;
+  /** Survie : catégorie de classement de la PREMIÈRE vie (déduite des activations réussies). */
+  category?: 'plain' | 'bonus';
+  /** Survie : survie libre après reprise (partie non classée) — durée, score et nombre de vies utilisées. Jamais enregistrée comme record. */
+  free?: { time: number; score: number; lives: number };
 }
 
 /** Récompenses d'un niveau réussi (Éclats). */
@@ -52,10 +57,10 @@ export interface RunReport {
   newRecord: boolean;
   /** Meilleur temps sous un ancien équilibrage (0 si aucun) : affiché à titre indicatif, jamais comparé. */
   legacyBestTime: number;
-  /** Nouveaux succès (chacun rapporte des Éclats, versés une seule fois à ce moment-là). */
+  /** Nouveaux succès obtenus pendant cette partie (récupérables : bouton « Récupérer »). */
   achievements: AchievementDef[];
-  /** Total des Éclats versés par ces succès. */
-  achievementShards: number;
+  /** Médailles que les succès obtenus pendant la partie permettent de récupérer (non créditées : réclamation par le joueur). */
+  achievementMedals: number;
   /** Éclats collectés sur l'orbite (Survie) : déjà crédités pendant la partie. */
   orbitShards: number;
   /** Récompenses de niveau créditées à la fin de cette partie, ou null. */
@@ -121,6 +126,8 @@ function payLevelReward(save: SaveData, key: string, starsNow: number): LevelRew
   const total = firstClear + starReward + repeatClear;
   save.paid[key] = { first: true, stars: Math.max(paid.stars, starsNow) };
   save.wallet.shards += total;
+  // Seules les réussites répétées sont des gains répétables ; première réussite et étoiles sont des récompenses uniques (registre `paid`)
+  noteEarned(save, repeatClear);
   return { firstClear, newStars, starReward, repeatClear, total };
 }
 
@@ -137,7 +144,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     newRecord: false,
     legacyBestTime: 0,
     achievements: [],
-    achievementShards: 0,
+    achievementMedals: 0,
     orbitShards: Math.max(0, Math.floor(run.shards ?? 0)),
     levelReward: null,
     shardsBalance: 0,
@@ -170,7 +177,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
       if (wasNextLocked && LEVELS.some((l) => l.id === next)) report.unlockedLevel = next;
     }
   } else if (run.mode === 'survival') {
-    const rec = save.survival;
+    const rec = run.category === 'bonus' ? save.survivalBonus : save.survival;
     report.legacyBestTime = legacySurvivalBest(save)?.time ?? 0;
     report.previousBestTime = rec.bestTime;
     report.previousBestScore = rec.bestScore;
@@ -195,9 +202,9 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     pruneDaily(save.daily);
   }
 
-  // Succès : déblocage et récompense en Éclats, une seule fois chacun
+  // Succès : déblocage (les Médailles se réclament ensuite, une seule fois chacune)
   report.achievements = unlockAchievements(save, run, now);
-  report.achievementShards = report.achievements.reduce((t, a) => t + a.shards, 0);
+  report.achievementMedals = report.achievements.reduce((t, a) => t + a.medals, 0);
   report.shardsBalance = save.wallet.shards;
   return report;
 }

@@ -51,7 +51,7 @@ describe('classement : client', () => {
     expect(await client.flush()).toEqual([]);
     await client.ensureTickets();
     expect(store.get(TICKETS_KEY)).toBeNull();
-    const view = { configured: false, identity: null, loading: false, error: null, top: null, me: null, balances: null, balance: BALANCE_VERSION, pending: [], nickMessage: null, localBest: { time: 84.6, score: 1234 } };
+    const view = { configured: false, identity: null, loading: false, error: null, top: null, me: null, balances: null, balance: BALANCE_VERSION, category: 'plain' as const, pending: [], nickMessage: null, localBest: { time: 84.6, score: 1234 } };
     const html = S.leaderboardScreen(view);
     expect(html).toContain('pas encore disponible');
     expect(html).toContain('1:24,6');
@@ -86,8 +86,8 @@ describe('classement : client', () => {
     await client.ensureTickets();
     const ticket = client.takeTicket()!;
     const run = playRun(ticket.seed);
-    const rec = client.recordRun(ticket, run.flips, { time: run.time, score: run.score });
-    expect(rec.status).toBe('pending');
+    const rec = client.recordRun(ticket, { flips: run.flips, acts: [] }, { time: run.time, score: run.score });
+    expect(rec?.status).toBe('pending');
     expect(client.pending()).toHaveLength(1);
     const list = await client.flush();
     expect(list[0]).toMatchObject({ status: 'accepted', result: { time: run.time, score: run.score, rank: 1, personalBest: true } });
@@ -104,7 +104,7 @@ describe('classement : client', () => {
     const ticket = client.takeTicket()!;
     const run = playRun(ticket.seed);
     online.value = false;
-    client.recordRun(ticket, run.flips, { time: run.time, score: run.score });
+    client.recordRun(ticket, { flips: run.flips, acts: [] }, { time: run.time, score: run.score });
     const offline = await client.flush();
     expect(offline[0].status).toBe('pending');
     expect(offline[0].lastError).toBe('Hors ligne');
@@ -120,7 +120,7 @@ describe('classement : client', () => {
     await client.ensureTickets();
     const ticket = client.takeTicket()!;
     const run = playRun(ticket.seed);
-    client.recordRun(ticket, run.flips, { time: run.time + 100, score: run.score * 5 });
+    client.recordRun(ticket, { flips: run.flips, acts: [] }, { time: run.time + 100, score: run.score * 5 });
     const list = await client.flush();
     expect(list[0]).toMatchObject({ status: 'rejected', reason: 'divergence' });
     expect(list[0].message).toContain('non validé');
@@ -167,10 +167,11 @@ describe('classement : client', () => {
       identity: { nickname: 'Axel' },
       loading: false,
       error: null,
-      top: { balance: BALANCE_VERSION, currentBalance: BALANCE_VERSION, total: 2, entries: [{ rank: 1, nickname: 'Nova', time: 120.5, score: 9000, at: 1 }, { rank: 2, nickname: 'Axel', time: 80, score: 4000, at: 2, you: true }] },
-      me: { playerId: 'p', nickname: 'Axel', balance: BALANCE_VERSION, best: { time: 80, score: 4000, rank: 2 }, total: 2 },
+      top: { balance: BALANCE_VERSION, category: 'plain' as const, currentBalance: BALANCE_VERSION, total: 2, entries: [{ rank: 1, nickname: 'Nova', time: 120.5, score: 9000, at: 1 }, { rank: 2, nickname: 'Axel', time: 80, score: 4000, at: 2, you: true }] },
+      me: { playerId: 'p', nickname: 'Axel', balance: BALANCE_VERSION, category: 'plain' as const, best: { time: 80, score: 4000, rank: 2 }, bests: { plain: { time: 80, score: 4000, rank: 2 }, bonus: null }, total: 2 },
       balances: { current: BALANCE_VERSION, versions: [{ balance: BALANCE_VERSION - 1, players: 4 }] },
       balance: BALANCE_VERSION,
+      category: 'plain' as const,
       pending: [{ id: 't', submission: { ticket: { id: 't', seed: 1, exp: 1, sig: 's' }, replay: { v: 1 as const, flips: [] }, claimed: { time: 90, score: 100 }, client: { balance: BALANCE_VERSION, build: 'x' } }, createdAt: 1, status: 'pending' as const, attempts: 1, lastError: 'Hors ligne' }],
       nickMessage: null,
       localBest: null,
@@ -184,6 +185,10 @@ describe('classement : client', () => {
     expect(html).toContain('ancien');
     expect(html).toContain('data-action="lb-flush"');
     expect(html).toContain('data-form="lb-rename"');
+    // Deux classements : onglets « Sans bonus » (par défaut) et « Avec bonus »
+    expect(html).toContain('data-category="plain"');
+    expect(html).toContain('data-category="bonus"');
+    expect(S.leaderboardScreen({ ...view, category: 'bonus', top: null, me: null })).toContain('Avec bonus');
     expect(S.leaderboardScreen({ ...view, identity: null })).toContain('data-form="lb-register"');
     expect(S.leaderboardScreen({ ...view, top: null, error: 'Service injoignable' })).toContain('Classement indisponible');
   });
@@ -253,7 +258,7 @@ describe('classement : client — sécurité, profil et repli', () => {
     await client.register('Axel');
     store.set(IDENTITY_KEY, JSON.stringify({ playerId: '00000000-0000-4000-8000-000000000000', token: 'A'.repeat(43), nickname: 'Axel' }));
     const ticket = { id: 't1', seed: 5, exp: 2_000_000_000, sig: 's' };
-    client.recordRun(ticket, [1, 2], { time: 3, score: 4 });
+    client.recordRun(ticket, { flips: [1, 2], acts: [] }, { time: 3, score: 4 });
     const list = await client.flush();
     expect(list[0].status).toBe('pending');
     const me = await client.me();
@@ -270,6 +275,6 @@ describe('classement : client — sécurité, profil et repli', () => {
     const client = new LeaderboardClient({ baseUrl: sanitizeBaseUrl('https://vps.exemple.net/polarity/'), store, fetchFn, balance: BALANCE_VERSION, build: 'test' });
     await client.top();
     await client.balances();
-    expect(urls).toEqual([`https://vps.exemple.net/polarity/api/leaderboard?balance=`.replace('?balance=', ''), 'https://vps.exemple.net/polarity/api/balances']);
+    expect(urls).toEqual(['https://vps.exemple.net/polarity/api/leaderboard?category=plain', 'https://vps.exemple.net/polarity/api/balances']);
   });
 });

@@ -1,16 +1,21 @@
 import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
 import { ACHIEVEMENT_CATEGORIES, type MetricKey } from '../config/achievements';
-import { catalogItem, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
+import { POWERS } from '../config/powers';
+import { prismShopHtml, privacyHtml, type StoreView } from './storeScreens';
+import { BONUS, BONUS_LIST, bonusDef, type BonusKind } from '../config/economy';
+import { bonusStock, maxAffordable } from '../economy/bonus';
+import { chargeProvenance, provisional, spendable } from '../economy/funds';
+import { catalogItem, isPremium, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
 import { CHAPTER, MISSIONS } from '../config/campaign';
 import { LEVELS } from '../config/levels';
 import { maxStars, missionsCleared, nextMission, totalStars } from '../campaign/progress';
 import { trailById } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
-import { ACHIEVEMENTS, achievementById, achievementCosmetics, achievementProgress } from '../progression/achievements';
+import { ACHIEVEMENTS, achievementProgress, claimableAchievements, claimableMedals, isClaimable } from '../progression/achievements';
 import { hasLegacyRecords, isLevelUnlocked, legacyDailyList, legacySurvivalBest, type RunReport } from '../progression/progress';
-import { balanceOf, effectivePrice, isOwned, itemPrice, itemState, type ItemState } from '../progression/shop';
+import { effectivePrice, isOwned, itemPrice, itemState, type ItemState } from '../progression/shop';
 import { resolveEquipped } from '../progression/skins';
 import { skinThumb } from '../render/skinSprites';
 import type { LeaderboardResponse, MeResponse, BalancesResponse } from '../net/protocol';
@@ -42,7 +47,7 @@ export interface SaveNotices {
   load: 'corrupt' | 'future' | null;
 }
 
-export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false, saveNotices: SaveNotices = { storageFailed: false, load: null }, leaderboard = true): string {
+export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false, saveNotices: SaveNotices = { storageFailed: false, load: null }, leaderboard = true, rewards: { claimable: number } | null = null): string {
   const legacy = legacySurvivalBest(save);
   const surv =
     save.survival.bestTime > 0
@@ -72,9 +77,16 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
       : saveNotices.load === 'future'
         ? `<div role="status" class="notice">Cette sauvegarde vient d’une <strong>version plus récente</strong> du jeu : elle est lue au mieux et l’original est conservé à part. Rechargez la page pour obtenir la dernière version. ${button({ action: 'dismiss-save-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
         : '';
-  const rewardNotice = save.rewardNotice
-    ? `<div role="status" class="notice">Récompenses de succès : <strong>+${formatScore(save.rewardNotice.shards)} Éclats</strong> pour ${save.rewardNotice.count} succès. ${button({ action: 'dismiss-reward-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
+  // Rattrapage de l'ancien système (sauvegardes d'avant les succès récompensés) : Éclats déjà versés, information seulement
+  const legacyRewardNotice = save.rewardNotice
+    ? `<div role="status" class="notice">Anciennes récompenses de succès : <strong>+${formatScore(save.rewardNotice.shards)} Éclats</strong> déjà versés pour ${save.rewardNotice.count} succès. ${button({ action: 'dismiss-reward-notice', label: 'Compris', variant: 'secondary', size: 'sm' })}</div>`
     : '';
+  const toClaim = claimableAchievements(save);
+  const claimNotice =
+    toClaim.length > 0
+      ? `<div role="status" class="notice notice--medal"><span>${coin('medals')}<strong>${formatScore(claimableMedals(save))} Médailles</strong> à récupérer (${toClaim.length} succès).</span> ${button({ action: 'achievements', label: 'Récupérer', icon: 'medal', variant: 'primary', size: 'sm' })}</div>`
+      : '';
+  const rewardNotice = legacyRewardNotice + claimNotice;
   const cleared = missionsCleared(save);
   const campaignSub = save.campaign.chapterComplete
     ? `${CHAPTER.place} terminé · ${totalStars(save)}/${maxStars()} étoiles`
@@ -96,12 +108,13 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
       ${saveWarning}
       ${loadWarning}
       ${rewardNotice}
-      ${walletBar(save.wallet)}
+      ${walletBar(save.wallet, { prisms: save.economy.managed })}
       ${button({ action: 'survival', label: 'Survie', sub: surv, icon: 'play', variant: 'primary', size: 'hero' })}
       ${button({ action: 'campaign', label: 'Campagne', sub: campaignSub, icon: 'levels', variant: 'secondary', size: 'row', chevron: true })}
       ${button({ action: 'daily', label: 'Défi quotidien', sub: dailyHint, icon: 'calendar', variant: 'secondary', size: 'row', chevron: true })}
+      ${rewards ? button({ action: 'loyalty', label: 'Récompenses', sub: rewards.claimable > 0 ? `${rewards.claimable} à récupérer` : 'Calendrier de connexion', badge: rewards.claimable > 0 ? String(rewards.claimable) : undefined, icon: 'sparkle', variant: 'secondary', size: 'row', chevron: true }) : ''}
       <div class="btn-row">
-        ${button({ action: 'cosmetics', label: 'Cosmétiques', icon: 'shop', variant: 'secondary', size: 'compact' })}
+        ${button({ action: 'cosmetics', label: 'Boutique', icon: 'shop', variant: 'secondary', size: 'compact' })}
         ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
       </div>
       <div class="btn-row">
@@ -147,7 +160,7 @@ function recordList(rows: { date: string; time: number; score: number }[]): stri
     .join('')}</ul>`;
 }
 
-export function dailyScreen(save: SaveData, today: string): string {
+export function dailyScreen(save: SaveData, today: string, board = ''): string {
   const rec = save.daily[today];
   const past = Object.keys(save.daily)
     .filter((d) => d !== today)
@@ -168,19 +181,21 @@ export function dailyScreen(save: SaveData, today: string): string {
     </div>
     ${past.length ? `<h3 class="section-title">Jours précédents</h3>${recordList(past)}` : ''}
     ${old.length ? `<h3 class="section-title">Ancien équilibrage</h3>${recordList(old)}<p class="small" style="text-align:left;margin-top:6px">Obtenus avant la mise à jour : non comparables aux résultats actuels.</p>` : ''}
-    <p class="small" style="margin-top:14px">Résultats enregistrés sur cet appareil uniquement. Il n’y a pas de classement en ligne.</p>
+    ${board || '<p class="small" style="margin-top:14px">Résultats enregistrés sur cet appareil uniquement. Il n’y a pas de classement en ligne.</p>'}
   </div>`;
 }
 
-// ————————————————————————————————————————————— Cosmétiques (vaisseaux, traînées, packs)
+// ————————————————————————————————————————————— Boutique (cosmétiques en Médailles / Prismes, bonus en Éclats)
 
-export type CosmeticsTab = 'ships' | 'trails' | 'packs';
+export type CosmeticsTab = 'ships' | 'trails' | 'packs' | 'bonus' | 'prisms';
 export type CosmeticsFilter = 'all' | 'owned' | 'locked';
 
-export const COSMETIC_TABS: { id: CosmeticsTab; label: string; kind: ItemKind }[] = [
+export const COSMETIC_TABS: { id: CosmeticsTab; label: string; kind: ItemKind | null }[] = [
   { id: 'ships', label: 'Vaisseaux', kind: 'ship' },
   { id: 'trails', label: 'Traînées', kind: 'trail' },
   { id: 'packs', label: 'Packs', kind: 'pack' },
+  { id: 'bonus', label: 'Bonus', kind: null },
+  { id: 'prisms', label: 'Prismes', kind: null },
 ];
 
 export const COSMETIC_FILTERS: { id: CosmeticsFilter; label: string }[] = [
@@ -226,9 +241,6 @@ function itemBadge(state: ItemState, item: CatalogItem, save?: SaveData): string
   switch (state) {
     case 'equipped': return `<span class="chip chip--equipped">${ICONS.check}Équipé</span>`;
     case 'owned': return '<span class="chip chip--owned">Possédé</span>';
-    case 'achievement': return `<span class="chip chip--locked">${ICONS.lock}Succès requis</span>`;
-    // Premium inactif : aucun prix en Prismes n'est affiché (pas de promesse d'achat), seulement « Bientôt disponible »
-    case 'soon': return '<span class="chip chip--soon">Bientôt disponible</span>';
     default: return p ? price(p.currency, p.amount) : '';
   }
 }
@@ -236,7 +248,7 @@ function itemBadge(state: ItemState, item: CatalogItem, save?: SaveData): string
 function itemCard(save: SaveData, item: CatalogItem, selected: boolean): string {
   const st = itemState(save, item);
   return `<button class="skin item item--${st}${selected ? ' skin--selected' : ''}" data-action="select-item" data-item="${item.id}" aria-pressed="${selected}" aria-label="${escapeHtml(item.name)}">
-    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'achievement' || st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
     <span class="skin__name">${escapeHtml(item.name)}</span>
     <span class="item__badge">${itemBadge(st, item, save)}</span>
   </button>`;
@@ -247,24 +259,22 @@ function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: s
   const p = effectivePrice(save, item);
   switch (st) {
     case 'buy':
-      return { note: '', button: button({ action: 'buy', label: 'Acheter', icon: 'shop', variant: 'primary', attrs: `data-item="${item.id}"` }) };
-    case 'insufficient': {
-      const missing = p ? p.amount - balanceOf(save, p.currency) : 0;
       return {
-        note: p ? `Il vous manque ${formatScore(missing)} ${CURRENCY_NAME[p.currency]}.` : '',
-        button: button({ action: 'buy', label: 'Solde insuffisant', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
+        note: p?.currency === 'prisms' ? 'Le débit des Prismes est effectué en ligne par le service, après votre confirmation.' : '',
+        button: button({ action: 'buy', label: 'Acheter', icon: 'shop', variant: 'primary', attrs: `data-item="${item.id}"` }),
       };
-    }
-    case 'achievement': {
-      const a = item.acquire.type === 'achievement' ? achievementById(item.acquire.id) : undefined;
+    case 'insufficient': {
+      const missing = p ? p.amount - spendable(save, p.currency) : 0;
+      const waiting = p ? provisional(save, p.currency) : 0;
+      const how = p?.currency === 'medals' ? ' Les Médailles se gagnent en récupérant vos succès.' : p?.currency === 'prisms' ? ' Les Prismes sont contrôlés par le service.' : '';
       return {
-        note: a ? `Succès requis : « ${escapeHtml(a.name)} » : ${escapeHtml(a.description)}` : 'Exclusivité d’un succès.',
-        button: button({ action: 'buy', label: 'Succès requis', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
+        note: p ? `Il vous manque ${formatScore(missing)} ${CURRENCY_NAME[p.currency]}.${waiting > 0 ? ` ${formatScore(waiting)} ${CURRENCY_NAME[p.currency]} sont en attente de confirmation par le service (dépensables après la synchronisation).` : ''}${how}` : '',
+        button: button({ action: 'buy', label: p?.currency === 'medals' ? 'Médailles insuffisantes' : 'Solde insuffisant', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
       };
     }
     case 'soon':
       return {
-        note: 'Article premium : bientôt disponible. Aucun achat ni paiement n’est possible dans cette version ; rien n’est débité.',
+        note: 'Article premium : les Prismes ne sont pas encore disponibles dans cette version. Aucun achat n’est possible pour l’instant ; rien n’est débité.',
         button: button({ action: 'buy', label: 'Bientôt disponible', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
       };
     case 'owned':
@@ -288,20 +298,98 @@ function previewOf(save: SaveData, item: CatalogItem): { skin: string; trail: nu
 
 /** Articles d'une catégorie selon le filtre (possédés ou à débloquer). */
 export function cosmeticItems(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter): CatalogItem[] {
-  const kind = COSMETIC_TABS.find((t) => t.id === tab)?.kind ?? 'ship';
+  const kind = COSMETIC_TABS.find((t) => t.id === tab)?.kind;
+  if (!kind) return [];
   return itemsOfKind(kind).filter((i) => (filter === 'all' ? true : filter === 'owned' ? isOwned(save, i.id) : !isOwned(save, i.id)));
 }
 
-/** Menu unique « Cosmétiques » : soldes une seule fois, catégories, filtres, grand aperçu animé, action adaptée. */
-export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string, message: { kind: 'ok' | 'error'; text: string } | null = null): string {
+/** Gains encore à confirmer par le service (information : ils ne sont pas encore dépensables). */
+function waitingNote(save: SaveData): string {
+  if (!save.economy.managed) return '';
+  const bits = (['shards', 'medals'] as const).filter((c) => provisional(save, c) > 0).map((c) => `${formatScore(provisional(save, c))} ${CURRENCY_NAME[c]}`);
+  return bits.length > 0 ? `<p class="small shop-pending" role="status">En attente de confirmation par le service : ${bits.join(' et ')}. Ces montants seront dépensables après la prochaine synchronisation.</p>` : '';
+}
+
+const BONUS_ICON: Record<BonusKind, IconName> = { boost: 'bolt', gel: 'snow' };
+
+/** Règles des bonus, répétées là où l'on achète. */
+export function bonusRules(): string {
+  const effect = BONUS.activationEnabled ? '' : ' Les effets ne sont pas activés dans cette version : vos charges sont conservées.';
+  return `Les charges achetées sont conservées entre les parties et ne disparaissent jamais ; Acheter ne consomme aucune charge. Une charge est consommée à chaque activation réussie ; chaque bonus peut être activé au plus ${BONUS.maxActivationsPerRun} fois pendant la première vie d’une partie de Survie (ce plafond ne limite pas votre stock, au maximum ${BONUS.maxStock} charges par bonus). Boost et Gel ne s’activent pas en même temps. Le <strong>Bouclier</strong> est gratuit : il se charge en collectant ${POWERS.shield.beacons} balises et absorbe un impact. Une partie où vous activez un pouvoir est classée « Avec bonus » ; sans aucune activation, elle reste classée « Sans bonus ».${effect}`;
+}
+
+/** Cartes de bonus : stock, prix, achat par lots (Éclats uniquement). */
+function bonusCards(save: SaveData): string {
+  const prov = chargeProvenance(save);
+  return BONUS_LIST.map((b) => {
+    const stock = bonusStock(save, b.id);
+    const room = BONUS.maxStock - stock;
+    const afford = maxAffordable(save, b.id);
+    const buttons = BONUS.quantities
+      .map((q) => {
+        const ok = q <= afford;
+        return button({
+          action: 'bonus-ask',
+          label: `Acheter × ${q}`,
+          sub: `${formatScore(q * b.price)} Éclats`,
+          icon: 'shop',
+          variant: ok ? 'primary' : 'secondary',
+          size: 'sm',
+          attrs: `data-bonus="${b.id}" data-qty="${q}"${ok ? '' : ' disabled'}`,
+        });
+      })
+      .join('');
+    const state = room <= 0 ? 'Inventaire plein.' : afford <= 0 ? `Éclats insuffisants (il vous en faut ${formatScore(b.price)} par charge${provisional(save, 'shards') > 0 ? ' ; une partie de vos gains attend sa confirmation' : ''}).` : '';
+    const waiting = prov[b.id].provisional > 0 ? `<span class="chip chip--soon">dont ${prov[b.id].provisional} à confirmer</span>` : '';
+    return `<div class="bonus bonus--${b.id}" data-bonus-card="${b.id}">
+      <span class="bonus__icon">${ICONS[BONUS_ICON[b.id]]}</span>
+      <div class="bonus__body">
+        <h4 class="bonus__name">${escapeHtml(b.name)}</h4>
+        <p class="bonus__blurb">${escapeHtml(b.blurb)}</p>
+        <div class="bonus__meta"><span>Possédés : <strong class="bonus__stock" data-stock="${b.id}">${formatScore(stock)}</strong></span>${waiting}<span>${price('shards', b.price)} <span class="small">par charge</span></span></div>
+        <div class="bonus__buy">${buttons}</div>
+        ${state ? `<p class="small">${state}</p>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/** Une grille de cartes d'articles. */
+const itemGrid = (save: SaveData, items: CatalogItem[], selectedId: string, label: string): string =>
+  `<div class="skins" role="group" aria-label="${escapeHtml(label)}">${items.map((i) => itemCard(save, i, i.id === selectedId)).join('')}</div>`;
+
+/** Menu unique « Boutique » : soldes, catégories, filtres, aperçu animé et action adaptée ; cosmétiques en Médailles et premium en Prismes séparés ; Bonus en Éclats. */
+export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string, message: { kind: 'ok' | 'error'; text: string } | null = null, store?: StoreView): string {
+  const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
+  const wallet = walletBar(save.wallet, { prisms: save.economy.managed });
+  const tabBar = tabs(COSMETIC_TABS.map((t) => ({ id: t.id, label: t.label, action: `cat-${t.id}` })), tab);
+  if (tab === 'prisms' && store) {
+    return `<div class="panel panel--wide">${screenHead('Boutique')}
+      ${msg}
+      ${wallet}
+      ${tabBar}
+      ${prismShopHtml(store)}
+    </div>`;
+  }
+  if (tab === 'bonus') {
+    return `<div class="panel panel--wide">${screenHead('Boutique')}
+      ${msg}
+      ${wallet}
+      ${waitingNote(save)}
+      ${tabBar}
+      <h3 class="section-title">${coin('shards')} Bonus · en Éclats</h3>
+      <div class="bonus-list">${bonusCards(save)}</div>
+      <p class="small" style="margin-top:12px">${bonusRules()}</p>
+    </div>`;
+  }
   const items = cosmeticItems(save, tab, filter);
   // Par défaut : l'article équipé de la liste (sinon le premier)
   const sel = items.find((i) => i.id === selectedId) ?? items.find((i) => itemState(save, i) === 'equipped') ?? items[0];
-  const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
-  const head = `${screenHead('Cosmétiques')}
+  const head = `${screenHead('Boutique')}
     ${msg}
-    ${walletBar(save.wallet)}
-    ${tabs(COSMETIC_TABS.map((t) => ({ id: t.id, label: t.label, action: `cat-${t.id}` })), tab)}
+    ${wallet}
+    ${waitingNote(save)}
+    ${tabBar}
     <div class="filters" role="group" aria-label="Filtre">${COSMETIC_FILTERS.map((f) => `<button class="filter${f.id === filter ? ' filter--on' : ''}" data-action="filter-${f.id}" aria-pressed="${f.id === filter}">${f.label}</button>`).join('')}</div>`;
   if (!sel) {
     return `<div class="panel panel--wide">${head}<p class="sub" style="margin:18px 0">${filter === 'owned' ? 'Vous ne possédez encore aucun article dans cette catégorie.' : 'Tout est débloqué dans cette catégorie.'}</p></div>`;
@@ -321,9 +409,13 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
       : '';
   const ownedParts = sel.kind === 'pack' ? (sel.contents ?? []).filter((id) => isOwned(save, id)).length : 0;
   const packNote = ownedParts > 0 && st !== 'owned' ? `<p class="shop-note">Vous possédez déjà ${ownedParts} article${ownedParts > 1 ? 's' : ''} de ce pack : le prix affiché est ajusté, vous ne repayez rien.</p>` : '';
+  const regular = items.filter((i) => !isPremium(i));
+  const premium = items.filter((i) => isPremium(i));
+  const medalGrid = regular.length > 0 ? `<h3 class="section-title">${coin('medals')} En Médailles</h3>${itemGrid(save, regular, sel.id, 'Cosmétiques en Médailles')}` : '';
+  const prismGrid = premium.length > 0 ? `<h3 class="section-title">${coin('prisms')} Premium · en Prismes</h3>${itemGrid(save, premium, sel.id, 'Cosmétiques premium en Prismes')}` : '';
   return `<div class="panel panel--wide">${head}
     <div class="skin-stage">
-      <div class="skin-preview${st === 'achievement' || st === 'soon' ? ' skin-preview--locked' : ''}">
+      <div class="skin-preview${st === 'soon' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
       </div>
       <div class="skin-info">
@@ -332,18 +424,17 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
         <p class="skin-info__cond">${escapeHtml(sel.blurb)}</p>
         ${contents}
         <div class="item__badge item__badge--lg">${itemBadge(st, sel, save)}</div>
-        ${p && (st === 'buy' || st === 'insufficient') ? `<p class="shop-balance">Solde : <strong>${formatScore(balanceOf(save, p.currency))}</strong> ${CURRENCY_NAME[p.currency]}</p>` : ''}
+        ${p && (st === 'buy' || st === 'insufficient') ? `<p class="shop-balance">Disponible : <strong>${formatScore(spendable(save, p.currency))}</strong> ${CURRENCY_NAME[p.currency]}</p>` : ''}
         ${act.note ? `<p class="shop-note" id="item-note">${act.note}</p>` : ''}
         ${packNote}
         ${act.button}
       </div>
     </div>
-    <div class="skins" role="group" aria-label="${COSMETIC_TABS.find((t) => t.id === tab)?.label ?? ''}">${items.map((i) => itemCard(save, i, i.id === sel.id)).join('')}</div>
-    <p class="small" style="margin-top:12px">Purement cosmétiques : mêmes vitesses, mêmes hitboxes et même difficulté dans tous les modes. Les Éclats de la boutique se gagnent en Survie, aux niveaux classiques et avec les succès ; les « Éclats de campagne » sont une réserve séparée qui ne s’échange pas.</p>
+    ${medalGrid}${prismGrid}
+    <p class="small" style="margin-top:12px">Purement cosmétiques : mêmes vitesses, mêmes hitboxes et même difficulté dans tous les modes. Les cosmétiques s’achètent avec des Médailles, gagnées en récupérant vos succès (jamais avec des Éclats) ; les articles premium avec des Prismes. Les Éclats servent aux bonus. Aucune monnaie n’est convertie en une autre ; les « Éclats de campagne » sont une réserve séparée.</p>
   </div>`;
 }
 
-/** Confirmation d'un achat en Éclats : récapitulatif, solde avant / après. */
 /** Motif lisible d'un refus d'achat (rien n'est jamais débité dans ce cas). */
 export function purchaseRefusal(save: SaveData, item: CatalogItem): string {
   const st = itemState(save, item);
@@ -351,34 +442,81 @@ export function purchaseRefusal(save: SaveData, item: CatalogItem): string {
   switch (st) {
     case 'owned':
     case 'equipped': return `${item.name} est déjà possédé : rien n’a été débité.`;
-    case 'insufficient': return p ? `Solde insuffisant pour ${item.name} : il manque ${formatScore(p.amount - balanceOf(save, p.currency))} ${CURRENCY_NAME[p.currency]}. Rien n’a été débité.` : 'Solde insuffisant : rien n’a été débité.';
-    case 'achievement': return `${item.name} est réservé à un succès : il ne s’achète pas.`;
-    case 'soon': return `${item.name} est un article premium, bientôt disponible : aucun achat n’est possible pour l’instant.`;
+    case 'insufficient': return p ? `Solde insuffisant pour ${item.name} : il manque ${formatScore(p.amount - spendable(save, p.currency))} ${CURRENCY_NAME[p.currency]}. Rien n’a été débité.` : 'Solde insuffisant : rien n’a été débité.';
+    case 'soon': return `${item.name} est un article premium : les Prismes ne sont pas encore disponibles, aucun achat n’est possible pour l’instant.`;
     default: return 'Achat impossible : rien n’a été débité.';
   }
 }
 
-/** Confirmation d'un achat en Éclats : récapitulatif, solde avant / après. */
-export function confirmPurchaseScreen(save: SaveData, itemId: string): string {
+/** Confirmation d'un achat de cosmétique (Médailles ou Prismes) : récapitulatif, solde avant / après. */
+export function confirmPurchaseScreen(save: SaveData, itemId: string, busy = false): string {
   const item = catalogItem(itemId);
   const p = item ? effectivePrice(save, item) : null;
   if (!item || !p || itemState(save, item) !== 'buy') {
     return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>
       <p class="sub" role="alert" style="margin:6px 0 14px">${escapeHtml(item ? purchaseRefusal(save, item) : 'Article inconnu : rien n’a été débité.')}</p>
-      ${button({ action: 'back-cosmetics', label: 'Retour aux cosmétiques', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
+      ${button({ action: 'back-cosmetics', label: 'Retour à la boutique', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
   }
-  const bal = balanceOf(save, p.currency);
+  const bal = spendable(save, p.currency);
   return `<div class="panel panel--pause">
     <h2 class="title">Confirmer l’achat</h2>
     <p class="sub" style="margin:4px 0 10px">${KIND_LABEL[item.kind]} ${escapeHtml(item.name)}</p>
     <div class="confirm__thumb">${itemThumb(save, item)}</div>
     <div class="confirm__row"><span>Prix</span>${price(p.currency, p.amount)}</div>
-    <div class="confirm__row"><span>Solde actuel</span><strong>${formatScore(bal)}</strong></div>
+    <div class="confirm__row"><span>Solde disponible</span><strong>${formatScore(bal)}</strong></div>
     <div class="confirm__row"><span>Solde après l’achat</span><strong>${formatScore(Math.max(0, bal - p.amount))}</strong></div>
+    ${p.currency === 'prisms' ? '<p class="small">Les Prismes sont débités par le service, en ligne ; rien n’est débité si la connexion échoue.</p>' : ''}
     <div class="btn-stack" style="margin-top:14px">
-      ${button({ action: 'confirm-buy', label: 'Confirmer l’achat', icon: 'check', variant: 'primary', attrs: `data-item="${item.id}" data-autofocus` })}
+      ${button({ action: 'confirm-buy', label: busy ? 'Achat en cours…' : 'Confirmer l’achat', icon: 'check', variant: 'primary', attrs: `data-item="${item.id}" data-autofocus${busy ? ' disabled' : ''}` })}
       ${button({ action: 'back-cosmetics', label: 'Annuler', variant: 'ghost' })}
     </div>
+  </div>`;
+}
+
+/** Confirmation d'un achat de bonus : récapitulatif, solde d'Éclats avant / après, stock avant / après. */
+export function confirmBonusScreen(save: SaveData, kind: string, quantity: number, back: 'cosmetics' | 'prep'): string {
+  const def = bonusDef(kind);
+  const cost = def ? def.price * quantity : 0;
+  const bal = spendable(save, 'shards');
+  if (!def || !Number.isInteger(quantity) || quantity < 1 || cost > bal || save.inventory[def.id] + quantity > BONUS.maxStock) {
+    return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>
+      <p class="sub" role="alert" style="margin:6px 0 14px">${def ? (save.inventory[def.id] + quantity > BONUS.maxStock ? 'Votre inventaire de ce bonus serait plein.' : `Éclats insuffisants : il vous manque ${formatScore(Math.max(0, cost - bal))} Éclats.`) : 'Bonus inconnu.'} Rien n’a été débité.</p>
+      ${button({ action: 'bonus-back', label: back === 'prep' ? 'Retour à la préparation' : 'Retour à la boutique', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
+  }
+  return `<div class="panel panel--pause">
+    <h2 class="title">Confirmer l’achat</h2>
+    <p class="sub" style="margin:4px 0 10px">${escapeHtml(def.name)} × ${quantity}</p>
+    <div class="confirm__thumb confirm__thumb--bonus">${ICONS[BONUS_ICON[def.id]]}</div>
+    <div class="confirm__row"><span>Prix</span>${price('shards', cost)}</div>
+    <div class="confirm__row"><span>Éclats disponibles</span><strong>${formatScore(bal)}</strong></div>
+    <div class="confirm__row"><span>Éclats restants</span><strong>${formatScore(bal - cost)}</strong></div>
+    <div class="confirm__row"><span>Stock après l’achat</span><strong>${formatScore(save.inventory[def.id])} → ${formatScore(save.inventory[def.id] + quantity)}</strong></div>
+    <p class="small">L’achat ajoute des charges à votre inventaire ; aucune charge n’est utilisée.</p>
+    <div class="btn-stack" style="margin-top:14px">
+      ${button({ action: 'bonus-confirm', label: 'Confirmer l’achat', icon: 'check', variant: 'primary', attrs: `data-bonus="${def.id}" data-qty="${quantity}" data-autofocus` })}
+      ${button({ action: 'bonus-back', label: 'Annuler', variant: 'ghost' })}
+    </div>
+  </div>`;
+}
+
+/**
+ * Préparation d'une partie de SURVIE : stocks de bonus, solde d'Éclats, achats, limite d'activations ; on peut toujours lancer sans aucun bonus.
+ * (Ce n'est pas un mode : la partie lancée est la Survie habituelle.)
+ */
+export function prepScreen(save: SaveData, message: { kind: 'ok' | 'error'; text: string } | null = null, record = ''): string {
+  const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
+  const totalStock = BONUS_LIST.reduce((t, b) => t + save.inventory[b.id], 0);
+  // Le lancement est tout en haut : toujours visible, même sur téléphone ; les bonus sont facultatifs
+  return `<div class="panel panel--wide prep">${screenHead('Préparer la partie')}
+    ${msg}
+    <div class="btn-stack prep__go">
+      ${button({ action: 'survival-start', label: 'Lancer la partie', sub: totalStock > 0 ? 'Vos charges sont conservées' : 'Sans bonus', icon: 'play', variant: 'primary', size: 'hero', attrs: 'data-autofocus' })}
+    </div>
+    <p class="sub prep__intro">Survie${record ? ` · ${escapeHtml(record)}` : ''}. Les bonus ci-dessous sont facultatifs.</p>
+    ${walletBar(save.wallet, { currencies: ['shards'] })}
+    ${waitingNote(save)}
+    <div class="bonus-list">${bonusCards(save)}</div>
+    <p class="small">${bonusRules()}</p>
   </div>`;
 }
 
@@ -389,39 +527,48 @@ function metricText(key: MetricKey, v: number): string {
   return key === 'bestSurvival' || key === 'bestDaily' ? formatTime(v, 0) : formatScore(v);
 }
 
-/** Cosmétiques débloqués par un succès, en texte (« Vaisseau Glace »). */
-function cosmeticRewardText(id: string): string {
-  return achievementCosmetics(id)
-    .map((c) => `${KIND_LABEL[c.kind]} ${escapeHtml(c.name)}`)
-    .join(' · ');
-}
-
-/** Menu Succès : progression, récompense (Éclats, cosmétique) et état de chaque succès, par catégorie. */
-export function achievementsScreen(save: SaveData): string {
+/**
+ * Menu Succès : progression et état de chaque succès, par catégorie. Un succès accompli affiche « Récupérer » (Médailles créditées uniquement à la
+ * réclamation, une seule fois) ; « Tout récupérer » regroupe les réclamations. `justClaimed` : succès à animer (réclamés à l'instant).
+ */
+export function achievementsScreen(save: SaveData, message: { kind: 'ok' | 'error'; text: string } | null = null, justClaimed: readonly string[] = []): string {
   const done = ACHIEVEMENTS.filter((a) => save.achievements[a.id] !== undefined);
-  const earnedShards = done.filter((a) => save.rewarded.includes(a.id)).reduce((t, a) => t + a.shards, 0);
+  const claimable = claimableAchievements(save);
+  const claimedTotal = ACHIEVEMENTS.filter((a) => save.medals.claimed.includes(a.id)).reduce((t, a) => t + a.medals, 0);
+  const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--medal' : ''}">${escapeHtml(message.text)}</div>` : '';
   const sections = ACHIEVEMENT_CATEGORIES.map((cat) => {
     const list = ACHIEVEMENTS.filter((a) => a.category === cat.id);
     const rows = list
       .map((a) => {
         const pr = achievementProgress(save, a);
-        const cosm = cosmeticRewardText(a.id);
-        const reward = `<span class="price price--shards">${coin('shards')}<strong>+${formatScore(a.shards)}</strong><span class="price__l">${CURRENCY_NAME.shards}</span></span>${cosm ? `<span class="chip chip--owned">${cosm}</span>` : ''}`;
+        const can = isClaimable(save, a.id);
+        const reward = `<span class="price price--medals">${coin('medals')}<strong>+${formatScore(a.medals)}</strong><span class="price__l">${CURRENCY_NAME.medals}</span></span>`;
         const state = pr.earned
-          ? `<span class="chip chip--equipped">${ICONS.check}Obtenu${pr.rewarded ? ' · récompense reçue' : ''}</span>`
+          ? `<span class="chip chip--equipped">${ICONS.check}Obtenu</span>${pr.claimed ? '<span class="chip chip--owned">Médailles récupérées</span>' : ''}`
           : `<div class="ach__bar" role="progressbar" aria-valuemin="0" aria-valuemax="${a.target}" aria-valuenow="${Math.floor(pr.value)}"><i style="width:${Math.round(pr.ratio * 100)}%"></i></div><span class="ach__n">${metricText(a.metric, pr.value)} / ${metricText(a.metric, a.target)}</span>`;
-        return `<div class="ach${pr.earned ? ' ach--done' : ''}"><div class="ach__medal">${pr.earned ? ICONS.star : ICONS.lock}</div>
+        const claim = can ? button({ action: 'claim-medal', label: 'Récupérer', icon: 'medal', variant: 'primary', size: 'sm', attrs: `data-ach="${a.id}" aria-label="Récupérer ${a.medals} Médailles : ${escapeHtml(a.name)}"` }) : '';
+        const cls = `ach${pr.earned ? ' ach--done' : ''}${can ? ' ach--claimable' : ''}${justClaimed.includes(a.id) ? ' ach--just-claimed' : ''}`;
+        return `<div class="${cls}" data-ach-row="${a.id}"><div class="ach__medal">${pr.earned ? ICONS.medal : ICONS.lock}</div>
           <div class="ach__body"><div class="ach__t">${escapeHtml(a.name)}<span class="sr-only">${pr.earned ? ' — obtenu' : ' — à débloquer'}</span></div>
           <div class="ach__d">${escapeHtml(a.description)}</div>
           <div class="ach__state">${state}</div>
-          <div class="ach__reward">${reward}</div></div></div>`;
+          <div class="ach__reward">${reward}${claim}</div></div></div>`;
       })
       .join('');
     const n = list.filter((a) => save.achievements[a.id] !== undefined).length;
     return `<h3 class="section-title">${cat.label} <span class="section-count">${n}/${list.length}</span></h3>${rows}`;
   }).join('');
+  const claimAll =
+    claimable.length > 0
+      ? `<div class="ach__all">${button({ action: 'claim-all', label: `Tout récupérer (${formatScore(claimableMedals(save))} Médailles)`, icon: 'medal', variant: 'primary', attrs: 'data-autofocus' })}</div>`
+      : '';
   return `<div class="panel panel--wide">${screenHead('Succès')}
-    <div class="stats">${stat('Succès obtenus', `${done.length} / ${ACHIEVEMENTS.length}`, done.length === ACHIEVEMENTS.length)}${stat('Éclats gagnés', formatScore(earnedShards), false)}</div>
+    ${msg}
+    ${walletBar(save.wallet, { currencies: ['medals'] })}
+    ${waitingNote(save)}
+    <div class="stats">${stat('Succès obtenus', `${done.length} / ${ACHIEVEMENTS.length}`, done.length === ACHIEVEMENTS.length)}${stat('Médailles récupérées', formatScore(claimedTotal), false)}</div>
+    ${claimAll}
+    <p class="small">Les Médailles servent aux cosmétiques de la boutique ; elles ne s’achètent pas et ne s’obtiennent qu’une fois par succès, en les récupérant ici.</p>
     ${sections}
   </div>`;
 }
@@ -441,7 +588,11 @@ export interface LeaderboardView {
   balances: BalancesResponse | null;
   /** Version d'équilibrage affichée. */
   balance: number;
+  /** Classement affiché : « Sans bonus » (aucune activation de Boost, Gel ou Bouclier en première vie) ou « Avec bonus ». */
+  category: 'plain' | 'bonus';
   pending: PendingRun[];
+  /** Résultats en attente appartenant à un autre profil de cet appareil (conservés, envoyés à sa reconnexion). */
+  foreignPending?: number;
   /** Message sur le dernier pseudo saisi (erreur ou confirmation). */
   nickMessage: string | null;
   /** Résultat de Survie local (record actuel). */
@@ -459,7 +610,7 @@ function pendingRow(p: PendingRun): string {
   let label: string;
   let cls: string;
   if (p.status === 'accepted') {
-    label = `Validé par le serveur${p.result ? ` — rang ${p.result.rank}${p.result.personalBest ? ' (nouveau meilleur)' : ''}` : ''}`;
+    label = `Validé par le serveur${p.result ? ` — ${p.result.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'}, rang ${p.result.rank}${p.result.personalBest ? ' (nouveau meilleur)' : ''}` : ''}`;
     cls = 'lb-pending--ok';
   } else if (p.status === 'rejected') {
     label = `Non validé — ${p.message ?? 'refusé par le serveur'}`;
@@ -474,6 +625,7 @@ function pendingRow(p: PendingRun): string {
 export function leaderboardScreen(v: LeaderboardView): string {
   const head = screenHead('Classement');
   const rules = `<p class="small" style="margin-top:12px">Survie, version d’équilibrage ${v.balance}. Critère principal : durée de survie ; le score départage. Seules les parties <strong>rejouées et validées par le serveur</strong> sont classées ; les parties de démonstration ou de test n’en font jamais partie.</p>
+    <p class="small"><strong>Sans bonus</strong> : aucune activation de Boost, Gel ou Bouclier pendant la première vie (c’est le classement historique). <strong>Avec bonus</strong> : au moins un pouvoir activé avec succès. Seule la <strong>première vie</strong> compte : une reprise (deuxième ou troisième chance) n’est jamais classée et ne change jamais votre record.</p>
     <p class="small">Votre profil de classement (pseudo et identifiant) est enregistré dans <strong>ce navigateur</strong> : un autre navigateur, un autre appareil ou une version installée du jeu aura un autre profil. Hors connexion, le jeu reste jouable et vos résultats sont envoyés plus tard.</p>`;
   const local = v.localBest ? `<div class="stats">${stat('Votre record sur cet appareil', formatTime(v.localBest.time))}${stat('Score associé', formatScore(v.localBest.score))}</div>` : '';
   if (!v.configured) {
@@ -510,10 +662,14 @@ export function leaderboardScreen(v: LeaderboardView): string {
           : button({ action: 'lb-delete-ask', label: 'Supprimer mon profil du classement', icon: 'trash', variant: 'ghost', size: 'sm' })
       }`
     : '';
+  const catName = v.category === 'bonus' ? 'Avec bonus' : 'Sans bonus';
+  const tabs = `<div class="filters" role="tablist" aria-label="Classement">${(['plain', 'bonus'] as const)
+    .map((c) => `<button class="filter${c === v.category ? ' filter--on' : ''}" role="tab" data-action="lb-category" data-category="${c}" aria-selected="${c === v.category}">${c === 'bonus' ? 'Avec bonus' : 'Sans bonus'}</button>`)
+    .join('')}</div>`;
   const me = v.me
     ? v.me.best
-      ? `<div class="stats">${stat('Votre rang', `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
-      : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé pour la version ${v.balance} : jouez une partie de Survie.</p>`
+      ? `<div class="stats">${stat(`Votre rang · ${catName}`, `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
+      : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé « ${catName} » pour la version ${v.balance} : jouez une partie de Survie${v.category === 'bonus' ? ' en activant un pouvoir' : ' sans activer de pouvoir'}.</p>`
     : '';
   const versions =
     v.balances && v.balances.versions.length > 0
@@ -525,7 +681,7 @@ export function leaderboardScreen(v: LeaderboardView): string {
   let table: string;
   if (v.loading) table = '<p class="sub" role="status" style="margin:16px 0">Chargement du classement…</p>';
   else if (v.error) table = `<div role="alert" class="notice">Classement indisponible : ${escapeHtml(v.error)} ${button({ action: 'lb-refresh', label: 'Réessayer', variant: 'secondary', size: 'sm' })}</div>`;
-  else if (!v.top || v.top.entries.length === 0) table = '<p class="sub" style="margin:16px 0">Aucun résultat validé pour cette version pour le moment.</p>';
+  else if (!v.top || v.top.entries.length === 0) table = `<p class="sub" style="margin:16px 0">Aucun résultat validé « ${catName} » pour cette version pour le moment.</p>`;
   else {
     table = `<div class="lb-table" role="table" aria-label="Top ${v.top.entries.length}">
       <div class="lb-row lb-row--head" role="row"><span role="columnheader">#</span><span role="columnheader">Pseudo</span><span role="columnheader">Durée</span><span role="columnheader">Score</span></div>
@@ -538,8 +694,9 @@ export function leaderboardScreen(v: LeaderboardView): string {
         v.pending.some((p) => p.status === 'pending') ? button({ action: 'lb-flush', label: 'Envoyer maintenant', icon: 'replay', variant: 'secondary', size: 'sm' }) : button({ action: 'lb-clear', label: 'Effacer la liste', variant: 'ghost', size: 'sm' })
       }`
     : '';
+  const foreign = v.foreignPending ? `<p class="small">${v.foreignPending} résultat${v.foreignPending > 1 ? 's' : ''} en attente d’un autre profil de cet appareil : conservé${v.foreignPending > 1 ? 's' : ''}, envoyé${v.foreignPending > 1 ? 's' : ''} quand ce profil se reconnecte.</p>` : '';
   return `<div class="panel panel--wide">${head}
-    ${lost}${identity}${msg}${me}${versions}${table}${pending}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
+    ${lost}${identity}${msg}${tabs}${me}${versions}${table}${pending}${foreign}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
   </div>`;
 }
 
@@ -551,7 +708,10 @@ export type RunLbStatus =
   | { kind: 'assisted' }
   | { kind: 'sending' }
   | { kind: 'pending'; offline: boolean }
-  | { kind: 'accepted'; rank: number; best: boolean }
+  | { kind: 'accepted'; rank: number; best: boolean; category?: 'plain' | 'bonus'; /** Drop rare : Prisme crédité par le service. */ drop?: number }
+  /** Défi quotidien : tentative non démarrée en ligne (résultat local seulement) ou acceptée par le service. */
+  | { kind: 'daily-local' }
+  | { kind: 'daily-accepted'; rank: number; eligible: boolean; late: boolean; state: 'open' | 'grace' | 'final' }
   | { kind: 'rejected'; message: string };
 
 export function runLbStatusHtml(st: RunLbStatus): string {
@@ -562,9 +722,80 @@ export function runLbStatusHtml(st: RunLbStatus): string {
     case 'assisted': return '<p class="lb-status lb-status--info">Classement mondial : partie de démonstration ou de test, non éligible.</p>';
     case 'sending': return '<p class="lb-status lb-status--wait" role="status">Classement mondial : envoi et validation en cours…</p>';
     case 'pending': return `<p class="lb-status lb-status--wait" role="status">Classement mondial : <strong>en attente</strong> — ${st.offline ? 'hors connexion, nouvel essai automatique' : 'à envoyer'} (pas encore validé).</p>`;
-    case 'accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial : <strong>validé</strong> — rang ${st.rank}${st.best ? ' (nouveau meilleur résultat)' : ' (votre meilleur reste en place)'}.</p>`;
+    case 'accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial : <strong>validé</strong>${st.category ? ` (classement ${st.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'})` : ''} — rang ${st.rank}${st.best ? ' (nouveau meilleur résultat)' : ' (votre meilleur reste en place)'}.${st.drop ? ` <span class="lb-drop">✦ Prisme trouvé : <strong>+${st.drop}</strong>, crédité et confirmé par le service.</span>` : ''}</p>`;
+    case 'daily-local': return '<p class="lb-status lb-status--info">Classement mondial du défi : tentative non démarrée en ligne, résultat conservé sur cet appareil seulement (le service doit connaître l’heure de début).</p>';
+    case 'daily-accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial du défi : <strong>validé</strong>${st.late ? ' (envoi tardif accepté)' : ''} — ${st.eligible ? `rang ${st.rank}${st.state === 'final' ? ' (définitif)' : ' (provisoire jusqu’à 00 h 15 UTC)'}` : 'enregistré, mais non classé : choisissez un pseudo dans le menu Classement'}.</p>`;
     case 'rejected': return `<p class="lb-status lb-status--bad" role="alert">Classement mondial : <strong>non validé</strong> — ${escapeHtml(st.message)}</p>`;
   }
+}
+
+// ————————————————————————————————————————————— Reprise (deuxième / troisième chance)
+
+export interface ReviveView {
+  /** Vie proposée : 2 ou 3. */
+  life: 2 | 3;
+  /** Résultat CLASSÉ de la première vie (figé à la première mort). */
+  time: number;
+  score: number;
+  category: 'plain' | 'bonus';
+  /** Publicité récompensée (deuxième chance seulement) : disponible seulement si un fournisseur réel est enregistré et prêt. */
+  ad: { offered: boolean; available: boolean; /** Fournisseur présent mais aucune publicité prête : l'option n'est pas montrée. */ hidden?: boolean; /** Explication affichée quand l'option est indisponible. */ reason?: string };
+  prisms: { price: number; balance: number | null; /** Raison pour laquelle le paiement est impossible maintenant (null = possible). */ blocked: string | null };
+  busy: boolean;
+  /** Confirmation avant de dépenser des Prismes (affichée à la place des choix). */
+  confirm?: boolean;
+  message: { kind: 'ok' | 'error'; text: string } | null;
+  lb: RunLbStatus;
+}
+
+/**
+ * Écran de reprise : propose une chance supplémentaire (facultative). Le résultat classé est déjà enregistré ; la suite est une survie libre non
+ * classée. La publicité n'est proposée que si un vrai fournisseur est prêt ; le paiement en Prismes est vérifié et débité par le service.
+ */
+export function reviveScreen(v: ReviveView): string {
+  const ordinal = v.life === 2 ? 'Deuxième' : 'Troisième';
+  const msg = v.message ? `<div role="${v.message.kind === 'error' ? 'alert' : 'status'}" class="notice${v.message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(v.message.text)}</div>` : '';
+  const ad = v.ad.offered && !v.ad.hidden
+    ? button({ action: 'revive-ad', label: 'Regarder une publicité', sub: v.ad.available ? 'Reprendre gratuitement' : v.ad.reason ?? 'Indisponible dans cette version', icon: 'play', variant: 'secondary', attrs: v.ad.available && !v.busy ? '' : 'disabled' })
+    : '';
+  if (v.confirm) {
+    const left = v.prisms.balance !== null ? v.prisms.balance - v.prisms.price : null;
+    return `<div class="panel panel--pause revive">
+      <h2 class="title title--cyan">Confirmer la dépense</h2>
+      <div class="confirm">
+        <div class="confirm__row"><span>${ordinal} chance</span><strong>${v.prisms.price} Prismes</strong></div>
+        ${v.prisms.balance !== null ? `<div class="confirm__row"><span>Solde confirmé</span><strong>${formatScore(v.prisms.balance)} → ${formatScore(Math.max(0, left ?? 0))}</strong></div>` : ''}
+      </div>
+      <p class="small">Les Prismes sont débités par le service, une seule fois pour cette reprise. La suite est une survie libre, non classée ; votre résultat classé reste enregistré.</p>
+      ${msg}
+      <div class="btn-stack" style="margin-top:14px">
+        ${button({ action: 'revive-prisms-confirm', label: `Dépenser ${v.prisms.price} Prismes`, icon: 'check', variant: 'primary', attrs: v.busy ? 'disabled' : 'data-autofocus' })}
+        ${button({ action: 'revive-prisms-back', label: 'Retour', variant: 'ghost', attrs: v.busy ? 'disabled' : '' })}
+      </div>
+      ${v.busy ? '<p class="small" role="status">Paiement en cours de vérification par le service… Aucune reprise n’est accordée tant qu’il n’est pas confirmé.</p>' : ''}
+    </div>`;
+  }
+  const pay = button({
+    action: 'revive-prisms',
+    label: `Reprendre — ${v.prisms.price} Prismes`,
+    sub: v.prisms.blocked ?? (v.prisms.balance !== null ? `Solde confirmé : ${formatScore(v.prisms.balance)} Prismes` : 'Paiement vérifié par le service'),
+    icon: 'play',
+    variant: 'primary',
+    attrs: `${v.prisms.blocked || v.busy ? 'disabled' : 'data-autofocus'}`,
+  });
+  return `<div class="panel panel--pause revive">
+    <h2 class="title title--cyan">${ordinal} chance</h2>
+    <p class="sub">Votre résultat classé est enregistré : <strong>${formatTime(v.time)}</strong> · ${formatScore(v.score)} points · ${v.category === 'bonus' ? 'classement Avec bonus' : 'classement Sans bonus'}.</p>
+    <div id="lb-status">${runLbStatusHtml(v.lb)}</div>
+    ${msg}
+    <p class="small">La suite est une <strong>survie libre</strong> : non classée, sans Éclats, sans progression de succès. Boost et Gel y sont gratuits, avec leurs temps de recharge, et vous restez invulnérable 3 secondes après la reprise.</p>
+    <div class="btn-stack">
+      ${ad}
+      ${pay}
+      ${button({ action: 'revive-decline', label: 'Terminer la partie', icon: 'home', variant: 'ghost', attrs: v.busy ? 'disabled' : '' })}
+    </div>
+    ${v.busy ? '<p class="small" role="status">Paiement en cours de vérification par le service… Aucune reprise n’est accordée tant qu’il n’est pas confirmé.</p>' : ''}
+  </div>`;
 }
 
 // ————————————————————————————————————————————— Options
@@ -581,7 +812,7 @@ export function visualIntensityLabel(v: number): string {
   return v <= 0 ? 'Ciel étoilé seul' : `Ambiance de la Survie : ${Math.round(v * 100)} %`;
 }
 
-export function optionsScreen(save: SaveData): string {
+export function optionsScreen(save: SaveData, accountEnabled = false): string {
   const o = save.options;
   const pct = (v: number): string => `${Math.round(v * 100)} %`;
   return `<div class="panel">${screenHead('Options')}
@@ -593,7 +824,9 @@ export function optionsScreen(save: SaveData): string {
     ${setting('leaf', 'Effets réduits', 'Sans secousses, flash, traînées ni animations décoratives', switchButton('opt-fx', 'toggle-fx', o.reducedEffects, 'Effets réduits'))}
     ${setting('help', 'Astuce de départ', 'Réafficher l’explication des commandes', button({ action: 'reset-tutorial', label: 'Réafficher', variant: 'secondary', size: 'sm' }))}
     <h3 class="section-title">Sauvegarde et données</h3>
+    ${accountEnabled ? `${setting('shop', 'Compte et synchronisation', 'Retrouver votre progression sur un autre appareil (facultatif)', button({ action: 'account', label: 'Ouvrir', variant: 'secondary', size: 'sm' }))}<p class="small">Sans compte, votre progression reste <strong>sur cet appareil</strong> (aucune synchronisation).</p>` : ''}
     <p class="small">Votre progression (niveaux, campagne, Éclats, cosmétiques, succès, records) est enregistrée <strong>dans ce navigateur, sur cet appareil</strong>. Elle n’est pas synchronisée automatiquement avec un autre appareil, un autre navigateur ni une version installée (application native) du jeu. Vider les données du site ou passer en navigation privée l’efface. Le profil du classement mondial est lui aussi lié à ce navigateur.</p>
+    ${accountEnabled ? `<h3 class="section-title">Achats, publicités et confidentialité</h3>${privacyHtml()}` : ''}
     ${button({ action: 'ask-reset', label: 'Effacer toute la progression…', icon: 'trash', variant: 'danger' })}
     <p class="small" style="margin-top:14px">Sauvegarde locale (cet appareil, ce navigateur). ${escapeHtml(GAME_NAME)} v${__APP_VERSION__} · version ${__BUILD_ID__}</p>
   </div>`;
@@ -629,12 +862,9 @@ export function pauseScreen(modeLabel: string, campaign = false): string {
 // ————————————————————————————————————————————— Résultat
 
 function achievementsNotice(report: RunReport): string {
-  return report.achievements
-    .map((a) => {
-      const cosm = cosmeticRewardText(a.id);
-      return notice(`Succès : <strong>${escapeHtml(a.name)}</strong> — <strong>+${formatScore(a.shards)} Éclats</strong>${cosm ? ` · ${cosm} débloqué` : ''}`);
-    })
-    .join('');
+  if (report.achievements.length === 0) return '';
+  const rows = report.achievements.map((a) => notice(`Succès : <strong>${escapeHtml(a.name)}</strong> — <span class="price price--medals">${coin('medals')}<strong>+${formatScore(a.medals)}</strong> Médailles à récupérer</span>`));
+  return rows.join('') + `<div class="btn-row">${button({ action: 'achievements', label: 'Récupérer mes Médailles', icon: 'medal', variant: 'secondary', size: 'sm' })}</div>`;
 }
 
 /**
@@ -712,7 +942,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean, lb: RunLb
     : '<h2 class="title title--coral">Collision</h2>';
   return `<div class="panel">
     ${heading}
-    <p class="sub">${isDaily && r.date ? `Défi du ${escapeHtml(formatDateFr(r.date))} (UTC)` : 'Survie'}</p>
+    <p class="sub">${isDaily && r.date ? `Défi du ${escapeHtml(formatDateFr(r.date))} (UTC)` : r.category ? `Survie · ${r.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'}` : 'Survie'}</p>
     <div class="result__hero${report.newRecord ? ' result__hero--gold' : ''}">${formatTime(r.time)}</div>
     <p class="result__score">score<strong>${formatScore(r.score)}</strong></p>
     <div class="stats">
@@ -720,6 +950,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean, lb: RunLb
       ${stat('Écart avec le record précédent', report.previousBestTime > 0 ? formatDelta(diff) : '—')}
     </div>
     <div id="lb-status">${runLbStatusHtml(lb)}</div>
+    ${r.free ? `<p class="small" role="status">Survie libre après reprise (non classée, sans gain ni progression) : <strong>${formatTime(r.free.time)}</strong> · ${formatScore(r.free.score)} points · ${r.free.lives} vies utilisées.</p>` : ''}
     ${rewardsBlock(report)}
     ${report.legacyBestTime > 0 ? `<p class="small" style="margin-top:8px">Ancien équilibrage : ${formatTime(report.legacyBestTime)} (non comparable)</p>` : ''}
     ${achievementsNotice(report)}

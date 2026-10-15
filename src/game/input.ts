@@ -14,6 +14,8 @@ export interface InputHandlers {
   inGame(): boolean;
   /** Première interaction : autorise l'audio. */
   firstInteraction(): void;
+  /** Raccourci clavier d'un pouvoir (B, G, S) : jamais une inversion. */
+  power?(key: string): void;
 }
 
 export class InputController {
@@ -55,6 +57,11 @@ export class InputController {
     if (e.code === 'Escape' || e.code === 'KeyP') {
       if (e.repeat) return;
       this.h.pauseKey();
+      return;
+    }
+    // Pouvoirs : une lettre, sans modificateur ; ne touche ni à l'Espace, ni à Échap, ni à P
+    if (this.h.power && this.h.inGame() && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
+      this.h.power(e.key.toLowerCase());
     }
   };
 

@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createApp } from './app';
+import { mailerFromEnv } from './mailer';
 import { openDb } from './db';
 import { checkOrigins, createHttpServer } from './http';
 
@@ -14,6 +15,11 @@ import { checkOrigins, createHttpServer } from './http';
  *   REQUIRE_HTTPS     « 1 » : refuser toute requête arrivée en clair (exige TRUST_PROXY ≥ 1 ; en production : toujours 1)
  *   BLOCKED_WORDS     mots interdits supplémentaires dans les pseudos (séparés par des virgules)
  *   MAX_REPLAYS_PER_MINUTE   plafond global de rejeux (défaut 30)
+ * Comptes (facultatifs ; chaque méthode reste DÉSACTIVÉE tant que sa configuration est absente — voir docs/COMPTES.md) :
+ *   GOOGLE_CLIENT_IDS / GOOGLE_WEB_CLIENT_ID   identifiants clients OAuth Google acceptés (web, Android, iOS) et identifiant « web » exposé au navigateur
+ *   APPLE_CLIENT_IDS / APPLE_WEB_CLIENT_ID     identifiants Apple acceptés (service web, application iOS) et identifiant de service exposé
+ *   RESEND_API_KEY + MAIL_FROM                 service d'envoi des liens magiques par courriel (secrets : jamais dans le jeu)
+ *   APP_PUBLIC_URL                             adresse publique du jeu (lien du courriel), ex. https://utilisateur.github.io/Polarity/
  * Aucune route d'administration HTTP : la modération se fait en ligne de commande sur la machine (server/admin.ts).
  */
 const fail = (msg: string): never => {
@@ -40,10 +46,67 @@ if (originProblems.length > 0) fail(originProblems.join(' ; '));
 
 mkdirSync(dirname(dbPath), { recursive: true });
 const db = openDb(dbPath);
-const app = createApp(db, { ticketSecret: secret, blockedWords: blocked, limits: { replaysPerMinute: Number.isFinite(maxReplays) && maxReplays > 0 ? maxReplays : 30 } });
+const list = (v: string | undefined): string[] => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+const googleIds = list(process.env.GOOGLE_CLIENT_IDS);
+const appleIds = list(process.env.APPLE_CLIENT_IDS);
+const mailer = mailerFromEnv(process.env);
+const appUrl = process.env.APP_PUBLIC_URL?.trim();
+if (appUrl && !/^https:\/\//i.test(appUrl) && !/^http:\/\/(localhost|127\.0\.0\.1)/i.test(appUrl)) fail('APP_PUBLIC_URL doit être en https.');
+// Achats réels et publicités récompensées (phase 5) : chaque fournisseur n'est ACTIVÉ que si TOUS ses identifiants sont présents (sinon désactivé, jamais de succès fictif)
+const env = (k: string): string => process.env[k]?.trim() ?? '';
+const pem = (v: string): string => v.replace(/\\n/g, '\n');
+const applePay =
+  env('APPLE_IAP_ISSUER_ID') && env('APPLE_IAP_KEY_ID') && env('APPLE_IAP_PRIVATE_KEY') && env('APPLE_BUNDLE_ID')
+    ? { issuerId: env('APPLE_IAP_ISSUER_ID'), keyId: env('APPLE_IAP_KEY_ID'), privateKey: pem(env('APPLE_IAP_PRIVATE_KEY')), bundleId: env('APPLE_BUNDLE_ID'), acceptSandbox: env('APPLE_IAP_ACCEPT_SANDBOX') === '1' }
+    : undefined;
+let googlePay: { packageName: string; clientEmail: string; privateKey: string; acceptTestPurchases: boolean } | undefined;
+try {
+  const raw = env('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON');
+  const sa = raw ? (JSON.parse(raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8')) as { client_email?: string; private_key?: string }) : null;
+  if (env('GOOGLE_PLAY_PACKAGE_NAME') && sa?.client_email && sa.private_key) googlePay = { packageName: env('GOOGLE_PLAY_PACKAGE_NAME'), clientEmail: sa.client_email, privateKey: sa.private_key, acceptTestPurchases: env('GOOGLE_PLAY_ACCEPT_TEST') === '1' };
+} catch {
+  console.error('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON illisible : achats Google Play désactivés.');
+}
+const adUnits = list(process.env.ADMOB_AD_UNIT_IDS);
+const app = createApp(db, {
+  payments: { apple: applePay, google: googlePay, playNotifyToken: env('PLAY_NOTIFY_TOKEN') || undefined, playNotifyOidc: env('PLAY_NOTIFY_AUDIENCE') && env('PLAY_NOTIFY_SERVICE_ACCOUNT_EMAIL') ? { audience: env('PLAY_NOTIFY_AUDIENCE'), email: env('PLAY_NOTIFY_SERVICE_ACCOUNT_EMAIL') } : undefined, ads: adUnits.length > 0 ? { adUnits } : undefined },
+  ticketSecret: secret,
+  blockedWords: blocked,
+  limits: { replaysPerMinute: Number.isFinite(maxReplays) && maxReplays > 0 ? maxReplays : 30 },
+  accounts: {
+    google: googleIds.length > 0 ? { audiences: googleIds, web: process.env.GOOGLE_WEB_CLIENT_ID?.trim() || googleIds[0] } : undefined,
+    apple: appleIds.length > 0 ? { audiences: appleIds, web: process.env.APPLE_WEB_CLIENT_ID?.trim() || appleIds[0] } : undefined,
+    mailer,
+    appUrl,
+  },
+});
+// Clôture des défis quotidiens (00 h 15 UTC) : au démarrage (createApp) puis chaque minute ; une panne n'en perd aucune
+setInterval(() => {
+  try {
+    app.tick(true);
+  } catch (e) {
+    console.error('Clôture des défis quotidiens :', e);
+  }
+}, 60_000).unref();
+// Réconciliation des remboursements avec Apple / Google : 20 s après le démarrage puis toutes les 15 minutes (les notifications ne sont qu'un déclencheur : elles peuvent se perdre)
+const reconcileNow = (): void => {
+  app.reconcile().then(
+    (r) => {
+      if (r.google.error || r.apple.error) console.error('Réconciliation des paiements incomplète :', JSON.stringify({ google: r.google.error, apple: r.apple.error }));
+      else if (r.google.refunded + r.apple.refunded > 0) console.log(`Réconciliation : ${r.google.refunded + r.apple.refunded} remboursement(s) appliqué(s).`);
+    },
+    (e) => console.error('Réconciliation des paiements :', e),
+  );
+};
+if (applePay || googlePay) {
+  setTimeout(reconcileNow, 20_000).unref();
+  setInterval(reconcileNow, 15 * 60_000).unref();
+}
 const server = createHttpServer(app, { allowedOrigins: allowed, trustProxy, requireHttps });
 
 server.listen(port, host, () => {
+  console.log(`Achats : Apple ${applePay ? 'activé' : 'désactivé'}, Google Play ${googlePay ? 'activé' : 'désactivé'}, web désactivé (aucun prestataire), publicité récompensée ${adUnits.length > 0 ? 'activée' : 'désactivée'}`);
+  console.log(`Comptes : Google ${googleIds.length > 0 ? 'activé' : 'désactivé'}, Apple ${appleIds.length > 0 ? 'activé' : 'désactivé'}, courriel ${mailer ? 'activé' : 'désactivé'}`);
   console.log(`Classement : écoute sur ${host}:${port} (base : ${dbPath}, origines : ${allowed.join(', ') || 'aucune'}, https exigé : ${requireHttps ? 'oui' : 'non'}, proxys de confiance : ${trustProxy})`);
 });
 

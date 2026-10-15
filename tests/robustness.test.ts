@@ -10,7 +10,7 @@ import { SKINS } from '../src/config/skins';
 import { STORY } from '../src/config/story';
 import { WALLET_MAX } from '../src/config/economy';
 import { NullPaymentProvider, setPaymentProvider } from '../src/monetization/payments';
-import { ACHIEVEMENTS, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
+import { ACHIEVEMENTS, claimMedals, claimableMedals, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
 import { applyRun, type RunSummary } from '../src/progression/progress';
 import { effectivePrice, equip, isOwned, itemState, purchase } from '../src/progression/shop';
 import { BACKUP_PREFIX, BALANCE_BACKUP_PREFIX, BrowserStore, CORRUPT_KEY, MemoryStore, SAVE_KEY, SAVE_VERSION, defaultSave, eraseAll, loadSave, parseSave, resetProgress, sanitize, writeSave, type SaveData } from '../src/save/save';
@@ -21,9 +21,10 @@ import { optionsScreen } from '../src/ui/screens';
 afterEach(() => setPaymentProvider(new NullPaymentProvider()));
 
 const surv = (time: number, extra: Partial<RunSummary> = {}): RunSummary => ({ mode: 'survival', time, score: 1000, cycles: 0, bestMultiplier: 1, outcome: 'dead', ...extra });
-const rich = (shards: number): SaveData => {
+/** Sauvegarde avec des Médailles (les cosmétiques non premium s'achètent uniquement avec des Médailles). */
+const rich = (medals: number): SaveData => {
   const s = defaultSave();
-  s.wallet.shards = shards;
+  s.wallet.medals = medals;
   return s;
 };
 /** Deux « onglets » : copies indépendantes de la même sauvegarde enregistrée. */
@@ -44,7 +45,8 @@ describe('succès : conditions exactes', () => {
     expect(by('stars_18').target).toBeLessThan(by('stars_36').target);
     for (const a of ACHIEVEMENTS) {
       expect(a.target, a.id).toBeGreaterThan(0);
-      expect(a.shards, a.id).toBeGreaterThan(0);
+      expect(a.medals, a.id).toBeGreaterThan(0);
+      expect(a.legacyShards, a.id).toBeGreaterThan(0);
       expect(a.description.length, a.id).toBeGreaterThan(10);
     }
   });
@@ -70,70 +72,84 @@ describe('succès : conditions exactes', () => {
   });
 });
 
-describe('succès : récompense unique', () => {
-  it('rechargement, relances et appels répétés : le solde ne bouge pas', () => {
+describe('succès : Médailles réclamées une seule fois', () => {
+  it('rechargement, relances et appels répétés : aucun versement, le registre des Médailles ne bouge pas', () => {
     const store = new MemoryStore();
     const save = defaultSave();
     const rep = applyRun(save, surv(65, { cycles: 1 }));
+    expect(rep.achievementMedals).toBeGreaterThan(0);
+    expect(claimMedals(save, 'survive_60').ok).toBe(true);
     writeSave(store, save);
-    const paid = save.wallet.shards;
-    expect(paid).toBe(rep.achievementShards);
+    const claimed = [...save.medals.claimed];
     for (let i = 0; i < 5; i++) {
       const again = loadSave(store).data;
       expect(reconcileAchievements(again)).toEqual([]);
       expect(unlockAchievements(again, undefined, i)).toEqual([]);
-      expect(again.wallet.shards).toBe(paid);
-      expect(again.rewardNotice).toBeNull();
+      expect(again.wallet).toEqual(save.wallet);
+      expect(again.medals.claimed).toEqual(claimed);
+      expect(claimMedals(again, 'survive_60')).toEqual({ ok: false, reason: 'already' });
     }
   });
 
-  it('deux onglets : après adoption de la sauvegarde de l’autre, le même succès n’est pas payé deux fois', () => {
+  it('deux onglets : après adoption de la sauvegarde de l’autre, la même réclamation n’est pas payée deux fois', () => {
     const [a, b] = twoTabs(defaultSave());
     applyRun(a, surv(65));
+    claimMedals(a, 'survive_60');
     const store = new MemoryStore();
     writeSave(store, a);
     // L'onglet B (périmé) adopte la sauvegarde de A (événement `storage`) puis termine à son tour une partie de 65 s
     const adopted = parseSave(store.get(SAVE_KEY))!;
-    const rep = applyRun(adopted, surv(65));
-    expect(rep.achievements.map((x) => x.id)).not.toContain('survive_60');
-    const survive60 = ACHIEVEMENT_CONFIG.find((x) => x.id === 'survive_60')!;
-    expect(adopted.rewarded.filter((x) => x === 'survive_60')).toHaveLength(1);
-    // Sans adoption (dernier écrivain gagnant), B ne peut au pire que repayer SA propre copie : jamais cumuler les deux
+    applyRun(adopted, surv(65));
+    expect(claimMedals(adopted, 'survive_60')).toEqual({ ok: false, reason: 'already' });
+    expect(adopted.medals.claimed.filter((x) => x === 'survive_60')).toHaveLength(1);
+    expect(adopted.wallet.medals).toBe(a.wallet.medals);
+    // Sans adoption (dernier écrivain gagnant), B ne peut au pire que réclamer SA propre copie : jamais cumuler les deux
     applyRun(b, surv(65));
-    expect(b.wallet.shards).toBe(a.wallet.shards);
-    expect(b.rewarded.filter((x) => x === 'survive_60')).toHaveLength(1);
-    expect(survive60.shards).toBeGreaterThan(0);
+    claimMedals(b, 'survive_60');
+    expect(b.wallet.medals).toBe(a.wallet.medals);
+    expect(b.medals.claimed.filter((x) => x === 'survive_60')).toHaveLength(1);
   });
 
-  it('sauvegarde incohérente (récompense déjà versée, succès absent) : jamais re-versé ni re-notifié', () => {
+  it('sauvegarde incohérente (Médailles déjà réclamées, succès absent) : jamais re-créditées', () => {
     const save = defaultSave();
-    save.rewarded = ['survive_60'];
+    save.medals.claimed = ['survive_60'];
     const rep = applyRun(save, surv(70));
-    expect(rep.achievements.map((a) => a.id)).not.toContain('survive_60');
-    expect(save.achievements.survive_60).toBeDefined();
-    expect(rep.achievementShards).toBe(rep.achievements.reduce((t, a) => t + a.shards, 0));
-    expect(save.wallet.shards).toBe(rep.achievementShards);
+    expect(rep.achievements.map((a) => a.id)).toContain('survive_60'); // le succès se débloque
+    expect(claimableMedals(save)).toBe(rep.achievements.filter((a) => a.id !== 'survive_60').reduce((t, a) => t + a.medals, 0));
+    expect(claimMedals(save, 'survive_60')).toEqual({ ok: false, reason: 'already' });
+    expect(save.wallet.medals).toBe(0);
+    expect(save.wallet.shards).toBe(0);
   });
 
-  it('la notification de rattrapage s’affiche tant qu’elle n’est pas lue, puis disparaît et ne revient pas', () => {
-    const store = new MemoryStore();
+  it('le registre des anciennes récompenses en Éclats (`rewarded`) ne bloque pas les nouvelles Médailles', () => {
+    const save = defaultSave();
+    save.achievements.first_cycle = 1;
+    save.rewarded = ['first_cycle'];
+    save.wallet.shards = 10;
+    expect(claimMedals(save, 'first_cycle')).toMatchObject({ ok: true, medals: 20 });
+    expect(save.wallet).toEqual({ shards: 10, medals: 20, prisms: 0 });
+  });
+
+  it('la notification de rattrapage des anciennes récompenses (migration) reste lisible, une seule fois ; les Médailles à récupérer sont signalées à l’accueil', () => {
     const save = defaultSave();
     save.stats.totalCycles = 12;
     expect(reconcileAchievements(save).length).toBeGreaterThan(0);
-    writeSave(store, save);
-    const reloaded = loadSave(store).data;
-    expect(reloaded.rewardNotice).not.toBeNull();
-    expect(S.homeScreen(reloaded, '2026-10-12')).toContain('Récompenses de succès');
-    reloaded.rewardNotice = null;
-    writeSave(store, reloaded);
-    const again = loadSave(store).data;
-    expect(reconcileAchievements(again)).toEqual([]);
-    expect(S.homeScreen(again, '2026-10-12')).not.toContain('Récompenses de succès');
+    const home = S.homeScreen(save, '2026-10-12');
+    expect(home).toContain('Médailles</strong> à récupérer');
+    expect(home).toContain('data-action="achievements"');
+    expect(S.homeScreen(defaultSave(), '2026-10-12')).not.toContain('à récupérer');
+    // Ancienne notification (Éclats déjà versés par une migration d'avant v8)
+    const old = defaultSave();
+    old.rewardNotice = { shards: 75, count: 3 };
+    expect(S.homeScreen(old, '2026-10-12')).toContain('Anciennes récompenses de succès');
+    old.rewardNotice = null;
+    expect(S.homeScreen(old, '2026-10-12')).not.toContain('Anciennes récompenses');
   });
 
   it('aucun succès ne demande de dépenser : le solde ne fait jamais avancer ni reculer un objectif', () => {
     const save = defaultSave();
     save.wallet.shards = 5000;
+    save.wallet.medals = 5000;
     expect(reconcileAchievements(save)).toEqual([]);
     save.stats.totalShards = 0;
     purchase(save, 'aurore');
@@ -147,7 +163,7 @@ describe('boutique : achats concurrents et états', () => {
     let ok = 0;
     for (let i = 0; i < 50; i++) if (purchase(save, 'spectre').ok) ok++;
     expect(ok).toBe(1);
-    expect(save.wallet.shards).toBe(400);
+    expect(save.wallet.medals).toBe(830);
     expect(save.owned.filter((x) => x === 'spectre')).toHaveLength(1);
   });
 
@@ -158,50 +174,35 @@ describe('boutique : achats concurrents et états', () => {
     writeSave(store, a);
     const adopted = parseSave(store.get(SAVE_KEY))!;
     expect(purchase(adopted, 'aurore')).toEqual({ ok: false, reason: 'owned' });
-    expect(adopted.wallet.shards).toBe(400);
+    expect(adopted.wallet.medals).toBe(360);
     // Sans adoption, chaque copie ne débite qu'une fois : jamais deux débits sur la même copie
     expect(purchase(b, 'aurore').ok).toBe(true);
-    expect(b.wallet.shards).toBe(400);
+    expect(b.wallet.medals).toBe(360);
   });
 
   it('le solde ne devient jamais négatif ; solde incohérent (NaN) : refus sans débit', () => {
-    const save = rich(99);
+    const save = rich(139);
     expect(purchase(save, 'aurore').ok).toBe(false);
-    save.wallet.shards = Number.NaN;
+    save.wallet.medals = Number.NaN;
     expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
     expect(isOwned(save, 'aurore')).toBe(false);
   });
 
-  it('pack partiellement possédé : prix au prorata, jamais plus cher que les articles restants achetés séparément', () => {
-    for (const pack of CATALOG.filter((i) => i.kind === 'pack' && i.acquire.type === 'price' && i.acquire.currency === 'shards')) {
+  it('pack premium partiellement possédé : prix au prorata, jamais plus cher que les articles restants achetés séparément', () => {
+    for (const pack of CATALOG.filter((i) => i.kind === 'pack')) {
       const parts = (pack.contents ?? []).map((c) => catalogItem(c)!);
       const full = effectivePrice(defaultSave(), pack)!.amount;
       expect(full).toBe(pack.acquire.type === 'price' ? pack.acquire.amount : -1);
       for (const owned of parts) {
-        const save = rich(100000);
+        const save = defaultSave();
         save.owned.push(owned.id);
         const due = effectivePrice(save, pack)!.amount;
         const rest = parts.filter((p) => p.id !== owned.id).reduce((t, p) => t + (p.acquire.type === 'price' ? p.acquire.amount : 0), 0);
         expect(due, `${pack.id} sans ${owned.id}`).toBeLessThanOrEqual(rest);
         expect(due).toBeLessThan(full);
         expect(due).toBeGreaterThan(0);
-        const before = save.wallet.shards;
-        const res = purchase(save, pack.id);
-        expect(res).toMatchObject({ ok: true, spent: due });
-        expect(save.wallet.shards).toBe(before - due);
-        expect(isOwned(save, pack.id)).toBe(true);
       }
     }
-  });
-
-  it('l’état « Solde insuffisant » d’un pack suit son prix ajusté', () => {
-    const save = rich(120);
-    save.owned.push('aurore');
-    const pack = catalogItem('pack-aurore')!;
-    expect(effectivePrice(save, pack)!.amount).toBe(132);
-    expect(itemState(save, pack)).toBe('insufficient');
-    save.wallet.shards = 132;
-    expect(itemState(save, pack)).toBe('buy');
   });
 
   it('tous les états de la boutique sont lisibles sans la couleur, avec un bouton inactif quand l’achat est impossible', () => {
@@ -210,17 +211,18 @@ describe('boutique : achats concurrents et états', () => {
     save.skin = 'aurore';
     save.owned.push('aurore');
     const cases: [string, string, boolean][] = [
-      ['spectre', 'Solde insuffisant', true],
-      ['ambre', 'Solde insuffisant', true],
+      ['spectre', 'Médailles insuffisantes', true],
+      ['ambre', 'Médailles insuffisantes', true],
+      ['emeraude', 'Acheter', false],
       ['classique', 'Équiper', false],
       ['aurore', 'Équipé', true],
-      ['glace', 'Succès requis', true],
+      ['glace', 'Médailles insuffisantes', true],
       ['neon', 'Bientôt disponible', true],
       ['pack-neon', 'Bientôt disponible', true],
     ];
     for (const [id, label, disabled] of cases) {
       const kind = catalogItem(id)!.kind;
-      const html = S.cosmeticsScreen(save, kind === 'ship' ? 'ships' : 'packs', 'all', id);
+      const html = S.cosmeticsScreen(save, kind === 'ship' ? 'ships' : kind === 'trail' ? 'trails' : 'packs', 'all', id);
       expect(html, id).toContain(label);
       const btn = new RegExp(`<button[^>]*data-action="(buy|equip-item)"[^>]*>`, 'g');
       const buttons = [...html.matchAll(btn)].map((m) => m[0]);
@@ -228,8 +230,8 @@ describe('boutique : achats concurrents et états', () => {
       expect(primary, id).toBeDefined();
       expect(/disabled/.test(primary!), `${id} inactif`).toBe(disabled);
     }
-    // Acheter (solde suffisant) puis confirmation : récapitulatif complet
-    save.wallet.shards = 500;
+    // Acheter (fonds suffisants) puis confirmation : récapitulatif complet
+    save.wallet.medals = 500;
     expect(S.cosmeticsScreen(save, 'ships', 'all', 'ambre')).toContain('Acheter');
     const confirm = S.confirmPurchaseScreen(save, 'ambre');
     expect(confirm).toContain('Confirmer l’achat');
@@ -271,9 +273,10 @@ describe('boutique : achats concurrents et états', () => {
   });
 });
 
-describe('Prismes : jamais achetables en V1, jamais affichés comme une possibilité', () => {
-  it('articles premium : « Bientôt disponible », refus, aucun débit, aucun crédit, aucun prix en Prismes à l’écran', () => {
+describe('Prismes : sans service, jamais achetables ; avec un service, jamais débités localement', () => {
+  it('sans service : « Bientôt disponible », refus, aucun débit, aucun crédit', () => {
     const save = rich(100000);
+    save.wallet.shards = 100000;
     for (const item of CATALOG.filter(isPremium)) {
       expect(itemState(save, item)).toBe('soon');
       expect(purchase(save, item.id)).toEqual({ ok: false, reason: 'unavailable' });
@@ -281,12 +284,12 @@ describe('Prismes : jamais achetables en V1, jamais affichés comme une possibil
         if (!S.cosmeticItems(save, tab, 'all').includes(item)) continue;
         const html = S.cosmeticsScreen(save, tab, 'all', item.id);
         expect(html).toContain('Bientôt disponible');
-        expect(html).not.toContain('Prismes');
         expect(html).not.toMatch(/data-action="buy"(?![^>]*disabled)/);
       }
     }
-    expect(save.wallet).toEqual({ shards: 100000, prisms: 0 });
-    expect(S.homeScreen(save, '2026-10-12')).not.toContain('Prismes');
+    expect(save.wallet).toEqual({ shards: 100000, medals: 100000, prisms: 0 });
+    // L'accueil n'affiche pas de solde de Prismes fantôme
+    expect(S.homeScreen(save, '2026-10-12')).not.toContain('wallet__item--prisms');
   });
 });
 
@@ -374,7 +377,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
   it('espace de noms, clés, identifiants de scènes et d’apparences inchangés', () => {
     expect(STORAGE_NAMESPACE).toBe('polarite');
     expect(SAVE_KEY).toBe('polarite.save');
-    expect(SAVE_VERSION).toBe(6);
+    expect(SAVE_VERSION).toBe(10);
     expect(SKINS.map((s) => s.id)).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme', 'spectre', 'neon']);
     expect(STORY.map((s) => s.id)).toEqual(Array.from({ length: 10 }, (_, i) => [`n${i + 1}-before`, `n${i + 1}-after`]).flat());
     expect(MISSIONS.map((m) => `n${m.id}`)).toEqual(Array.from({ length: 10 }, (_, i) => `n${i + 1}`));
@@ -484,7 +487,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
 });
 
 describe('classement hors ligne et honnêteté sur les données', () => {
-  const view = (over: Partial<S.LeaderboardView> = {}): S.LeaderboardView => ({ configured: true, identity: null, loading: false, error: null, top: null, me: null, balances: null, balance: 3, pending: [], nickMessage: null, localBest: { time: 90, score: 1234 }, ...over });
+  const view = (over: Partial<S.LeaderboardView> = {}): S.LeaderboardView => ({ configured: true, identity: null, loading: false, error: null, top: null, me: null, balances: null, balance: 3, category: 'plain', pending: [], nickMessage: null, localBest: { time: 90, score: 1234 }, ...over });
 
   it('service non configuré : message clair, sans jargon technique, sans faux bouton, record local visible', () => {
     const html = S.leaderboardScreen(view({ configured: false }));

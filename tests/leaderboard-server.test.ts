@@ -108,7 +108,7 @@ describe('classement : rejeu côté serveur', () => {
     expect(altered.ok && base.ok && (altered.time !== base.time || altered.score !== base.score)).toBe(true);
     const lastStep = Math.round(run.time / SIM.dt);
     expect(replaySurvival(31, [...run.flips, lastStep + 50])).toEqual({ ok: false, reason: 'inputs_after_end' });
-    expect(replaySurvival(31, run.flips, 10)).toEqual({ ok: false, reason: 'not_finished' });
+    expect(replaySurvival(31, run.flips, [], 10)).toEqual({ ok: false, reason: 'not_finished' });
     expect(replaySurvival(-5, []).ok).toBe(false);
   });
 
@@ -243,7 +243,7 @@ describe('classement : service', () => {
     expect(c.call('POST', '/api/runs', { token: a.auth, body: submission(t, run) }).status).toBe(200);
   });
 
-  it('limites de débit : une partie toutes les 3 s au plus ; 5 inscriptions par heure et par adresse', () => {
+  it('limites de débit : une partie toutes les 3 s au plus ; 20 inscriptions (profils invités compris) par heure et par adresse', () => {
     const c = ctx();
     const a = register(c, 'Axel');
     const [t1, t2] = getTickets(c, a.auth);
@@ -251,7 +251,7 @@ describe('classement : service', () => {
     const r2 = playRun(t2.seed);
     expect(c.call('POST', '/api/runs', { token: a.auth, body: submission(t1, r1) }).status).toBe(200);
     expect(c.call('POST', '/api/runs', { token: a.auth, body: submission(t2, r2) }).body).toMatchObject({ reason: 'rate_limited' });
-    for (let i = 0; i < 5; i++) expect(c.call('POST', '/api/register', { body: { nickname: `Joueur${i}` }, ip: '9.9.9.9' }).status).toBe(201);
+    for (let i = 0; i < 20; i++) expect(c.call('POST', '/api/register', { body: { nickname: `Joueur${i}` }, ip: '9.9.9.9' }).status).toBe(201);
     expect(c.call('POST', '/api/register', { body: { nickname: 'Joueur9' }, ip: '9.9.9.9' }).status).toBe(429);
   });
 

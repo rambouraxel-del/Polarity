@@ -13,23 +13,24 @@ Navigateur (jeu, GitHub Pages)  ──HTTPS──▶  Service de classement (Nod
 Le serveur embarque le **même code de simulation** que le jeu (`src/sim`, `src/modes`, `src/config`) : c'est ce qui permet de rejouer une partie à l'identique.
 
 ## Ce qui est classé
-Parties de **Survie** uniquement. Critère principal : **durée de survie** ; **score** en départage ; à égalité parfaite, le résultat le plus ancien passe devant.
+Parties de **Survie** uniquement, **première vie seulement** (une reprise — deuxième ou troisième chance — n'est jamais classée). **Deux classements** (phase 3) : **Sans bonus** (aucune activation réussie de Boost, Gel ou Bouclier pendant la première vie ; classement historique : les anciens records y figurent) et **Avec bonus** (au moins une activation réussie ; commence vide). La catégorie est **déduite par le service** du rejeu, jamais fournie par le client ; un record distinct par joueur, par version et par catégorie. Critère principal : **durée de survie** ; **score** en départage ; à égalité parfaite, le résultat le plus ancien passe devant.
 Top 100 public (`GET /api/leaderboard`), rang et meilleur résultat personnels (`GET /api/me`), pseudo choisi par le joueur (3–16 caractères, **lettres latines**, chiffres, espace, point, tiret, tiret bas ; unique, modifiable, filtré : insultes et noms trompeurs comme « Admin » refusés).
 
 ## Identité et authentification
 - À l'inscription (`POST /api/register`), le serveur crée un `playerId` (UUID) et un **secret aléatoire de 256 bits**, remis **une seule fois**. Le serveur ne garde que l'empreinte SHA-256 du secret.
 - Le navigateur conserve `playerId` + secret dans `localStorage` (clé `polarite.classement.identite`, séparée de la sauvegarde de progression) et les envoie en `Authorization: Bearer <playerId>.<secret>`.
 - Comparaisons en temps constant. **Aucune clé d'administration et aucune route d'administration HTTP** : la modération se fait en ligne de commande sur la machine (`server/admin.ts`). Le jeu n'embarque aucun secret : vérifié par `npm run check:bundle` (workflow Pages) et `npm run e2e:classement`.
+ - **Comptes (économie v3)** : un profil peut être *invité* (créé sans pseudo, masqué du classement public), puis relié à Google / Apple / courriel et synchronisé entre appareils ; l'ancienne API (pseudo + secret) reste compatible et les pseudos/records existants sont conservés. Voir `docs/COMPTES.md`.
 - Limite assumée : identité anonyme liée à un navigateur. Perdre le stockage du navigateur fait perdre le profil (pas de récupération par e-mail dans cette version).
 
 ## Validation des parties (rejeu côté serveur)
 Le navigateur n'envoie **pas** un résultat à croire. Il envoie :
 1. un **ticket de partie** : graine attribuée par le serveur (`POST /api/tickets`), liée au joueur, signée (HMAC-SHA256 avec `TICKET_SECRET`), à usage unique, valable 7 jours — des tickets d'avance permettent de jouer hors ligne ;
-2. le **journal des entrées** : pas de simulation (120 Hz) auxquels chaque inversion a été appliquée (`Simulation.flipLog`) ;
+2. le **journal des entrées** : pas de simulation (120 Hz) auxquels chaque inversion a été appliquée (`Simulation.flipLog`) et, au **format de rejeu 2**, les activations réussies de pouvoirs `acts: [[pas, code]…]` (0 Boost, 1 Gel, 2 Bouclier ; première vie seulement). Le **format 1** (inversions seules, anciens clients et parties en attente) reste accepté ; avec un format 1, toute activation est refusée ;
 3. les valeurs annoncées (durée, score), **jamais utilisées** : seulement comparées pour détecter une divergence.
 
 Le serveur (`server/verify.ts`) rejoue la partie avec la graine du ticket et les entrées, jusqu'à la mort, et **calcule lui-même** durée et score. Refus (`422`) si : ticket invalide, expiré, déjà utilisé ou d'un autre joueur ;
-journal incohérent ; partie qui ne se termine pas ; entrées après la mort ; version d'équilibrage non prise en charge ; valeurs annoncées différentes du rejeu (`divergence`). Le ticket est consommé dès qu'un rejeu a eu lieu
+journal incohérent ; **activation que la simulation aurait refusée** (`bad_powers` : recharge, exclusivité Boost/Gel, plafond de 3, jauge du Bouclier) ; **charges de Boost/Gel absentes du registre** (`bonus_unfunded`, ou `409 bonus_sync_required` si les achats hors ligne du joueur ne sont pas encore traités : le ticket est conservé et la partie reste en attente) ; partie qui ne se termine pas ; entrées après la mort ; version d'équilibrage non prise en charge ; valeurs annoncées différentes du rejeu (`divergence`). Le ticket est consommé dès qu'un rejeu a eu lieu
 (pas d'essais répétés). L'usage du ticket, l'enregistrement de la partie et la mise à jour du meilleur résultat sont **une seule transaction**.
 
 Parties **démo/debug** : `?demo` (joueur automatique) et `?debug` n'obtiennent jamais de ticket et ne sont jamais envoyées ; toute aide de test (`invincible`, motif injecté) marque la partie `assisted`.
@@ -64,9 +65,21 @@ Le jeu fonctionne sans service. Avec un profil et des tickets en réserve, une p
 - **Aucune route HTTP non authentifiée** ne modère, supprime ou administre (testé : tout chemin d'administration répond 404/401 ; `DELETE /api/me` sans secret → 401 et rien n'est supprimé).
 - Données conservées : pseudo, empreinte du secret, date d'inscription, graines et journaux d'entrées des parties validées, records. Aucune adresse IP, aucun e-mail n'est stocké (les adresses ne servent qu'aux limites en mémoire).
 
+## Pouvoirs, charges et reprises (phase 3)
+- Le rejeu se fait avec des charges illimitées ; le **stock réel** est vérifié à part dans le registre : une ligne négative `use:<ticket>:<boost|gel>` par partie acceptée, dans la même transaction. Les mêmes charges ne financent donc jamais deux records ; un achat hors ligne finalement refusé par le service entraîne le refus (`bonus_unfunded`) du seul record qui en dépendait.
+- Charges consommées dans des parties non envoyées : `POST /api/sync` `bonusUsed` (compteur monotone, idempotent, jamais sous zéro).
+- Première mort : la tentative classée est figée côté jeu et envoyée (ou conservée « en attente » hors ligne) **avant** toute reprise ; le rejeu s'arrête à la première mort. Sans ticket (hors ligne sans ticket d'avance), le résultat reste local : aucune éligibilité n'est inventée.
+- `POST /api/revive` : deuxième chance 5 Prismes, troisième 10, débit idempotent (`revive:<partie>:<vie>`), prix imposé par le service ; sans effet sur les records.
+
+## Défi quotidien mondial et drop rare (phase 4)
+- `POST /api/daily/start {date}` (jour UTC du service, en ligne : début enregistré), `POST /api/daily/runs` (rejeu `replayDaily`, preuves d'horaire, grâce 00 h 15), `GET /api/daily/leaderboard?date=` (rangs « compétition », ex æquo = même rang), `GET /api/daily/notices` + `POST /api/daily/ack`. Clôture à 00 h 15 UTC, Top 10 et ex æquo du 10ᵉ rang récompensés (15/10/5/2×4/1×3), crédit `daily:<date>` idempotent, rejouable après panne. Invités et profils exclus : ni classés ni récompensés.
+- `POST /api/tickets/start` : démarrage en ligne d'une partie de Survie ; condition du drop rare (0,02 % par balise, 1 Prisme au plus, HMAC du secret du service + ticket + balise, `drop:<ticket>`). Les deux classements de Survie ne sont pas modifiés.
+- `POST /api/loyalty/checkin|claim`, `GET /api/loyalty` : calendrier de connexion (voir `docs/COMPTES.md`).
+- Schéma **v6** (additif) : `loyalty_cycles`, `daily_*`, `tickets.started_at`, `runs.drop_prisms`.
+
 ## Base de données
 SQLite (module `node:sqlite`), fichier sur volume persistant, mode **WAL** (`synchronous=NORMAL`, `busy_timeout`, `foreign_keys`). `PRAGMA user_version` + liste de migrations (`MIGRATIONS` dans `server/db.ts`) : au démarrage une base ancienne est copiée (`<base>.avant-vN.bak`) puis migrée ; une base **plus récente** que le code est refusée sans modification. Sauvegarde à chaud cohérente par `VACUUM INTO` (`server:admin backup`, `deploy/sauvegarde.sh`) ; **ne jamais copier le fichier à la main pendant que le service tourne**. Restauration, retour arrière et évolution : `docs/GUIDE_DEPLOIEMENT.md` §6-7.
-La table `runs` (journal des entrées de chaque partie validée) est la seule qui croît avec l'usage ; **aucune purge automatique** — `prune` (simulation par défaut, jamais les records) ne se lance que sur ordre du propriétaire.
+Schéma **v5** (phase 3, additif) : `bests` reconstruite avec `category` (`plain`/`bonus`) dans la clé primaire — les anciens records sont copiés en `plain` —, `runs.category/acts/powers/replay_v`, `installs.used_boost/used_gel`. Copie `.avant-v4.bak` automatique avant la migration. La table `runs` (journal des entrées de chaque partie validée) est la seule qui croît avec l'usage ; **aucune purge automatique** — `prune` (simulation par défaut, jamais les records) ne se lance que sur ordre du propriétaire.
 
 ## Limites restantes contre la triche (à connaître)
 - **Un robot peut produire un journal valide.** Le rejeu prouve que la partie respecte les règles et que le résultat est celui de la simulation ; il ne prouve pas qu'un humain a joué. Un script qui calcule des entrées parfaites pour une graine connue sera accepté (le projet fournit lui-même un bot d'équilibrage).
@@ -93,10 +106,11 @@ Variable du jeu : `VITE_LEADERBOARD_URL` (publique ; `https://hôte` ou `https:/
 | `PATCH /api/me` `{nickname}` | joueur | change le pseudo (refusé si le pseudo a été masqué par l'opérateur) |
 | `DELETE /api/me` | joueur (secret) | supprime tout le profil et ses données (irréversible) |
 | `POST /api/report` `{nickname, reason?}` | joueur (10/h) | signale un pseudo à l'opérateur |
-| `GET /api/me?balance=N` | joueur | rang et meilleur résultat |
+| `GET /api/me?balance=N&category=plain\|bonus` | joueur | rang et meilleur résultat de la catégorie (+ `bests` des deux) |
+| `POST /api/revive` `{runId, life: 2\|3}` | joueur (60/h) | reprise payée en Prismes (5 / 10), idempotente |
 | `POST /api/tickets` | joueur | lot de 5 tickets (10 ouverts au plus) |
-| `POST /api/runs` | joueur | soumet `{ticket, replay:{v,flips}, claimed, client}` ; renvoie `accepted` (durée, score, rang) ou `rejected` (motif) |
-| `GET /api/leaderboard?balance=N&limit=100` | public | top 100 (le joueur authentifié est marqué `you`) |
+| `POST /api/runs` | joueur | soumet `{ticket, replay:{v,flips,acts?}, claimed, client}` ; renvoie `accepted` (durée, score, rang, catégorie, pouvoirs) ou `rejected` (motif) |
+| `GET /api/leaderboard?balance=N&category=plain\|bonus&limit=100` | public | top 100 (le joueur authentifié est marqué `you`) |
 | `GET /api/balances` | public | versions disponibles |
 
 ## Développement

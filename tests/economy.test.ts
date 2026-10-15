@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG, catalogItem, isPremium, itemsOfKind } from '../src/config/catalog';
+import { CATALOG, LEGACY_ACHIEVEMENT_ITEMS, catalogItem, isPremium, itemsOfKind, medalCost } from '../src/config/catalog';
 import { LEGACY_SKIN_ACHIEVEMENTS, LEVEL_REWARDS, SHARDS } from '../src/config/economy';
 import { SKINS, MIN_HAZARD_HUE_GAP, hazardHueGap } from '../src/config/skins';
 import { TRAILS } from '../src/config/trails';
@@ -9,7 +9,8 @@ import { survivalProfile } from '../src/modes/profiles';
 import { NullPaymentProvider, getPaymentProvider, premiumAvailable, setPaymentProvider, type PaymentProvider } from '../src/monetization/payments';
 import { applyRun, type RunSummary } from '../src/progression/progress';
 import { creditShards, effectivePrice, equip, isOwned, itemState, purchase } from '../src/progression/shop';
-import { ACHIEVEMENTS, achievementById, achievementCosmetics, achievementProgress, metricValue, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
+import { spendable } from '../src/economy/funds';
+import { ACHIEVEMENTS, achievementById, achievementProgress, claimAllMedals, claimMedals, claimableMedals, metricValue, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
 import { BALANCE_BACKUP_PREFIX, BACKUP_PREFIX, MemoryStore, SAVE_KEY, SAVE_VERSION, defaultSave, loadSave, writeSave, type SaveData } from '../src/save/save';
 import { angleDiff, TAU } from '../src/core/math';
 import { Simulation } from '../src/sim/simulation';
@@ -235,11 +236,11 @@ describe('récompenses de niveau', () => {
 
   it('première réussite 50 + 15 par étoile, puis 10 par réussite, sans jamais re-payer une étoile', () => {
     const save = defaultSave();
-    // Les succès (récompensés à part) ajoutent leurs propres Éclats : on suit le solde de niveau séparément
+    // Les succès ne versent plus d'Éclats (Médailles à réclamer) : le solde ne suit que les récompenses de niveau
     let expected = 0;
     const play = (score: number): ReturnType<typeof applyRun> => {
       const rep = applyRun(save, win(1, score));
-      expected += rep.levelReward!.total + rep.achievementShards;
+      expected += rep.levelReward!.total;
       expect(save.wallet.shards).toBe(expected);
       return rep;
     };
@@ -269,8 +270,8 @@ describe('récompenses de niveau', () => {
     const base = save.wallet.shards;
     const surv = applyRun(save, { mode: 'survival', time: 80, score: 5000, cycles: 1, bestMultiplier: 1, outcome: 'dead', shards: 15 });
     expect(surv.levelReward).toBeNull();
-    // Les 15 Éclats ont déjà été crédités à la collecte : applyRun ne les recrédite pas (seuls les succès versent leurs récompenses)
-    expect(save.wallet.shards).toBe(base + surv.achievementShards);
+    // Les 15 Éclats ont déjà été crédités à la collecte : applyRun ne les recrédite pas, et les succès ne versent aucun Éclat
+    expect(save.wallet.shards).toBe(base);
     expect(surv.orbitShards).toBe(15);
     expect(save.stats.totalShards).toBe(15);
   });
@@ -280,7 +281,8 @@ describe('récompenses de niveau', () => {
     expect(creditShards(save, 5)).toBe(5);
     expect(creditShards(save, 5)).toBe(5);
     const rep = applyRun(save, { mode: 'survival', time: 30, score: 800, cycles: 0, bestMultiplier: 1, outcome: 'dead', shards: 10 });
-    expect(save.wallet.shards).toBe(10 + rep.achievementShards);
+    expect(rep.achievementMedals).toBeGreaterThanOrEqual(0);
+    expect(save.wallet.shards).toBe(10);
     const kept = save.wallet.shards;
     expect(creditShards(save, -3)).toBe(0);
     expect(creditShards(save, Number.NaN)).toBe(0);
@@ -312,7 +314,11 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     const s = res.data;
     expect(s.version).toBe(SAVE_VERSION);
     // Succès déjà obtenus (first_cycle 10 + survive_60 25 + max_combo 40) : récompensés une seule fois à la migration
-    expect(s.wallet).toEqual({ shards: 75, prisms: 0 });
+    expect(s.wallet).toEqual({ shards: 75, medals: 0, prisms: 0 });
+    // Aucune Médaille créditée par la migration : elles se réclament (rétroactivement)
+    expect(s.medals.claimed).toEqual([]);
+    // first_cycle (20) + survive_60 (20) + max_combo (50) : réclamables rétroactivement
+    expect(claimableMedals(s)).toBe(90);
     expect([...s.rewarded].sort()).toEqual(['first_cycle', 'max_combo', 'survive_60']);
     expect(s.rewardNotice).toEqual({ shards: 75, count: 3 });
     expect(s.levels['1']).toEqual({ completed: true, bestScore: 52000, stars: 3 });
@@ -330,7 +336,7 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     expect(s.paid['3']).toEqual({ first: false, stars: 0 });
     const walletBefore = s.wallet.shards;
     const rep = applyRun(s, { mode: 'level', levelId: 1, time: 90, score: 60000, cycles: 1, bestMultiplier: 1, outcome: 'complete' });
-    expect(s.wallet.shards).toBe(walletBefore + rep.levelReward!.total + rep.achievementShards);
+    expect(s.wallet.shards).toBe(walletBefore + rep.levelReward!.total);
     expect(rep.levelReward!.firstClear).toBe(0);
     expect(rep.levelReward!.repeatClear).toBe(10);
     // Copie de l'ancienne sauvegarde conservée
@@ -361,7 +367,7 @@ describe('sauvegarde v3 : migration et rechargement', () => {
   it('soldes, cosmétiques et traînée survivent à un rechargement ; valeurs aberrantes ramenées à des entiers sûrs', () => {
     const store = new MemoryStore();
     const save = defaultSave();
-    save.wallet = { shards: 345, prisms: 0 };
+    save.wallet = { shards: 345, medals: 120, prisms: 0 };
     save.owned = ['aurore', 'emeraude'];
     save.skin = 'aurore';
     save.trail = 'emeraude';
@@ -371,85 +377,98 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     expect(back.status).toBe('ok');
     expect(back.data).toEqual(save);
     const bad = JSON.parse(JSON.stringify(save));
-    bad.wallet = { shards: -50, prisms: 'beaucoup' };
+    bad.wallet = { shards: -50, medals: 7.9, prisms: 'beaucoup' };
     bad.owned = ['aurore', 'aurore', 12, null];
     bad.paid = { x: { first: true }, '2': { first: 'oui', stars: 9 } };
     store.set(SAVE_KEY, JSON.stringify(bad));
     const fixed = loadSave(store).data;
-    expect(fixed.wallet).toEqual({ shards: 0, prisms: 0 });
+    expect(fixed.wallet).toEqual({ shards: 0, medals: 7, prisms: 0 });
     expect(fixed.owned).toEqual(['aurore']);
     expect(fixed.paid).toEqual({ '2': { first: false, stars: 3 } });
   });
 });
 
-function richSave(shards: number): SaveData {
+/** Sauvegarde locale (sans service : tout le portefeuille est dépensable) avec des Médailles. */
+function richSave(medals: number, shards = 0): SaveData {
   const s = defaultSave();
+  s.wallet.medals = medals;
   s.wallet.shards = shards;
   return s;
 }
 
-describe('boutique : achats en Éclats', () => {
-  it('premier cosmétique à 100 Éclats, prix progressifs', () => {
-    const prices = CATALOG.filter((i) => i.acquire.type === 'price' && i.acquire.currency === 'shards' && i.kind === 'ship').map((i) => (i.acquire.type === 'price' ? i.acquire.amount : 0));
-    expect(Math.min(...prices)).toBe(100);
-    expect([...prices].sort((a, b) => a - b)).toEqual(prices);
-    expect(new Set(prices).size).toBe(prices.length);
+describe('boutique : achats de cosmétiques en Médailles', () => {
+  it('grille de prix : vaisseaux 140 → 200, traînées 70 → 110 ; totaux 1 190 + 450 = 1 640', () => {
+    const ships = CATALOG.filter((i) => i.kind === 'ship' && i.acquire.type === 'price' && i.acquire.currency === 'medals').map((i) => [i.id, i.acquire.type === 'price' ? i.acquire.amount : 0]);
+    expect(ships).toEqual([['aurore', 140], ['menthe', 150], ['ambre', 160], ['spectre', 170], ['glace', 180], ['solaire', 190], ['prisme', 200]]);
+    const trails = CATALOG.filter((i) => i.kind === 'trail' && i.acquire.type === 'price' && i.acquire.currency === 'medals').map((i) => [i.id, i.acquire.type === 'price' ? i.acquire.amount : 0]);
+    expect(trails).toEqual([['emeraude', 70], ['glacier', 80], ['ultraviolet', 90], ['citron', 100], ['boreale', 110]]);
+    expect(medalCost('ship')).toBe(1190);
+    expect(medalCost('trail')).toBe(450);
+    expect(medalCost('ship') + medalCost('trail')).toBe(1640);
   });
 
-  it('achat : solde vérifié, débit et déblocage enregistrés ensemble', () => {
+  it('aucun cosmétique non premium ne s’achète en Éclats ; Classique et Assortie restent gratuits', () => {
+    for (const i of CATALOG) {
+      if (i.acquire.type === 'price') expect(['medals', 'prisms']).toContain(i.acquire.currency);
+    }
+    expect(catalogItem('classique')!.acquire.type).toBe('default');
+    expect(catalogItem('auto')!.acquire.type).toBe('default');
+    const save = richSave(0, 100000);
+    expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(save.wallet.shards).toBe(100000);
+  });
+
+  it('achat : fonds vérifiés, débit en Médailles et déblocage enregistrés ensemble', () => {
     const save = richSave(250);
     expect(itemState(save, catalogItem('aurore')!)).toBe('buy');
     const res = purchase(save, 'aurore');
-    expect(res).toMatchObject({ ok: true, spent: 100, balance: 150, granted: ['aurore'] });
-    expect(save.wallet.shards).toBe(150);
+    expect(res).toMatchObject({ ok: true, currency: 'medals', spent: 140, balance: 110, granted: ['aurore'] });
+    expect(save.wallet.medals).toBe(110);
     expect(isOwned(save, 'aurore')).toBe(true);
     expect(itemState(save, catalogItem('aurore')!)).toBe('owned');
     expect(equip(save, 'aurore')).toBe(true);
     expect(itemState(save, catalogItem('aurore')!)).toBe('equipped');
+    // Achat mémorisé pour la confirmation par le service
+    expect(save.economy.purchases).toEqual({ aurore: 140 });
   });
 
   it('aucun double débit : un article possédé n’est jamais racheté', () => {
     const save = richSave(500);
     expect(purchase(save, 'aurore').ok).toBe(true);
-    expect(save.wallet.shards).toBe(400);
+    expect(save.wallet.medals).toBe(360);
     for (let i = 0; i < 3; i++) expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'owned' });
-    expect(save.wallet.shards).toBe(400);
+    expect(save.wallet.medals).toBe(360);
     expect(save.owned.filter((x) => x === 'aurore').length).toBe(1);
   });
 
-  it('solde insuffisant : rien n’est débité ni débloqué', () => {
-    const save = richSave(99);
+  it('fonds insuffisants : rien n’est débité ni débloqué', () => {
+    const save = richSave(139);
     expect(itemState(save, catalogItem('aurore')!)).toBe('insufficient');
     expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
-    expect(save.wallet.shards).toBe(99);
+    expect(save.wallet.medals).toBe(139);
     expect(isOwned(save, 'aurore')).toBe(false);
     expect(equip(save, 'aurore')).toBe(false);
   });
 
-  it('exclusivité de succès : non achetable, possédée dès le succès obtenu', () => {
-    const save = richSave(100000);
-    expect(itemState(save, catalogItem('glace')!)).toBe('achievement');
-    expect(purchase(save, 'glace')).toEqual({ ok: false, reason: 'achievement' });
-    expect(save.wallet.shards).toBe(100000);
+  it('un succès ne débloque plus directement de cosmétique ; les acquis d’avant sont conservés (migration)', () => {
+    const save = richSave(0);
     save.achievements.max_combo = 1;
-    expect(isOwned(save, 'glace')).toBe(true);
-    expect(itemState(save, catalogItem('glace')!)).toBe('owned');
+    expect(isOwned(save, 'glace')).toBe(false);
+    expect(itemState(save, catalogItem('glace')!)).toBe('insufficient');
+    // Migration d'une sauvegarde v7 où le succès avait débloqué l'article
+    const store = new MemoryStore();
+    store.set(SAVE_KEY, JSON.stringify({ ...defaultSave(), version: 7, achievements: { max_combo: 1, survive_300: 2 }, rewarded: ['max_combo', 'survive_300'] }));
+    const migrated = loadSave(store).data;
+    expect(isOwned(migrated, 'glace') && isOwned(migrated, 'solaire')).toBe(true);
+    expect(isOwned(migrated, 'prisme')).toBe(false);
+    expect(Object.entries(LEGACY_ACHIEVEMENT_ITEMS).length).toBe(5);
   });
 
-  it('pack : prix unique, contenu débloqué, articles déjà possédés non dupliqués ni repayés (prix au prorata), jamais re-débité', () => {
-    const save = richSave(1000);
-    purchase(save, 'aurore');
-    expect(save.wallet.shards).toBe(900);
-    // Aurore (100) déjà possédée : le pack ne facture que le reste, avec la même remise (220 × 150 / 250 = 132)
-    expect(effectivePrice(save, catalogItem('pack-aurore')!)).toEqual({ currency: 'shards', amount: 132 });
-    const res = purchase(save, 'pack-aurore');
-    expect(res).toMatchObject({ ok: true, spent: 132, granted: ['emeraude'] });
-    expect(save.wallet.shards).toBe(768);
-    expect(isOwned(save, 'pack-aurore')).toBe(true);
-    expect(itemState(save, catalogItem('pack-aurore')!)).toBe('owned');
-    expect(purchase(save, 'pack-aurore')).toEqual({ ok: false, reason: 'owned' });
-    expect(save.wallet.shards).toBe(768);
-    expect(save.owned.sort()).toEqual(['aurore', 'emeraude']);
+  it('pas de pack en Médailles : la collection complète coûte exactement 1 640 (aucun contournement par un pack à prix réduit)', () => {
+    for (const pack of itemsOfKind('pack')) expect(isPremium(pack), pack.id).toBe(true);
+    const save = richSave(1650);
+    for (const i of CATALOG) if (i.acquire.type === 'price' && i.acquire.currency === 'medals') expect(purchase(save, i.id).ok, i.id).toBe(true);
+    expect(save.wallet.medals).toBe(10);
   });
 
   it('équipement : traînée et vaisseau possédés seulement', () => {
@@ -460,7 +479,7 @@ describe('boutique : achats en Éclats', () => {
     expect(save.trail).toBe('emeraude');
     expect(equip(save, 'auto')).toBe(true);
     expect(equip(save, 'inconnu')).toBe(false);
-    expect(equip(save, 'pack-aurore')).toBe(false);
+    expect(equip(save, 'pack-neon')).toBe(false);
     expect(save.skin).toBe('classique');
   });
 
@@ -470,27 +489,74 @@ describe('boutique : achats en Éclats', () => {
     expect(isOwned(save, 'auto')).toBe(true);
     expect(itemState(save, catalogItem('classique')!)).toBe('equipped');
   });
+
+  it('fonds dépensables : avec un service, seuls les soldes CONFIRMÉS financent un achat (les gains provisoires attendent)', () => {
+    const save = richSave(300);
+    save.economy.managed = true;
+    // Jamais synchronisé : rien de confirmé
+    expect(spendable(save, 'medals')).toBe(0);
+    expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
+    save.economy.confirmed = { shards: 0, medals: 200, prisms: 0 };
+    expect(spendable(save, 'medals')).toBe(200);
+    expect(purchase(save, 'aurore').ok).toBe(true); // 140 confirmés dépensés
+    // Il ne reste que 60 de confirmé : un second achat à 150 est refusé même si le portefeuille local (160) semble suffire
+    expect(save.wallet.medals).toBe(160);
+    expect(spendable(save, 'medals')).toBe(60);
+    expect(purchase(save, 'menthe')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(save.wallet.medals).toBe(160);
+  });
 });
 
-describe('Prismes : monnaie premium, aucun paiement actif', () => {
-  it('solde initial à 0 ; les articles premium sont « Bientôt disponible » et ne s’achètent jamais', () => {
+describe('Prismes : monnaie premium contrôlée par le service', () => {
+  it('solde initial à 0 ; sans service, les articles premium sont « Bientôt disponible » et ne s’achètent jamais localement', () => {
     const save = defaultSave();
     expect(save.wallet.prisms).toBe(0);
     const premium = CATALOG.filter(isPremium);
-    expect(premium.length).toBeGreaterThanOrEqual(3);
+    expect(premium.map((i) => [i.id, i.acquire.type === 'price' ? i.acquire.amount : 0])).toEqual([['neon', 150], ['nebuleuse', 75], ['pack-neon', 200]]);
     for (const item of premium) {
       expect(itemState(save, item)).toBe('soon');
       // Même avec un solde de Prismes fabriqué, aucun débit local
       const rich = defaultSave();
       rich.wallet.prisms = 10_000;
       rich.wallet.shards = 10_000;
+      rich.wallet.medals = 10_000;
       expect(purchase(rich, item.id)).toEqual({ ok: false, reason: 'unavailable' });
-      expect(rich.wallet).toEqual({ shards: 10_000, prisms: 10_000 });
+      expect(rich.wallet).toEqual({ shards: 10_000, medals: 10_000, prisms: 10_000 });
       expect(isOwned(rich, item.id)).toBe(false);
     }
   });
 
-  it('fournisseur par défaut : indisponible, aucun crédit', async () => {
+  it('avec un service : le débit est réservé au service (jamais local) ; l’achat n’est proposé que si le solde CONFIRMÉ suffit', () => {
+    const save = defaultSave();
+    save.economy.managed = true;
+    for (const id of ['neon', 'nebuleuse', 'pack-neon']) {
+      const item = catalogItem(id)!;
+      expect(itemState(save, item)).toBe('insufficient');
+      expect(purchase(save, id)).toEqual({ ok: false, reason: 'premium' });
+    }
+    save.wallet.prisms = 500; // local, non confirmé : ne suffit pas
+    expect(itemState(save, catalogItem('neon')!)).toBe('insufficient');
+    save.economy.confirmed = { shards: 0, medals: 0, prisms: 500 };
+    expect(itemState(save, catalogItem('neon')!)).toBe('buy');
+    expect(purchase(save, 'neon')).toEqual({ ok: false, reason: 'premium' });
+    expect(save.wallet.prisms).toBe(500);
+    expect(isOwned(save, 'neon')).toBe(false);
+  });
+
+  it('pack premium : 200 Prismes, 25 de moins que les deux articles séparés ; prorata si un élément est déjà possédé', () => {
+    const neon = catalogItem('neon')!;
+    const nebuleuse = catalogItem('nebuleuse')!;
+    const pack = catalogItem('pack-neon')!;
+    const amount = (i: typeof neon): number => (i.acquire.type === 'price' ? i.acquire.amount : 0);
+    expect(amount(neon) + amount(nebuleuse) - amount(pack)).toBe(25);
+    const own = defaultSave();
+    own.owned = ['neon'];
+    expect(effectivePrice(own, pack)).toEqual({ currency: 'prisms', amount: Math.round((200 * 75) / 225) });
+    own.owned = ['neon', 'nebuleuse'];
+    expect(isOwned(own, 'pack-neon')).toBe(true);
+  });
+
+  it('fournisseur de paiement par défaut : indisponible, aucun crédit', async () => {
     const p = getPaymentProvider();
     expect(p).toBeInstanceOf(NullPaymentProvider);
     expect(p.isAvailable()).toBe(false);
@@ -499,15 +565,14 @@ describe('Prismes : monnaie premium, aucun paiement actif', () => {
     expect(await p.purchase('prisms-100')).toEqual({ status: 'unavailable' });
   });
 
-  it('une future intégration ne change que l’état affiché ; le jeu local ne débite jamais les Prismes', () => {
+  it('une future intégration de paiement ne change pas les règles : jamais de débit de Prismes en local', () => {
     const fake: PaymentProvider = { isAvailable: () => true, listProducts: async () => [], purchase: async () => ({ status: 'cancelled' }) };
     const old = getPaymentProvider();
     setPaymentProvider(fake);
     try {
       const save = defaultSave();
       save.wallet.prisms = 500;
-      expect(itemState(save, catalogItem('neon')!)).toBe('buy');
-      expect(purchase(save, 'neon')).toEqual({ ok: false, reason: 'unavailable' });
+      expect(purchase(save, 'neon').ok).toBe(false);
       expect(save.wallet.prisms).toBe(500);
     } finally {
       setPaymentProvider(old);
@@ -531,6 +596,8 @@ describe('catalogue : cohérence', () => {
         const { currency, amount } = pack.acquire;
         const sum = parts.reduce((t, p) => t + (p.acquire.type === 'price' && p.acquire.currency === currency ? p.acquire.amount : 0), 0);
         expect(amount).toBeLessThan(sum);
+        // Un pack n'existe qu'en premium (Prismes)
+        expect(currency).toBe('prisms');
       }
     }
     for (const id of Object.keys(LEGACY_SKIN_ACHIEVEMENTS)) expect(catalogItem(id)).toBeDefined();
@@ -550,58 +617,88 @@ describe('catalogue : cohérence', () => {
   });
 });
 
-describe('succès récompensés', () => {
+describe('succès : Médailles réclamables', () => {
   const surv = (time: number, extra: Partial<RunSummary> = {}): RunSummary => ({ mode: 'survival', time, score: 1000, cycles: 0, bestMultiplier: 1, outcome: 'dead', ...extra });
 
-  it('configuration : environ 25 succès, identifiants uniques, cinq catégories, récompenses positives', async () => {
-    const { ACHIEVEMENT_CONFIG, ACHIEVEMENT_CATEGORIES } = await import('../src/config/achievements');
-    expect(ACHIEVEMENT_CONFIG.length).toBeGreaterThanOrEqual(24);
-    expect(ACHIEVEMENT_CONFIG.length).toBeLessThanOrEqual(30);
-    expect(new Set(ACHIEVEMENT_CONFIG.map((a) => a.id)).size).toBe(ACHIEVEMENT_CONFIG.length);
+  it('configuration : 27 succès aux identifiants immuables, cinq catégories, Médailles positives, total EXACT de 1 650', async () => {
+    const { ACHIEVEMENT_CONFIG, ACHIEVEMENT_CATEGORIES, totalMedals } = await import('../src/config/achievements');
+    expect(ACHIEVEMENT_CONFIG.map((a) => a.id)).toEqual([
+      'first_cycle', 'first_level', 'first_survival', 'first_event', 'daily_30',
+      'survive_60', 'survive_120', 'survive_180', 'survive_300', 'survive_480', 'survive_600',
+      'levels_3', 'levels_6', 'three_stars', 'stars_18', 'all_levels', 'stars_36',
+      'cycles_10', 'cycles_100', 'cycles_500', 'shards_50', 'shards_250', 'shards_1000',
+      'max_combo', 'score_100k', 'events_10', 'events_30',
+    ]);
+    expect(new Set(ACHIEVEMENT_CONFIG.map((a) => a.id)).size).toBe(27);
     for (const c of ACHIEVEMENT_CATEGORIES) expect(ACHIEVEMENT_CONFIG.some((a) => a.category === c.id)).toBe(true);
     for (const a of ACHIEVEMENT_CONFIG) {
-      expect(a.shards).toBeGreaterThan(0);
+      expect(a.medals).toBeGreaterThan(0);
       expect(a.target).toBeGreaterThan(0);
       expect(a.description.length).toBeGreaterThan(5);
     }
-    // Les 9 succès d'origine sont conservés
-    for (const id of ['first_cycle', 'first_level', 'survive_60', 'max_combo', 'three_stars', 'daily_30', 'survive_300', 'cycles_100', 'all_levels']) {
-      expect(ACHIEVEMENT_CONFIG.some((a) => a.id === id), id).toBe(true);
-    }
-    // Objectifs progressifs : durées, cycles, événements, étoiles, Éclats collectés au total
+    const tier = (n: number): string[] => ACHIEVEMENT_CONFIG.filter((a) => a.medals === n).map((a) => a.id);
+    expect(tier(20)).toEqual(['first_cycle', 'first_level', 'first_survival', 'first_event', 'daily_30', 'survive_60', 'levels_3', 'three_stars', 'cycles_10', 'shards_50']);
+    expect(tier(50)).toEqual(['survive_120', 'survive_180', 'levels_6', 'stars_18', 'cycles_100', 'shards_250', 'max_combo', 'score_100k', 'events_10']);
+    expect(tier(100)).toEqual(['survive_300', 'survive_480', 'all_levels', 'cycles_500', 'shards_1000', 'events_30']);
+    expect(tier(200)).toEqual(['survive_600', 'stars_36']);
+    expect(totalMedals()).toBe(1650);
+    // La collection non premium (1 640) reste achetable avec les Médailles des succès, avec 10 de reste
+    expect(totalMedals() - 1640).toBe(10);
+    // Ancien montant en Éclats conservé pour la comptabilité des sauvegardes historiques (jamais versé aux nouveaux succès)
+    expect(ACHIEVEMENT_CONFIG.every((a) => a.legacyShards > 0)).toBe(true);
     const metrics = new Set(ACHIEVEMENT_CONFIG.map((a) => a.metric));
     for (const m of ['bestSurvival', 'totalCycles', 'totalEvents', 'totalStars', 'totalShards'] as const) expect(metrics.has(m), m).toBe(true);
   });
 
-  it('aucun objectif ne demande de dépenser : « Éclats collectés » compte les gains, pas le solde', () => {
+  it('aucun objectif ne demande de dépenser (les 27 se terminent sans aucune dépense réelle)', () => {
     const save = defaultSave();
     save.wallet.shards = 5000;
     expect(metricValue(save, 'totalShards')).toBe(0);
-    // Dépenser n'avance ni ne recule aucun succès
     const before = ACHIEVEMENTS.map((a) => metricValue(save, a.metric));
     purchase(save, 'aurore');
     expect(ACHIEVEMENTS.map((a) => metricValue(save, a.metric))).toEqual(before);
     expect(ACHIEVEMENTS.some((a) => /dépens|achet/i.test(a.description))).toBe(false);
   });
 
-  it('chaque succès verse ses Éclats une seule fois', () => {
+  it('un succès obtenu ne verse RIEN tout seul : ni Éclats, ni Médailles, ni cosmétique ; il devient réclamable', () => {
     const save = defaultSave();
     const rep = applyRun(save, surv(130, { cycles: 1 }));
     const ids = rep.achievements.map((a) => a.id);
     expect(ids).toEqual(expect.arrayContaining(['first_cycle', 'first_survival', 'survive_60', 'survive_120']));
-    const expected = rep.achievements.reduce((t, a) => t + a.shards, 0);
-    expect(rep.achievementShards).toBe(expected);
-    expect(save.wallet.shards).toBe(expected);
-    expect(save.rewarded.sort()).toEqual([...ids].sort());
+    expect(save.wallet).toEqual({ shards: 0, medals: 0, prisms: 0 });
+    expect(save.rewarded).toEqual([]);
+    expect(save.owned).toEqual([]);
+    expect(rep.achievementMedals).toBe(rep.achievements.reduce((t, a) => t + a.medals, 0));
+    expect(claimableMedals(save)).toBe(rep.achievementMedals);
     // Même objectif atteint de nouveau : rien de plus
     const rep2 = applyRun(save, surv(140));
     expect(rep2.achievements.map((a) => a.id)).not.toContain('survive_60');
-    expect(save.wallet.shards).toBe(expected + rep2.achievementShards);
-    // Registre : un identifiant déjà versé n'est jamais re-versé, même si on appelle le déblocage plusieurs fois
-    const w = save.wallet.shards;
     expect(unlockAchievements(save, undefined, 1)).toEqual([]);
-    expect(unlockAchievements(save, undefined, 2)).toEqual([]);
-    expect(save.wallet.shards).toBe(w);
+  });
+
+  it('réclamation : Médailles créditées uniquement à la réclamation, UNE seule fois par succès (identifiant historique)', () => {
+    const save = defaultSave();
+    applyRun(save, surv(130, { cycles: 1 }));
+    const res = claimMedals(save, 'survive_60');
+    expect(res).toMatchObject({ ok: true, medals: 20, balance: 20 });
+    expect(save.medals.claimed).toEqual(['survive_60']);
+    for (let i = 0; i < 5; i++) expect(claimMedals(save, 'survive_60')).toEqual({ ok: false, reason: 'already' });
+    expect(save.wallet.medals).toBe(20);
+    expect(claimMedals(save, 'survive_600')).toEqual({ ok: false, reason: 'not_earned' });
+    expect(claimMedals(save, 'inconnu')).toEqual({ ok: false, reason: 'unknown' });
+    const all = claimAllMedals(save);
+    expect(all.claimed.map((a) => a.id)).not.toContain('survive_60');
+    expect(save.wallet.medals).toBe(20 + all.medals);
+    expect(claimAllMedals(save)).toEqual({ claimed: [], medals: 0 });
+  });
+
+  it('les 27 succès rapportent 1 650 Médailles ; la collection complète coûte 1 640 : 10 Médailles restent', () => {
+    const save = defaultSave();
+    for (const a of ACHIEVEMENTS) save.achievements[a.id] = 1;
+    expect(claimableMedals(save)).toBe(1650);
+    expect(claimAllMedals(save).medals).toBe(1650);
+    for (const i of CATALOG) if (i.acquire.type === 'price' && i.acquire.currency === 'medals') expect(purchase(save, i.id).ok).toBe(true);
+    expect(save.wallet.medals).toBe(10);
   });
 
   it('objectifs cumulés : événements, Éclats collectés, cycles et étoiles', () => {
@@ -620,40 +717,43 @@ describe('succès récompensés', () => {
     expect(p.ratio).toBeCloseTo(55 / 250, 10);
   });
 
-  it('succès débloquant un cosmétique : possédé dès le succès obtenu', () => {
-    const save = defaultSave();
-    expect(isOwned(save, 'solaire')).toBe(false);
-    applyRun(save, surv(305));
-    expect(isOwned(save, 'solaire')).toBe(true);
-    expect(achievementCosmetics('survive_300').map((c) => c.id)).toEqual(['solaire']);
-    expect(achievementCosmetics('shards_250').map((c) => c.id)).toEqual(['citron']);
-    expect(achievementCosmetics('events_30').map((c) => c.id)).toEqual(['boreale']);
-  });
-
-  it('migration : succès déjà obtenus récompensés une seule fois, notification, puis rechargement stable', () => {
+  it('migration d’une sauvegarde v3 : anciens Éclats déjà versés conservés (une seule fois), succès réclamables rétroactivement', () => {
     const store = new MemoryStore();
     store.set(SAVE_KEY, JSON.stringify({ version: 3, balance: 3, levels: {}, survival: { bestTime: 0, bestScore: 0, runs: 0 }, daily: {}, archive: {}, balanceNoticeSeen: 3, achievements: { first_cycle: 1, survive_300: 2 }, skin: 'classique', trail: 'auto', wallet: { shards: 40, prisms: 0 }, owned: [], paid: {}, options: { muted: false, volume: 0.7, reducedEffects: false, tutorialSeen: true }, seenIntros: [], stats: { totalCycles: 5, totalRuns: 3 } }));
     const first = loadSave(store);
     expect(first.status).toBe('migrated');
-    // 40 (existant) + 10 (first_cycle) + 100 (survive_300)
+    // 40 (existant) + 10 (first_cycle) + 100 (survive_300) : anciennes récompenses en Éclats, versées une fois à la migration v4
     expect(first.data.wallet.shards).toBe(150);
     expect(first.data.rewarded.sort()).toEqual(['first_cycle', 'survive_300']);
     expect(first.data.rewardNotice).toEqual({ shards: 110, count: 2 });
-    expect(first.data.stats).toMatchObject({ totalCycles: 5, totalRuns: 3, totalShards: 0, totalEvents: 0 });
+    // Le registre des anciennes récompenses ne bloque PAS les nouvelles Médailles
+    expect(first.data.medals.claimed).toEqual([]);
+    expect(claimableMedals(first.data)).toBe(20 + 100);
+    // Cosmétique débloqué par l'ancien succès survive_300 : conservé
+    expect(isOwned(first.data, 'solaire')).toBe(true);
     writeSave(store, first.data);
-    // Rechargement : aucune seconde récompense
+    // Rechargement : aucune seconde récompense en Éclats, Médailles toujours réclamables
     const second = loadSave(store);
     expect(second.status).toBe('ok');
     expect(second.data.wallet.shards).toBe(150);
     expect(second.data).toEqual(first.data);
-    // Rattrapage des nouveaux objectifs déjà atteints : une seule fois
+    // Rattrapage des nouveaux objectifs déjà atteints : succès débloqués sans aucun versement
     const data = second.data;
     data.survival.bestTime = 130;
     const gained = reconcileAchievements(data, 5);
     expect(gained.map((a) => a.id).sort()).toEqual(['survive_120', 'survive_60']);
-    const w = data.wallet.shards;
+    expect(data.wallet.shards).toBe(150);
+    expect(data.wallet.medals).toBe(0);
     expect(reconcileAchievements(data, 6)).toEqual([]);
-    expect(data.wallet.shards).toBe(w);
-    expect(data.rewardNotice!.count).toBe(2 + gained.length);
+  });
+
+  it('les anciens Éclats ne sont jamais re-versés et la réclamation ne les touche pas (conservation intégrale)', () => {
+    const save = defaultSave();
+    save.wallet.shards = 777;
+    save.rewarded = ['first_cycle'];
+    save.achievements.first_cycle = 5;
+    expect(claimMedals(save, 'first_cycle')).toMatchObject({ ok: true, medals: 20 });
+    expect(save.wallet.shards).toBe(777);
+    expect(save.rewarded).toEqual(['first_cycle']);
   });
 });

@@ -52,7 +52,9 @@ export function checkOrigins(origins: readonly string[], production: boolean): s
   return problems;
 }
 
-export function createHttpServer(app: (req: HttpRequest) => HttpResponse, opts: HttpOptions): Server {
+export type HttpApp = ((req: HttpRequest) => HttpResponse) & { async?: (req: HttpRequest) => Promise<HttpResponse> | null };
+
+export function createHttpServer(app: HttpApp, opts: HttpOptions): Server {
   const server = createServer((req: IncomingMessage, res) => {
     const origin = req.headers.origin;
     const headers: Record<string, string> = {
@@ -109,24 +111,38 @@ export function createHttpServer(app: (req: HttpRequest) => HttpResponse, opts: 
     req.on('end', () => {
       if (answered) return;
       let body: unknown;
+      const rawText = chunks.length > 0 ? Buffer.concat(chunks).toString('utf8') : undefined;
       if (chunks.length > 0) {
         if (BODY_METHODS.has(method) && !/^application\/json\b/i.test(String(req.headers['content-type'] ?? ''))) {
           return send(415, { error: 'unsupported_media_type', message: 'Content-Type application/json requis.' });
         }
         try {
-          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          body = JSON.parse(rawText as string);
         } catch {
           return send(400, { error: 'bad_json', message: 'Corps JSON invalide.' });
         }
       }
-      const out = app({
+      const request: HttpRequest = {
         method,
         path: url.pathname,
         query: url.searchParams,
-        headers: { authorization: req.headers.authorization },
+        // En-têtes transmis tels quels (minuscules) : les prestataires de paiement signent leurs notifications (vérification faite par leur module, sur le corps brut)
+        headers: Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(',') : v])),
         body,
+        raw: rawText,
+        rawQuery: url.search.startsWith('?') ? url.search.slice(1) : url.search,
         ip: clientIp(String(req.headers['x-forwarded-for'] ?? ''), req.socket.remoteAddress, opts.trustProxy),
-      });
+      };
+      // Routes qui attendent le réseau (fournisseurs de connexion, courriel) : réponse différée ; les autres restent synchrones
+      const pending = app.async?.(request);
+      if (pending) {
+        pending.then(
+          (out) => send(out.status, out.body),
+          () => send(500, { error: 'server_error', message: 'Erreur interne du service.' }),
+        );
+        return;
+      }
+      const out = app(request);
       send(out.status, out.body);
     });
   });
