@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createApp } from './app';
+import { mailerFromEnv } from './mailer';
 import { openDb } from './db';
 import { checkOrigins, createHttpServer } from './http';
 
@@ -14,6 +15,11 @@ import { checkOrigins, createHttpServer } from './http';
  *   REQUIRE_HTTPS     « 1 » : refuser toute requête arrivée en clair (exige TRUST_PROXY ≥ 1 ; en production : toujours 1)
  *   BLOCKED_WORDS     mots interdits supplémentaires dans les pseudos (séparés par des virgules)
  *   MAX_REPLAYS_PER_MINUTE   plafond global de rejeux (défaut 30)
+ * Comptes (facultatifs ; chaque méthode reste DÉSACTIVÉE tant que sa configuration est absente — voir docs/COMPTES.md) :
+ *   GOOGLE_CLIENT_IDS / GOOGLE_WEB_CLIENT_ID   identifiants clients OAuth Google acceptés (web, Android, iOS) et identifiant « web » exposé au navigateur
+ *   APPLE_CLIENT_IDS / APPLE_WEB_CLIENT_ID     identifiants Apple acceptés (service web, application iOS) et identifiant de service exposé
+ *   RESEND_API_KEY + MAIL_FROM                 service d'envoi des liens magiques par courriel (secrets : jamais dans le jeu)
+ *   APP_PUBLIC_URL                             adresse publique du jeu (lien du courriel), ex. https://utilisateur.github.io/Polarity/
  * Aucune route d'administration HTTP : la modération se fait en ligne de commande sur la machine (server/admin.ts).
  */
 const fail = (msg: string): never => {
@@ -40,10 +46,27 @@ if (originProblems.length > 0) fail(originProblems.join(' ; '));
 
 mkdirSync(dirname(dbPath), { recursive: true });
 const db = openDb(dbPath);
-const app = createApp(db, { ticketSecret: secret, blockedWords: blocked, limits: { replaysPerMinute: Number.isFinite(maxReplays) && maxReplays > 0 ? maxReplays : 30 } });
+const list = (v: string | undefined): string[] => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+const googleIds = list(process.env.GOOGLE_CLIENT_IDS);
+const appleIds = list(process.env.APPLE_CLIENT_IDS);
+const mailer = mailerFromEnv(process.env);
+const appUrl = process.env.APP_PUBLIC_URL?.trim();
+if (appUrl && !/^https:\/\//i.test(appUrl) && !/^http:\/\/(localhost|127\.0\.0\.1)/i.test(appUrl)) fail('APP_PUBLIC_URL doit être en https.');
+const app = createApp(db, {
+  ticketSecret: secret,
+  blockedWords: blocked,
+  limits: { replaysPerMinute: Number.isFinite(maxReplays) && maxReplays > 0 ? maxReplays : 30 },
+  accounts: {
+    google: googleIds.length > 0 ? { audiences: googleIds, web: process.env.GOOGLE_WEB_CLIENT_ID?.trim() || googleIds[0] } : undefined,
+    apple: appleIds.length > 0 ? { audiences: appleIds, web: process.env.APPLE_WEB_CLIENT_ID?.trim() || appleIds[0] } : undefined,
+    mailer,
+    appUrl,
+  },
+});
 const server = createHttpServer(app, { allowedOrigins: allowed, trustProxy, requireHttps });
 
 server.listen(port, host, () => {
+  console.log(`Comptes : Google ${googleIds.length > 0 ? 'activé' : 'désactivé'}, Apple ${appleIds.length > 0 ? 'activé' : 'désactivé'}, courriel ${mailer ? 'activé' : 'désactivé'}`);
   console.log(`Classement : écoute sur ${host}:${port} (base : ${dbPath}, origines : ${allowed.join(', ') || 'aucune'}, https exigé : ${requireHttps ? 'oui' : 'non'}, proxys de confiance : ${trustProxy})`);
 });
 

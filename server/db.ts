@@ -81,7 +81,94 @@ CREATE TABLE moderation_log (
 );
 `;
 
-export const MIGRATIONS: readonly string[] = [V1, V2];
+/**
+ * v3 : comptes et économie (économie v3).
+ * - `players.guest` : pseudo non choisi par le joueur (profil invité, absent du classement public) ; `players.merged_into` : profil fusionné dans un autre (alias).
+ * - `identities` : méthodes de connexion associées à un profil (google / apple / email), unique par (fournisseur, sujet).
+ * - `sessions` : accès supplémentaires d'un profil (un secret par appareil, empreinte seule) ; le secret d'origine reste dans `players.token_hash`.
+ * - `login_requests` : demandes de lien magique (code à usage unique, tentatives limitées) ; `auth_nonces` : nonces OIDC à usage unique (anti-rejeu).
+ * - `saves` : sauvegarde de progression conservée par profil (révision) ; `installs` : installations connues et filigrane des gains acceptés.
+ * - `ledger` : REGISTRE des opérations de monnaie (import, gains, dépenses, récompenses), idempotent par (joueur, clé) ; `merges` : registre des fusions.
+ */
+const V3 = `
+ALTER TABLE players ADD COLUMN guest INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN merged_into TEXT;
+CREATE TABLE identities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  provider TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  email TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE (provider, subject)
+);
+CREATE INDEX identities_player ON identities(player_id);
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  label TEXT,
+  created_at INTEGER NOT NULL,
+  last_used INTEGER,
+  revoked_at INTEGER
+);
+CREATE INDEX sessions_player ON sessions(player_id);
+CREATE TABLE login_requests (
+  id TEXT PRIMARY KEY,
+  email TEXT,
+  email_hash TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  consumed_at INTEGER
+);
+CREATE INDEX login_requests_email ON login_requests(email_hash, created_at);
+CREATE TABLE auth_nonces (
+  nonce TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE TABLE saves (
+  player_id TEXT PRIMARY KEY REFERENCES players(id),
+  rev INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  device TEXT
+);
+CREATE TABLE installs (
+  install_id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  earned INTEGER NOT NULL DEFAULT 0,
+  bucket INTEGER NOT NULL DEFAULT 0,
+  legacy_imported INTEGER NOT NULL DEFAULT 0,
+  first_seen INTEGER NOT NULL,
+  last_sync INTEGER NOT NULL
+);
+CREATE INDEX installs_player ON installs(player_id);
+CREATE TABLE ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  currency TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  ref TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  meta TEXT,
+  UNIQUE (player_id, ref)
+);
+CREATE INDEX ledger_player ON ledger(player_id, currency);
+CREATE TABLE merges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_player TEXT NOT NULL,
+  into_player TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  summary TEXT
+);
+`;
+
+export const MIGRATIONS: readonly string[] = [V1, V2, V3];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 const userVersion = (db: Db): number => (db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }).user_version;

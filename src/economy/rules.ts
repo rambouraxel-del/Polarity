@@ -11,14 +11,13 @@ import type { SaveData } from '../save/save';
  * Le portefeuille local est provisoire jusqu'à la synchronisation. Les Prismes ne sont JAMAIS crédités à partir de données du client.
  */
 export const SYNC_RULES = {
-  /** Gains répétables acceptés par heure écoulée depuis la dernière synchronisation (éclat d'orbite : ≈ 12–20 par minute de jeu). */
-  maxEarnPerHour: 1500,
-  /** Marge ajoutée à chaque synchronisation (une partie très riche juste avant). */
-  earnBurst: 500,
-  /** Fenêtre d'accumulation : au-delà, le plafond ne grandit plus (une longue absence n'autorise pas un gain illimité). */
-  maxWindowHours: 48,
-  /** Première synchronisation d'une installation : fenêtre minimale (heures). */
-  minWindowHours: 1,
+  /**
+   * Gains répétables : SEAU À JETONS par installation. Capacité (rafale acceptée à la première synchronisation ou après une longue absence) et
+   * rechargement par heure (éclat d'orbite : ≈ 12–20 Éclats par minute de jeu). Le seau se recharge avec le TEMPS, pas avec le nombre de synchronisations :
+   * répéter des requêtes ne crée rien.
+   */
+  earnBucketCap: 3000,
+  earnRefillPerHour: 1500,
   /** Installations héritées (anciennes sauvegardes) importables par profil. */
   maxLegacyImports: 3,
   /** Taille maximale d'une sauvegarde envoyée (octets). */
@@ -57,10 +56,10 @@ export function entitledRewards(save: Pick<SaveData, 'rewarded' | 'achievements'
   return out;
 }
 
-/** Plafond de gains répétables acceptables, selon le temps écoulé depuis la dernière synchronisation de cette installation. */
-export function earnAllowance(elapsedMs: number): number {
-  const hours = Math.min(SYNC_RULES.maxWindowHours, Math.max(SYNC_RULES.minWindowHours, elapsedMs / 3_600_000));
-  return Math.floor(SYNC_RULES.maxEarnPerHour * hours + SYNC_RULES.earnBurst);
+/** Seau à jetons : contenu après `elapsedMs` de rechargement (jamais au-delà de la capacité). */
+export function refillBucket(bucket: number, elapsedMs: number): number {
+  const refill = (SYNC_RULES.earnRefillPerHour * Math.max(0, elapsedMs)) / 3_600_000;
+  return Math.min(SYNC_RULES.earnBucketCap, Math.max(0, bucket) + Math.floor(refill));
 }
 
 export type PurchaseCheck = { ok: true; item: CatalogItem } | { ok: false; reason: 'unknown' | 'not_purchasable' | 'premium' | 'bad_price' };

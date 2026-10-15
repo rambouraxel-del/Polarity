@@ -52,7 +52,9 @@ export function checkOrigins(origins: readonly string[], production: boolean): s
   return problems;
 }
 
-export function createHttpServer(app: (req: HttpRequest) => HttpResponse, opts: HttpOptions): Server {
+export type HttpApp = ((req: HttpRequest) => HttpResponse) & { async?: (req: HttpRequest) => Promise<HttpResponse> | null };
+
+export function createHttpServer(app: HttpApp, opts: HttpOptions): Server {
   const server = createServer((req: IncomingMessage, res) => {
     const origin = req.headers.origin;
     const headers: Record<string, string> = {
@@ -119,14 +121,24 @@ export function createHttpServer(app: (req: HttpRequest) => HttpResponse, opts: 
           return send(400, { error: 'bad_json', message: 'Corps JSON invalide.' });
         }
       }
-      const out = app({
+      const request: HttpRequest = {
         method,
         path: url.pathname,
         query: url.searchParams,
-        headers: { authorization: req.headers.authorization },
+        headers: { authorization: req.headers.authorization, 'user-agent': req.headers['user-agent'] },
         body,
         ip: clientIp(String(req.headers['x-forwarded-for'] ?? ''), req.socket.remoteAddress, opts.trustProxy),
-      });
+      };
+      // Routes qui attendent le réseau (fournisseurs de connexion, courriel) : réponse différée ; les autres restent synchrones
+      const pending = app.async?.(request);
+      if (pending) {
+        pending.then(
+          (out) => send(out.status, out.body),
+          () => send(500, { error: 'server_error', message: 'Erreur interne du service.' }),
+        );
+        return;
+      }
+      const out = app(request);
       send(out.status, out.body);
     });
   });

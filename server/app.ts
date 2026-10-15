@@ -19,8 +19,10 @@ import {
   type TicketsResponse,
 } from '../src/net/protocol';
 import { hashToken, newPlayerId, newTicketParts, newToken, parseBearer, signTicket, tokenMatches, verifyTicketSig } from './auth';
+import { createAccounts, ASYNC_ROUTES, type AccountsConfig } from './accounts';
 import { transaction, type Db } from './db';
 import { checkNickname } from './moderation';
+import { eraseProfile, guestNickname } from './profile';
 import { replaySurvival } from './verify';
 
 /**
@@ -41,7 +43,12 @@ export interface AppConfig {
    * comptes pourraient le saturer malgré les limites par joueur. Défauts : 30 rejeux/minute, 100 inscriptions/heure.
    */
   limits?: { replaysPerMinute?: number; registrationsPerHour?: number };
+  /** Comptes, connexions facultatives, synchronisation (économie v3) ; chaque méthode externe reste DÉSACTIVÉE tant qu'elle n'est pas configurée. */
+  accounts?: AccountsConfig;
 }
+
+/** Gestionnaire du service : synchrone, sauf les routes qui attendent le réseau (clés des fournisseurs, courriel) exposées par `async`. */
+export type App = ((req: HttpRequest) => HttpResponse) & { async: (req: HttpRequest) => Promise<HttpResponse> | null };
 
 export interface HttpRequest {
   method: string;
@@ -95,28 +102,35 @@ class RateLimiter {
   }
 }
 
-interface PlayerRow {
+export interface PlayerRow {
   id: string;
   nickname: string;
   token_hash: string;
   /** 0 normal ; 1 pseudo masqué par l'opérateur ; 2 exclu du classement. */
   moderation: number;
+  /** 1 : pseudo non choisi (profil invité), absent du classement public. */
+  guest: number;
+  /** Profil fusionné dans un autre (alias) ; null sinon. */
+  merged_into: string | null;
 }
 
 const NICKNAME_REFUSED = 'Ce pseudo n’est pas autorisé : choisissez-en un autre.';
 const isUniqueViolation = (e: unknown): boolean => e instanceof Error && /UNIQUE constraint/i.test(e.message);
 
-export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpResponse {
+export function createApp(db: Db, cfg: AppConfig): App {
   if (!cfg.ticketSecret || cfg.ticketSecret.length < 16) throw new Error('ticketSecret (16 caractères minimum) requis');
   const now = cfg.now ?? Date.now;
   const balance = cfg.balance ?? BALANCE_VERSION;
   const limiter = new RateLimiter(now);
   const HOUR = 3_600_000;
   const maxReplays = cfg.limits?.replaysPerMinute ?? 30;
-  const maxRegistrations = cfg.limits?.registrationsPerHour ?? 100;
+  const maxRegistrations = cfg.limits?.registrationsPerHour ?? 1000;
 
   const q = {
-    player: db.prepare('SELECT id, nickname, token_hash, moderation FROM players WHERE id = ?'),
+    player: db.prepare('SELECT id, nickname, token_hash, moderation, guest, merged_into FROM players WHERE id = ?'),
+    session: db.prepare('SELECT player_id, revoked_at FROM sessions WHERE token_hash = ?'),
+    touchSession: db.prepare('UPDATE sessions SET last_used = ? WHERE token_hash = ?'),
+    guestPlayer: db.prepare('INSERT INTO players (id, nickname, nickname_key, token_hash, created_at, guest) VALUES (?, ?, ?, ?, ?, 1)'),
     byNickname: db.prepare('SELECT id, nickname FROM players WHERE nickname_key = ?'),
     nickTaken: db.prepare('SELECT id FROM players WHERE nickname_key = ?'),
     insertPlayer: db.prepare('INSERT INTO players (id, nickname, nickname_key, token_hash, created_at) VALUES (?, ?, ?, ?, ?)'),
@@ -132,31 +146,50 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
     ),
     // Les joueurs exclus par l'opérateur (moderation = 2) ne comptent ni au classement ni dans les rangs
     rank: db.prepare(
-      'SELECT COUNT(*) + 1 AS rank FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND (b.steps > ? OR (b.steps = ? AND b.score > ?) OR (b.steps = ? AND b.score = ? AND b.achieved_at < ?))',
+      'SELECT COUNT(*) + 1 AS rank FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND p.guest = 0 AND (b.steps > ? OR (b.steps = ? AND b.score > ?) OR (b.steps = ? AND b.score = ? AND b.achieved_at < ?))',
     ),
-    total: db.prepare('SELECT COUNT(*) AS n FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2'),
+    total: db.prepare('SELECT COUNT(*) AS n FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND p.guest = 0'),
     top: db.prepare(
-      'SELECT b.player_id, p.nickname, b.steps, b.score, b.achieved_at FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 ORDER BY b.steps DESC, b.score DESC, b.achieved_at ASC LIMIT ?',
+      'SELECT b.player_id, p.nickname, b.steps, b.score, b.achieved_at FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND p.guest = 0 ORDER BY b.steps DESC, b.score DESC, b.achieved_at ASC LIMIT ?',
     ),
-    balances: db.prepare('SELECT b.balance AS balance, COUNT(*) AS players FROM bests b JOIN players p ON p.id = b.player_id WHERE p.moderation < 2 GROUP BY b.balance ORDER BY b.balance DESC'),
+    balances: db.prepare('SELECT b.balance AS balance, COUNT(*) AS players FROM bests b JOIN players p ON p.id = b.player_id WHERE p.moderation < 2 AND p.guest = 0 GROUP BY b.balance ORDER BY b.balance DESC'),
     insertReport: db.prepare('INSERT OR IGNORE INTO reports (reporter_id, target_id, target_nickname, reason, created_at) VALUES (?, ?, ?, ?, ?)'),
-    delTickets: db.prepare('DELETE FROM tickets WHERE player_id = ?'),
-    delBests: db.prepare('DELETE FROM bests WHERE player_id = ?'),
-    delRuns: db.prepare('DELETE FROM runs WHERE player_id = ?'),
-    delReports: db.prepare('DELETE FROM reports WHERE reporter_id = ? OR target_id = ?'),
-    delPlayer: db.prepare('DELETE FROM players WHERE id = ?'),
     log: db.prepare('INSERT INTO moderation_log (at, action, player_id, nickname, note) VALUES (?, ?, NULL, NULL, ?)'),
     ping: db.prepare('SELECT 1 AS ok'),
   };
 
   const dt = 1 / 120;
 
+  /** Profil effectif d'un profil fusionné (alias) : on suit `merged_into` (4 niveaux au plus). */
+  function resolveAlias(r: PlayerRow): PlayerRow | null {
+    let cur = r;
+    for (let i = 0; i < 4 && cur.merged_into; i++) {
+      const next = q.player.get(cur.merged_into) as unknown as PlayerRow | undefined;
+      if (!next) return null;
+      cur = next;
+    }
+    return cur.merged_into ? null : cur;
+  }
+
+  /**
+   * Authentification : « Bearer <identifiant>.<secret> ». Le secret peut être celui d'origine du profil ou celui d'un accès (appareil) ; un profil
+   * fusionné reste joignable par ses anciens accès, qui agissent alors sur le profil qui l'a absorbé. Comparaisons en temps constant ; accès révocables.
+   */
   function authenticate(req: HttpRequest): PlayerRow | null {
     const b = parseBearer(req.headers.authorization);
     if (!b) return null;
-    const row = q.player.get(b.playerId) as unknown as PlayerRow | undefined;
-    if (!row || !tokenMatches(b.token, row.token_hash)) return null;
-    return row;
+    const row0 = q.player.get(b.playerId) as unknown as PlayerRow | undefined;
+    if (!row0) return null;
+    const eff = resolveAlias(row0);
+    if (!eff) return null;
+    if (tokenMatches(b.token, row0.token_hash)) return eff;
+    const h = hashToken(b.token);
+    const sess = q.session.get(h) as unknown as { player_id: string; revoked_at: number | null } | undefined;
+    if (sess && sess.revoked_at === null && (sess.player_id === eff.id || sess.player_id === row0.id)) {
+      q.touchSession.run(now(), h);
+      return eff;
+    }
+    return null;
   }
 
   function rankOf(bal: number, steps: number, score: number, at: number): number {
@@ -172,9 +205,24 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
   // ————————————————————————— routes
 
   function register(req: HttpRequest): HttpResponse {
-    if (!limiter.allow(`reg:${req.ip}`, 5, HOUR) || !limiter.allow('reg:global', maxRegistrations, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
+    if (!limiter.allow(`reg:${req.ip}`, 20, HOUR) || !limiter.allow('reg:global', maxRegistrations, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
     const body = req.body as { nickname?: unknown } | undefined;
-    const nick = typeof body?.nickname === 'string' ? normalizeNickname(body.nickname) : '';
+    // Sans pseudo : profil INVITÉ créé automatiquement (pseudo « Joueur-xxxxxx », absent du classement public jusqu'au choix d'un pseudo)
+    if (body === undefined || body === null || body.nickname === undefined || body.nickname === '') {
+      const playerId = newPlayerId();
+      const token = newToken();
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const nick = guestNickname(playerId, attempt);
+        try {
+          q.guestPlayer.run(playerId, nick, nicknameKey(nick), hashToken(token), now());
+          return json(201, { playerId, token, nickname: nick, guest: true } satisfies RegisterResponse & { guest: boolean });
+        } catch (e) {
+          if (!isUniqueViolation(e)) throw e;
+        }
+      }
+      return err(500, 'server_error', 'Erreur interne du service.');
+    }
+    const nick = typeof body.nickname === 'string' ? normalizeNickname(body.nickname) : '';
     if (!validNickname(nick)) return err(400, 'bad_nickname', `Pseudo invalide : ${LIMITS.nickname.min} à ${LIMITS.nickname.max} caractères (lettres latines, chiffres, espace, point, tiret).`);
     if (!checkNickname(nick, cfg.blockedWords).ok) return err(400, 'nickname_refused', NICKNAME_REFUSED);
     const key = nicknameKey(nick);
@@ -204,6 +252,8 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
     if (other && other.id !== me.id) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
     try {
       q.rename.run(nick, key, me.id);
+      // Choisir un pseudo fait sortir du statut d'invité : le profil entre au classement public
+      db.prepare('UPDATE players SET guest = 0 WHERE id = ?').run(me.id);
     } catch (e) {
       if (isUniqueViolation(e)) return err(409, 'nickname_taken', 'Ce pseudo est déjà pris.');
       throw e;
@@ -232,14 +282,8 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
    */
   function deleteMe(me: PlayerRow): HttpResponse {
     if (!limiter.allow(`delete:${me.id}`, 3, HOUR)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
-    transaction(db, () => {
-      q.delTickets.run(me.id);
-      q.delBests.run(me.id);
-      q.delRuns.run(me.id);
-      q.delReports.run(me.id, me.id);
-      q.delPlayer.run(me.id);
-      q.log.run(now(), 'suppression_par_le_joueur', null);
-    });
+    eraseProfile(db, me.id);
+    q.log.run(now(), 'suppression_par_le_joueur', null);
     return json(200, { deleted: true });
   }
 
@@ -338,9 +382,14 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
     return json(200, res);
   }
 
-  return (req) => {
+  const accounts = createAccounts({ db, now, allow: (k, m, w) => limiter.allow(k, m, w), authenticate, cfg: cfg.accounts ?? {} });
+
+  const handler = (req: HttpRequest): HttpResponse => {
     const route = `${req.method} ${req.path}`;
     try {
+      if (ASYNC_ROUTES.has(route)) return err(500, 'use_async', 'Route asynchrone : utilisez le gestionnaire async.');
+      const acct = accounts.handle(req);
+      if (acct) return acct;
       switch (route) {
         case 'GET /api/health': {
           q.ping.get(); // la base répond-elle ? (sinon 500 : le contrôle de santé échoue)
@@ -369,4 +418,20 @@ export function createApp(db: Db, cfg: AppConfig): (req: HttpRequest) => HttpRes
       return err(500, 'server_error', 'Erreur interne du service.');
     }
   };
+
+  const app = handler as App;
+  app.async = (req) => {
+    try {
+      const p = accounts.handleAsync(req);
+      if (!p) return null;
+      return p.catch((e) => {
+        console.error('Erreur serveur :', e);
+        return err(500, 'server_error', 'Erreur interne du service.');
+      });
+    } catch (e) {
+      console.error('Erreur serveur :', e);
+      return Promise.resolve(err(500, 'server_error', 'Erreur interne du service.'));
+    }
+  };
+  return app;
 }
