@@ -1001,7 +1001,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   check(await noOverflowNow(), 'Bilan mobile : pas de débordement horizontal');
   const wallet0 = (await stored()).wallet;
   sv = await stored();
-  check(sv.version === 6 && sv.campaign.missions.n1?.main === true && sv.campaign.reserve >= 30 && sv.wallet.shards === wallet0.shards, `Progression sauvegardée (réserve de campagne ${sv.campaign.reserve}) ; portefeuille de la Survie inchangé`);
+  check(sv.version === 7 && sv.campaign.missions.n1?.main === true && sv.campaign.reserve >= 30 && sv.wallet.shards === wallet0.shards, `Progression sauvegardée (réserve de campagne ${sv.campaign.reserve}) ; portefeuille de la Survie inchangé`);
   const reserve1 = sv.campaign.reserve;
   check(sv.stats.totalRuns === 0 && Object.keys(sv.achievements).length === 0, 'Succès et statistiques de la Survie non touchés par la campagne');
   // Rejouer : ni scène répétée, ni récompense répétée
@@ -1203,7 +1203,7 @@ for (const [w, h, name, touch] of [[320, 568, 'petit écran', true], [844, 390, 
   await page.goto(URL);
   await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
   const m = await page.evaluate(() => ({ save: JSON.parse(localStorage.getItem('polarite.save')), backup: localStorage.getItem('polarite.save.avant-v5') }));
-  check(m.save.version === 6 && m.save.wallet.shards >= 777 && m.save.wallet.prisms === 3 && m.save.survival.bestTime === 200 && m.save.skin === 'aurore' && m.save.levels['1'].stars === 2, 'Migration v5 → v6 : monnaies, records, niveaux et apparence conservés');
+  check(m.save.version === 7 && m.save.wallet.shards >= 777 && m.save.wallet.prisms === 3 && m.save.survival.bestTime === 200 && m.save.skin === 'aurore' && m.save.levels['1'].stars === 2, 'Migration v5 → v7 : monnaies, records, niveaux et apparence conservés');
   check(m.save.campaign && m.save.campaign.reserve === 0 && Object.keys(m.save.campaign.missions).length === 0 && m.save.campaign.seen.length === 0, 'Migration v5 → v6 : campagne remise à neuf (nouvelle histoire)');
   check(!!m.backup && JSON.parse(m.backup).version === 5, 'Migration v5 → v6 : copie de la sauvegarde d’origine conservée');
   // Ancienne campagne « Écho-7 » terminée (10/10) : la nouvelle histoire n'est ni terminée ni sautée

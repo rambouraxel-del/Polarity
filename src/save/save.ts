@@ -23,11 +23,14 @@ import { BALANCE_VERSION } from '../config/version';
  *      événements traversés, meilleur score, meilleur multiplicateur). Migration : les succès déjà obtenus sont récompensés une
  *      seule fois (Éclats ajoutés au solde, notification à l'accueil).
  *  5 — première campagne (10 missions « Écho-7 » ; jamais diffusée au-delà de la branche de développement).
+ *  7 — économie v3 (comptes, synchronisation) : bloc `economy` (identifiant d'installation, compteur monotone des gains répétables, achats à
+ *      confirmer, solde HÉRITÉ à importer). Migration : toute sauvegarde ≤ 6 reçoit `economy.legacy` (solde au moment de la migration) afin d'être
+ *      importée INTÉGRALEMENT, une seule fois, à la première synchronisation ; la copie `polarite.save.avant-v6` est conservée. Rien d'autre ne change.
  *  6 — campagne « Douze ans de silence » (niveaux 1 à 5) : étoiles, réserve d'Éclats de campagne SÉPARÉE du portefeuille, scènes vues,
  *      améliorations prévues pour la suite. Migration : champ `campaign` remis à neuf (le contenu de la v5 ne correspond plus à l'histoire ;
  *      copie `polarite.save.avant-v5` conservée) ; tout le reste (records, monnaies, succès, cosmétiques, identité du classement) est inchangé.
  */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -111,6 +114,29 @@ export function defaultCampaign(): CampaignSave {
   return { missions: {}, seen: [], reserve: 0, upgrades: { owned: [], enabled: [] }, chapterComplete: false };
 }
 
+/**
+ * Comptabilité locale des Éclats pour la synchronisation avec le serveur (économie v3). Le portefeuille local est PROVISOIRE : le serveur reste la
+ * source de vérité (voir src/economy/rules.ts). Rien ici ne crée de Prismes.
+ */
+export interface EconomySave {
+  /** Identifiant de cette installation (jamais réutilisé après un effacement de la progression) ; vide tant que le jeu ne l'a pas attribué. */
+  installId: string;
+  /** Gains répétables cumulés depuis la v7 (éclat d'orbite, réussites répétées) : compteur monotone. Les récompenses uniques n'y figurent pas. */
+  earned: number;
+  /** Part de `earned` déjà acceptée par le serveur (filigrane). */
+  confirmedEarned: number;
+  /** Achats en Éclats faits depuis la v7 : article → prix payé. */
+  purchases: Record<string, number>;
+  /** Achats déjà reconnus par le serveur. */
+  confirmedPurchases: string[];
+  /** Solde d'une sauvegarde d'avant les comptes, à importer une seule fois (null : rien à importer). */
+  legacy: { shards: number; imported: boolean } | null;
+}
+
+export function defaultEconomy(): EconomySave {
+  return { installId: '', earned: 0, confirmedEarned: 0, purchases: {}, confirmedPurchases: [], legacy: null };
+}
+
 export interface SaveData {
   version: number;
   /** Version d'équilibrage à laquelle appartiennent `survival` et `daily`. */
@@ -144,6 +170,8 @@ export interface SaveData {
   rewardNotice: { shards: number; count: number } | null;
   /** Campagne. */
   campaign: CampaignSave;
+  /** Comptabilité de synchronisation (économie v3). */
+  economy: EconomySave;
 }
 
 /** Statistiques cumulées (servent aux objectifs des succès). */
@@ -187,6 +215,7 @@ export function defaultSave(): SaveData {
     rewarded: [],
     rewardNotice: null,
     campaign: defaultCampaign(),
+    economy: defaultEconomy(),
   };
 }
 
@@ -350,6 +379,24 @@ export function sanitize(raw: unknown): SaveData {
     out.rewardNotice = shards > 0 || count > 0 ? { shards, count } : null;
   }
   if (isObj(raw.campaign)) out.campaign = sanitizeCampaign(raw.campaign);
+  if (isObj(raw.economy)) out.economy = sanitizeEconomy(raw.economy);
+  return out;
+}
+
+function sanitizeEconomy(raw: Record<string, unknown>): EconomySave {
+  const out = defaultEconomy();
+  if (typeof raw.installId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(raw.installId)) out.installId = raw.installId;
+  out.earned = Math.floor(num(raw.earned, 0, 0, 1e12));
+  out.confirmedEarned = Math.min(out.earned, Math.floor(num(raw.confirmedEarned, 0, 0, 1e12)));
+  if (isObj(raw.purchases)) {
+    for (const [k, v] of Object.entries(raw.purchases).slice(0, 100)) {
+      if (k.length > 0 && k.length < 40 && typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= WALLET_MAX) out.purchases[k] = Math.floor(v);
+    }
+  }
+  if (Array.isArray(raw.confirmedPurchases)) {
+    out.confirmedPurchases = [...new Set(raw.confirmedPurchases.filter((s): s is string => typeof s === 'string' && s.length > 0 && s.length < 40))].slice(0, 100);
+  }
+  if (isObj(raw.legacy)) out.legacy = { shards: Math.floor(num(raw.legacy.shards, 0, 0, WALLET_MAX)), imported: bool(raw.legacy.imported, false) };
   return out;
 }
 
@@ -422,6 +469,13 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
     out.wallet = { ...w, shards: Math.floor(num(w.shards, 0, 0, WALLET_MAX)) + total };
     out.rewarded = earned.map((a) => a.id);
     out.rewardNotice = earned.length > 0 ? { shards: total, count: earned.length } : null;
+  }
+  // Avant la v7 : pas de comptes. Le solde (après toutes les migrations ci-dessus) est mémorisé pour être importé INTÉGRALEMENT, une seule fois, à la
+  // première synchronisation. Une sauvegarde déjà au format 7 ne reçoit jamais de nouvel import (idempotence).
+  if (v < 7) {
+    const w = isObj(out.wallet) ? out.wallet : { ...WALLET_START };
+    const eco = isObj(out.economy) ? out.economy : {};
+    out.economy = { ...eco, legacy: { shards: Math.floor(num(w.shards, 0, 0, WALLET_MAX)), imported: false } };
   }
   return out;
 }

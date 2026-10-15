@@ -1,5 +1,6 @@
 import { catalogItem, type CatalogItem, type Currency } from '../config/catalog';
 import { trailById } from '../config/trails';
+import { noteEarned, notePurchase } from '../economy/local';
 import { premiumAvailable } from '../monetization/payments';
 import type { SaveData } from '../save/save';
 
@@ -91,6 +92,7 @@ export function purchase(save: SaveData, id: string): PurchaseResult {
   // Débit et obtention : même modification, sans étape intermédiaire
   save.wallet.shards -= due;
   for (const g of granted) if (!save.owned.includes(g)) save.owned.push(g);
+  notePurchase(save, item, due);
   return { ok: true, item, spent: due, granted, balance: save.wallet.shards };
 }
 
@@ -109,5 +111,6 @@ export function creditShards(save: SaveData, amount: number): number {
   const n = Math.floor(amount);
   if (!Number.isFinite(n) || n <= 0) return 0;
   save.wallet.shards += n;
+  noteEarned(save, n);
   return n;
 }

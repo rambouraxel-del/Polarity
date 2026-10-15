@@ -1,5 +1,6 @@
 import type { MissionReport } from '../campaign/simulation';
 import { LEVEL_REWARDS } from '../config/economy';
+import { noteEarned } from '../economy/local';
 import { LEVELS, levelById, type LevelDef } from '../config/levels';
 import { pruneDaily, type SaveData } from '../save/save';
 import { unlockAchievements, type AchievementDef } from './achievements';
@@ -121,6 +122,8 @@ function payLevelReward(save: SaveData, key: string, starsNow: number): LevelRew
   const total = firstClear + starReward + repeatClear;
   save.paid[key] = { first: true, stars: Math.max(paid.stars, starsNow) };
   save.wallet.shards += total;
+  // Seules les réussites répétées sont des gains répétables ; première réussite et étoiles sont des récompenses uniques (registre `paid`)
+  noteEarned(save, repeatClear);
   return { firstClear, newStars, starReward, repeatClear, total };
 }
 

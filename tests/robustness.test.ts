@@ -374,7 +374,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
   it('espace de noms, clés, identifiants de scènes et d’apparences inchangés', () => {
     expect(STORAGE_NAMESPACE).toBe('polarite');
     expect(SAVE_KEY).toBe('polarite.save');
-    expect(SAVE_VERSION).toBe(6);
+    expect(SAVE_VERSION).toBe(7);
     expect(SKINS.map((s) => s.id)).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme', 'spectre', 'neon']);
     expect(STORY.map((s) => s.id)).toEqual(Array.from({ length: 10 }, (_, i) => [`n${i + 1}-before`, `n${i + 1}-after`]).flat());
     expect(MISSIONS.map((m) => `n${m.id}`)).toEqual(Array.from({ length: 10 }, (_, i) => `n${i + 1}`));
