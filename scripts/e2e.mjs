@@ -3,6 +3,10 @@
  * Usage : npm run build && npm run e2e
  * Playwright n'est pas une dépendance du projet : le script utilise une installation locale ou globale.
  * Captures d'écran dans screenshots/.
+ *
+ * ÉCONOMIE V3 (phase 2) : les parcours Survie passent par l'écran de préparation (`survival-start`). Les sections « Cosmétiques / boutique / succès »
+ * qui supposaient des prix en Éclats ou des succès versant des Éclats (anciens identifiants de scénario) sont OBSOLÈTES : ce script n'a pas été rejoué
+ * pendant la phase 2 (consigne : pas de test navigateur lourd) ; à réécrire et rejouer en phase 6 (voir docs/ETAT_MAJ_ECONOMIE.md).
  */
 import { execSync, spawn } from 'node:child_process';
 import { mkdirSync, existsSync, readdirSync } from 'node:fs';
@@ -233,6 +237,7 @@ const state = (page) =>
   await page.click('[data-action="home"], [data-action="levels"]');
   await page.evaluate(() => window.__polarite.showScreen('home'));
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   // Le temps de jeu suit l'horloge réelle, plafonnée par image : sur un rendu logiciel lent il avance moins vite que le temps réel (attente active, pas un délai fixe)
   await page.waitForFunction(() => (window.__polarite.session?.sim.time ?? 0) > 3, null, { timeout: 30000 }).catch(() => undefined);
   await page.screenshot({ path: 'screenshots/07-survie.png' });
@@ -296,6 +301,8 @@ const state = (page) =>
   check(size[0] === 128 && size[1] === 128, 'Texture du vaisseau 128×128 (puissance de deux, mipmaps)');
 
   await page.click('[data-action="survival"]');
+
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(500);
   const visible = await page.evaluate(() => window.__polarite.renderer.shipSprite.visible);
   check(visible, 'Le sprite du vaisseau est affiché en partie');
@@ -362,6 +369,7 @@ const state = (page) =>
   await page.waitForFunction(() => !!window.__polarite && window.__polarite.renderer);
   await page.evaluate(() => { window.__polarite.save.options.tutorialSeen = true; });
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.evaluate(() => window.__polarite.fastForward(70));
   await page.waitForTimeout(400);
   await page.screenshot({ path: 'screenshots/41-debug-hitbox.png' });
@@ -382,6 +390,7 @@ const state = (page) =>
   await page.waitForFunction(() => !!window.__polarite && window.__polarite.renderer);
   await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.seenIntros = ['projectile', 'sector', 'combo', 'fragment', 'convoy', 'laser']; });
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(300);
 
   // Vitesse : départ à 40 % de la référence (2,0 rad/s)
@@ -400,6 +409,7 @@ const state = (page) =>
     console.log(`  (robot mort avant 6 min, nouvelle partie : tentative ${attempt + 1}/3)`);
     await page.evaluate(() => window.__polarite.showScreen('home'));
     await page.click('[data-action="survival"]');
+    await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
     await page.waitForTimeout(300);
   }
   [[30.1, 0.9], [60.1, 1.0], [180.1, 1.4], [360.2, 2.0]].forEach(([target, expected], i) => {
@@ -539,6 +549,7 @@ const state = (page) =>
   for (const [mode, sel] of [['Survie', '[data-action="survival"]'], ['défi quotidien', '[data-action="daily"]'], ['Niveaux', '[data-action="campaign"]']]) {
     await go('home');
     await page.click(sel);
+    if (mode === 'Survie') await page.click('[data-action="survival-start"]');
     if (mode === 'défi quotidien') await page.click('[data-action="play-daily"]');
     if (mode === 'Niveaux') {
       await page.click('[data-action="levels"]');
@@ -581,6 +592,7 @@ const state = (page) =>
     await p.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
     check((await p.evaluate(() => window.__polarite.save.skin)) === 'classique', `Repli sur le modèle classique (${label})`);
     await p.click('[data-action="survival"]');
+    await p.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
     await p.waitForTimeout(400);
     check((await p.evaluate(() => window.__polarite.renderer.shipSprite.texture.key)) === 'ship-classique', `Partie jouable avec le modèle classique (${label})`);
     await ctx.close();
@@ -596,6 +608,7 @@ const state = (page) =>
 
   // — Éclat sur l'orbite (Survie)
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(300);
   await sim(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; });
   check(await sim(() => window.__polarite.session.sim.shards !== null), 'Survie : éclats activés');
@@ -649,6 +662,7 @@ const state = (page) =>
   for (const skin of ['classique', 'aurore', 'ambre', 'spectre']) {
     await page.evaluate((id) => { const a = window.__polarite; a.save.skin = id; a.showScreen('home'); }, skin);
     await page.click('[data-action="survival"]');
+    await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
     await page.waitForTimeout(300);
     await sim(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; s.shards.nextAt = s.time; });
     await page.waitForTimeout(700);
@@ -731,6 +745,7 @@ const state = (page) =>
   await mob.page.screenshot({ path: 'screenshots/78-boutique-mobile.png' });
   await mob.page.evaluate(() => window.__polarite.showScreen('home'));
   await mob.page.tap('[data-action="survival"]');
+  await mob.page.tap('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await mob.page.waitForTimeout(300);
   await mob.page.evaluate(() => { const s = window.__polarite.session.sim; s.invincible = true; s.hazards.length = 0; s.shards.nextAt = s.time; });
   await mob.page.waitForTimeout(800);
@@ -746,6 +761,7 @@ const state = (page) =>
   const w = () => page.evaluate(() => window.__polarite.save.wallet.shards);
   await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; a.save.achievements = {}; a.save.rewarded = []; a.save.wallet = { shards: 0, prisms: 0 }; a.save.rewardNotice = null; a.persist(); });
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(300);
   await page.evaluate(() => { const s = window.__polarite.session.sim; for (let i = 0; i < 120 * 90 && s.state === 'running'; i++) s.step(); });
   await page.waitForSelector('[data-replay]', { timeout: 15000 });
@@ -760,6 +776,7 @@ const state = (page) =>
   check((await w()) === w1, 'Rechargement : aucune seconde récompense');
   await page.evaluate(() => { const a = window.__polarite; a.save.options.tutorialSeen = true; a.save.balanceNoticeSeen = 3; a.showScreen('home'); });
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(300);
   await page.evaluate(() => { const s = window.__polarite.session.sim; for (let i = 0; i < 120 * 90 && s.state === 'running'; i++) s.step(); });
   await page.waitForSelector('[data-replay]', { timeout: 15000 });
@@ -839,6 +856,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   // Transition : l'écran change sans rester vide, et pendant la partie le fond spatial est masqué
   await go('home');
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(300);
   check(await page.evaluate(() => document.querySelector('#space').classList.contains('hidden')), `Partie : fond spatial des menus masqué (${label})`);
   await page.keyboard.press('Escape');
@@ -855,6 +873,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   const { page, context, errors } = await newPage({ width: 390, height: 844 }, { touch: true, dpr: 3 });
   await page.screenshot({ path: 'screenshots/20-accueil-mobile.png' });
   await page.tap('[data-action="survival"]');
+  await page.tap('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(400);
   let st = await state(page);
   const f0 = st.flips;
@@ -1104,6 +1123,7 @@ for (const [w, h, label, touch] of [[1280, 800, 'bureau', false], [390, 844, 'mo
   await app(() => { const a = window.__polarite; a.save.owned = ['aurore']; a.save.skin = 'aurore'; a.persist(); a.showScreen('home'); });
   await sleep(300);
   await page.tap('[data-action="survival"]');
+  await page.tap('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await sleep(500);
   check((await app(() => !window.__polarite.session.campaign && window.__polarite.session.sim.shieldCharges === undefined)) && (await app(() => window.__polarite.renderer.shipSprite.texture.key)) === 'ship-aurore', 'Survie : mode inchangé, apparence équipée appliquée (pas la Traverse)');
   check((await app(() => window.__polarite.lb.pending().length)) === 0, 'Aucun résultat de campagne en attente d’envoi au classement');
@@ -1241,6 +1261,7 @@ for (const [w, h, name, touch] of [[320, 568, 'petit écran', true], [844, 390, 
   // Premier geste : débloque l'audio, démarre le décodage ; rien n'est chargé avant
   check(mp3.length === 0, 'Musique : aucun MP3 chargé avant le premier geste du joueur');
   await page.click('[data-action="survival"]');
+  await page.click('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await m(() => window.__polarite.music.preload());
   await waitMode('playing');
   check((await m(() => window.__polarite.music.ready)) && (await m(() => window.__polarite.sfx.context.state)) === 'running', 'Musique : buffers décodés, contexte audio de l’application partagé et en marche');
@@ -1406,6 +1427,7 @@ for (const [w, h, name, touch] of [[320, 568, 'petit écran', true], [844, 390, 
 for (const [w, h, name] of [[844, 390, '30-paysage-mobile'], [768, 1024, '31-tablette'], [320, 568, '32-petit-ecran']]) {
   const { page, context, errors } = await newPage({ width: w, height: h }, { touch: true, dpr: 2 });
   await page.tap('[data-action="survival"]');
+  await page.tap('[data-action="survival-start"]'); // préparation de la Survie (économie v3 phase 2)
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `screenshots/${name}.png` });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);

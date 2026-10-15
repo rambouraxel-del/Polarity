@@ -494,16 +494,17 @@ export function confirmBonusScreen(save: SaveData, kind: string, quantity: numbe
 export function prepScreen(save: SaveData, message: { kind: 'ok' | 'error'; text: string } | null = null, record = ''): string {
   const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
   const totalStock = BONUS_LIST.reduce((t, b) => t + save.inventory[b.id], 0);
+  // Le lancement est tout en haut : toujours visible, même sur téléphone ; les bonus sont facultatifs
   return `<div class="panel panel--wide prep">${screenHead('Préparer la partie')}
     ${msg}
-    ${walletBar(save.wallet, { currencies: ['shards'] })}
-    ${waitingNote(save)}
-    <p class="sub prep__intro">Survie${record ? ` · ${escapeHtml(record)}` : ''}. Vos bonus sont facultatifs.</p>
-    <div class="bonus-list">${bonusCards(save)}</div>
-    <p class="small">${bonusRules()}</p>
     <div class="btn-stack prep__go">
       ${button({ action: 'survival-start', label: 'Lancer la partie', sub: totalStock > 0 ? 'Vos charges sont conservées' : 'Sans bonus', icon: 'play', variant: 'primary', size: 'hero', attrs: 'data-autofocus' })}
     </div>
+    <p class="sub prep__intro">Survie${record ? ` · ${escapeHtml(record)}` : ''}. Les bonus ci-dessous sont facultatifs.</p>
+    ${walletBar(save.wallet, { currencies: ['shards'] })}
+    ${waitingNote(save)}
+    <div class="bonus-list">${bonusCards(save)}</div>
+    <p class="small">${bonusRules()}</p>
   </div>`;
 }
 

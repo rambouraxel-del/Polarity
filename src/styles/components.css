@@ -836,3 +836,29 @@
 .price--medals strong {
   color: var(--c-gold);
 }
+
+/* Quatre onglets (Boutique : Vaisseaux, Traînées, Packs, Bonus) : lisibles sur 320–390 px */
+@media (max-width: 520px) {
+  .tabs {
+    gap: 2px;
+    padding: 3px;
+  }
+
+  .tab {
+    padding: 0 2px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+}
+
+/* Cartes d'articles : le pictogramme de la monnaie suffit visuellement (le nom reste lu par les lecteurs d'écran) */
+.skin .price__l {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

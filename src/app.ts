@@ -83,22 +83,7 @@ export class App {
   /** Classement mondial (service facultatif ; le jeu reste jouable hors ligne). */
   readonly lb = new LeaderboardClient({ baseUrl: LEADERBOARD_URL, store: this.store, balance: BALANCE_VERSION, build: __APP_VERSION__ });
   /** Compte, synchronisation et migration (économie v3) : facultatifs, jamais bloquants ; inactifs si le service n'est pas configuré. */
-  readonly account = new AccountService({
-    lb: this.lb,
-    store: this.store,
-    getSave: () => this.save,
-    commit: (mutate) => {
-      mutate(this.save);
-      this.persist(false);
-    },
-    isPlaying: () => this.session !== null && this.session.phase !== 'over',
-    onChange: () => {
-      if (this.session) return;
-      if (this.screen === 'account') this.rerenderAccount();
-      // Soldes confirmés par le service : les écrans de boutique, succès et préparation se mettent à jour (jamais pendant un achat à confirmer)
-      else if (this.screen === 'cosmetics' || this.screen === 'achievements' || this.screen === 'prep' || this.screen === 'home') this.showScreen(this.screen, false);
-    },
-  });
+  readonly account: AccountService;
   /** ?demo (joueur automatique) ou ?debug : jamais éligible au classement. */
   private readonly devMode = new URLSearchParams(location.search).has('demo') || new URLSearchParams(location.search).has('debug');
   private nextTicket: Ticket | null = null;
@@ -183,6 +168,23 @@ export class App {
     const res = loadSave(this.store);
     this.loadStatus = res.status;
     this.save = res.data;
+    // Le service de compte lit la sauvegarde : il est créé APRÈS son chargement (et avant toute écriture)
+    this.account = new AccountService({
+      lb: this.lb,
+      store: this.store,
+      getSave: () => this.save,
+      commit: (mutate) => {
+        mutate(this.save);
+        this.persist(false);
+      },
+      isPlaying: () => this.session !== null && this.session.phase !== 'over',
+      onChange: () => {
+        if (this.session) return;
+        if (this.screen === 'account') this.rerenderAccount();
+        // Soldes confirmés par le service : les écrans de boutique, succès et préparation se mettent à jour (jamais pendant un achat à confirmer)
+        else if (this.screen === 'cosmetics' || this.screen === 'achievements' || this.screen === 'prep' || this.screen === 'home') this.showScreen(this.screen, false);
+      },
+    });
     this.applyAudioOptions();
     this.normalizeSave();
     ensureInstallId(this.save);

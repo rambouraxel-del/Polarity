@@ -1,9 +1,10 @@
 import { catalogItem } from '../config/catalog';
 import { BONUS } from '../config/economy';
+import { DEFAULT_TRAIL_ID } from '../config/trails';
 import type { MigrateBody, PremiumPurchaseResponse, SyncBody, SyncResponse } from '../net/accountProtocol';
 import type { SaveData } from '../save/save';
 import { mergeSaves } from './merge';
-import { grantedBy } from './rules';
+import { PREMIUM_ITEMS, grantedBy } from './rules';
 
 /**
  * Construction des requêtes de synchronisation et ALIGNEMENT de la sauvegarde locale sur la réponse du serveur — fonctions pures, testées.
@@ -83,15 +84,23 @@ export function applySyncResult(local: SaveData, res: SyncResponse, sent: SaveDa
   const source = merged as unknown as Record<string, unknown>;
   for (const k of CONTENT_KEYS) target[k] = source[k];
 
+  // Migration héritée : aucune réclamation n'a été envoyée, la réponse ne dit rien des Médailles ; le portefeuille est aligné par la
+  // synchronisation qui suit (jamais de solde provisoirement plus bas)
+  local.economy.confirmed = { shards: res.balance.shards, medals: res.balance.medals, prisms: res.balance.prisms };
+  if (opts.wallet === false) return;
+
+  // Articles premium : le service seul les accorde (achat de Prismes vérifié). Un article premium que le service ne reconnaît pas — modification
+  // locale de la sauvegarde — est retiré (jamais un moyen de contourner le paiement).
+  for (const id of PREMIUM_ITEMS) if (!serverOwned.has(id)) local.owned = local.owned.filter((x) => x !== id);
+  if (PREMIUM_ITEMS.has(local.skin) && !serverOwned.has(local.skin)) local.skin = 'classique';
+  if (PREMIUM_ITEMS.has(local.trail) && !serverOwned.has(local.trail)) local.trail = DEFAULT_TRAIL_ID;
+
   // Médailles : le service fait foi pour ce qui a été envoyé ; les réclamations faites depuis l'envoi sont conservées
   const sentClaims = new Set(sent.medals.claimed);
   const sinceSent = local.medals.claimed.filter((id) => !sentClaims.has(id));
   local.medals.claimed = [...new Set([...res.claimed, ...sinceSent])];
   local.economy.confirmedClaims = [...res.claimed];
 
-  // Migration héritée : le portefeuille est aligné par la synchronisation qui suit (jamais de solde provisoirement plus bas)
-  local.economy.confirmed = { shards: res.balance.shards, medals: res.balance.medals, prisms: res.balance.prisms };
-  if (opts.wallet === false) return;
   local.economy.bonusProcessed = { boost: Math.min(res.bonus.boost, local.economy.bonusBought.boost), gel: Math.min(res.bonus.gel, local.economy.bonusBought.gel) };
   local.inventory = {
     boost: clamp(res.inventory.boost + (local.inventory.boost - sent.inventory.boost)),
