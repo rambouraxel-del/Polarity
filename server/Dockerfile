@@ -5,8 +5,10 @@
 FROM node:22-slim
 WORKDIR /app
 COPY package.json package-lock.json ./
-# Dépendances verrouillées ; pas de scripts d'installation (rien n'est compilé : le service tourne via tsx)
-RUN npm ci --omit=optional --ignore-scripts && npm cache clean --force
+# Dépendances verrouillées ; pas de scripts d'installation (rien n'est compilé : le service tourne via tsx).
+# Les dépendances OPTIONNELLES sont indispensables : tsx s'appuie sur esbuild, dont le binaire natif est fourni par
+# @esbuild/linux-x64 (dépendance optionnelle). Ne jamais ajouter --omit=optional (le conteneur plante au démarrage).
+RUN npm ci --ignore-scripts && npm cache clean --force
 COPY src ./src
 COPY server ./server
 COPY tsconfig.json ./

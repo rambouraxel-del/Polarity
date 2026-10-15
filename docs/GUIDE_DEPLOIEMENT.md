@@ -140,3 +140,6 @@ puis le même avec `--yes`. Les parties qui sont des records en cours, tous les 
 
 ## Achats et publicités récompensées (phase 5, facultatif)
 Schéma SQLite **v8** (migration additive automatique, copie `.avant-vN.bak`). Variables : `deploy/env.example` (section phase 5) ; chaque fournisseur reste désactivé si une variable manque. Adresses à déclarer chez les fournisseurs : `/api/payments/notify/apple`, `/api/payments/notify/google` (authentification : jeton OIDC Pub/Sub recommandé, ou `?token=`), `/api/ads/ssv`. Le service doit rester joignable en HTTPS et en continu. Détail et liste complète : `docs/MONETISATION.md`.
+
+## Note : image Docker et dépendances optionnelles
+`server/Dockerfile` installe avec `npm ci --ignore-scripts` (jamais `--omit=optional`) : le service démarre via `tsx`, qui exige le binaire natif `@esbuild/linux-x64`, fourni comme dépendance **optionnelle**. Avec `--omit=optional`, le conteneur plante au démarrage. L'utilisateur non privilégié `node` est conservé. Un test (`tests/dockerfile.test.ts`) garde ces deux points.

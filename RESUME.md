@@ -58,3 +58,6 @@ version d'équilibrage 3). `npm run check` (218 tests) et `npm run e2e` verts. B
 **Prochaine action :** essais avec de vrais joueurs (début de partie à 40 % de vitesse, montée jusqu'à 100 % à 6 min, lisibilité des lasers/fragments sur mobile),
 ajuster `src/config/playerSpeed.ts` (courbe, `PACE`), `hazards.ts`, `events.ts` ; incrémenter `BALANCE_VERSION` si les règles changent ; puis
 `npm run check && npm run build && npm run e2e`. Idées reportées (ne pas implémenter sans demande) : balise bonus temporaire, secteurs thématiques des niveaux.
+
+## Correctif Docker (avant déploiement du service)
+`server/Dockerfile` : `npm ci --ignore-scripts` (sans `--omit=optional`, qui excluait `@esbuild/linux-x64` et faisait planter tsx) ; utilisateur `node` conservé. Vérification locale sans démon Docker : installation identique + démarrage de `server/index.ts` → `/api/health` = `{"ok":true,"balance":3,"api":2}`. Reste à vérifier sur le VPS : `docker compose build` puis démarrage du conteneur.
