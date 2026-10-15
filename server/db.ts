@@ -213,7 +213,76 @@ ALTER TABLE installs ADD COLUMN used_boost INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE installs ADD COLUMN used_gel INTEGER NOT NULL DEFAULT 0;
 `;
 
-export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4, V5];
+/**
+ * Schéma v6 (phase 4 : récompenses gratuites), ADDITIF — aucune table existante n'est reconstruite, aucune donnée n'est modifiée :
+ * - `loyalty_cycles` : cycles du calendrier de connexion (jours validés PAR LE SERVICE, UTC ; absences utilisées ; un seul cycle courant par profil) ;
+ *   les récompenses réclamées sont des lignes du registre (`loy:<cycle>:<jour>`), le cycle y a un identifiant global (aucune collision à la fusion) ;
+ * - `daily_attempts` (début de tentative enregistré par le service : preuve d'horaire), `daily_runs`, `daily_bests` (un record par joueur et par date),
+ *   `daily_results` (Top 10 figé à la clôture, avec les Prismes), `daily_closed` (clôture faite : marqueur d'idempotence) ;
+ * - `tickets.started_at` (partie de Survie démarrée EN LIGNE : condition du drop rare de Prismes) et `runs.drop_prisms`.
+ */
+const V6 = `
+CREATE TABLE loyalty_cycles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  started_day INTEGER NOT NULL,
+  days INTEGER NOT NULL DEFAULT 0,
+  absences INTEGER NOT NULL DEFAULT 0,
+  last_day INTEGER NOT NULL,
+  current INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX loyalty_player ON loyalty_cycles(player_id, current);
+CREATE TABLE daily_attempts (
+  id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  date TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE INDEX daily_attempts_player ON daily_attempts(player_id, date);
+CREATE TABLE daily_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  date TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  steps INTEGER NOT NULL,
+  score INTEGER NOT NULL,
+  flips TEXT NOT NULL,
+  client_build TEXT,
+  created_at INTEGER NOT NULL,
+  late INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX daily_runs_player ON daily_runs(player_id, date);
+CREATE TABLE daily_bests (
+  player_id TEXT NOT NULL REFERENCES players(id),
+  date TEXT NOT NULL,
+  steps INTEGER NOT NULL,
+  score INTEGER NOT NULL,
+  run_id INTEGER NOT NULL,
+  achieved_at INTEGER NOT NULL,
+  PRIMARY KEY (player_id, date)
+);
+CREATE INDEX daily_bests_rank ON daily_bests(date, steps DESC, score DESC, achieved_at ASC);
+CREATE TABLE daily_results (
+  date TEXT NOT NULL,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  rank INTEGER NOT NULL,
+  steps INTEGER NOT NULL,
+  score INTEGER NOT NULL,
+  prisms INTEGER NOT NULL,
+  notified_at INTEGER,
+  PRIMARY KEY (date, player_id)
+);
+CREATE TABLE daily_closed (
+  date TEXT PRIMARY KEY,
+  closed_at INTEGER NOT NULL,
+  rewarded INTEGER NOT NULL
+);
+ALTER TABLE tickets ADD COLUMN started_at INTEGER;
+ALTER TABLE runs ADD COLUMN drop_prisms INTEGER NOT NULL DEFAULT 0;
+`;
+
+export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4, V5, V6];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 const userVersion = (db: Db): number => (db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }).user_version;

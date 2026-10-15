@@ -22,6 +22,8 @@ export type ReplayResult =
       /** Activations réussies pendant la première vie (charges consommées et Boucliers). */
       powers: { boost: number; gel: number; shield: number };
       category: Category;
+      /** Balises collectées pendant la première vie (le drop rare de Prismes est tiré une fois par balise). */
+      beacons: number;
     }
   | { ok: false; reason: 'bad_replay' | 'not_finished' | 'inputs_after_end' | 'bad_powers' };
 
@@ -50,5 +52,28 @@ export function replaySurvival(seed: number, flips: readonly number[], acts: rea
   if (next !== flips.length || nextAct !== acts.length) return { ok: false, reason: 'inputs_after_end' };
   const powers = { ...sim.powers.used };
   const category: Category = powers.boost + powers.gel + powers.shield > 0 ? 'bonus' : 'plain';
-  return { ok: true, steps: sim.stepIndex, time: sim.stepIndex * SIM.dt, score: sim.scoring.score, cycles: sim.scoring.cycles, flips: flips.length, powers, category };
+  return { ok: true, steps: sim.stepIndex, time: sim.stepIndex * SIM.dt, score: sim.scoring.score, cycles: sim.scoring.cycles, flips: flips.length, powers, category, beacons: sim.scoring.beacons };
+}
+
+/**
+ * Rejeu d'une tentative du DÉFI QUOTIDIEN : graine dérivée de la date UTC, mêmes règles que le jeu, AUCUN pouvoir (le Défi n'en a jamais).
+ * Résultat = durée (pas de simulation) et score recalculés ; rien de ce qu'annonce le client n'est cru.
+ */
+export type DailyReplayResult = { ok: true; steps: number; time: number; score: number } | { ok: false; reason: 'bad_replay' | 'not_finished' | 'inputs_after_end' };
+
+export function replayDaily(date: string, flips: readonly number[], maxSteps: number = LIMITS.maxSteps): DailyReplayResult {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, reason: 'bad_replay' };
+  const sim = createSimulation({ mode: 'daily', seed: 0, date });
+  let next = 0;
+  for (let step = 0; step < maxSteps && sim.state === 'running'; step++) {
+    while (next < flips.length && flips[next] === step) {
+      sim.flip();
+      next++;
+    }
+    sim.step();
+    sim.events.length = 0;
+  }
+  if (sim.state !== 'dead') return { ok: false, reason: 'not_finished' };
+  if (next !== flips.length) return { ok: false, reason: 'inputs_after_end' };
+  return { ok: true, steps: sim.stepIndex, time: sim.stepIndex * SIM.dt, score: sim.scoring.score };
 }

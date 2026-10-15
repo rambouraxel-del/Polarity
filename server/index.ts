@@ -63,6 +63,14 @@ const app = createApp(db, {
     appUrl,
   },
 });
+// Clôture des défis quotidiens (00 h 15 UTC) : au démarrage (createApp) puis chaque minute ; une panne n'en perd aucune
+setInterval(() => {
+  try {
+    app.tick(true);
+  } catch (e) {
+    console.error('Clôture des défis quotidiens :', e);
+  }
+}, 60_000).unref();
 const server = createHttpServer(app, { allowedOrigins: allowed, trustProxy, requireHttps });
 
 server.listen(port, host, () => {

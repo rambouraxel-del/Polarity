@@ -303,6 +303,54 @@ describe('comptes : fusion de profils (sans fusion non autorisée)', () => {
     expect(c.db.prepare('SELECT COUNT(*) AS n FROM merges').get()).toEqual({ n: 1 });
   });
 
+  it('fusion et récompenses gratuites : cycles conservés, récompenses déjà réclamées jamais recréditées, un seul cycle courant, meilleur résultat quotidien gardé', async () => {
+    const c = ctx({ google: true });
+    const DAY = 86_400_000;
+    const account = (await googleLogin(c, 'sub-R')).body as AuthResponse;
+    const accountAuth = `${account.playerId}.${account.token}`;
+    const guestB = guest(c, '10.0.0.7');
+    const check = (auth: string): { cycles: { id: number; current: boolean; days: { unlocked: boolean }[] }[]; claimable: number } => c.call('POST', '/api/loyalty/checkin', { auth }).body as never;
+    // Le compte joue 3 jours ; l'invité (même appareil) joue les 2 derniers jours et réclame son jour 1
+    check(accountAuth);
+    c.now.t += DAY;
+    check(accountAuth);
+    c.now.t += DAY;
+    const a3 = check(accountAuth);
+    const g1 = check(guestB.auth);
+    c.now.t += DAY;
+    check(accountAuth);
+    const g2 = check(guestB.auth);
+    expect(g2.cycles[0].days.filter((d) => d.unlocked)).toHaveLength(2);
+    const claimG = c.call('POST', '/api/loyalty/claim', { auth: guestB.auth, body: { cycle: g1.cycles[0].id, day: 1 } });
+    expect(claimG.status).toBe(200);
+    const claimA = c.call('POST', '/api/loyalty/claim', { auth: accountAuth, body: { cycle: a3.cycles[0].id, day: 1 } });
+    expect(claimA.status).toBe(200);
+    // Résultats quotidiens : meilleur de l'invité plus faible que celui du compte pour la date 1, meilleur pour la date 2
+    const d1 = '2026-01-01';
+    const d2 = '2026-01-02';
+    const ins = (p: string, d: string, steps: number): void => void c.db.prepare('INSERT INTO daily_bests (player_id, date, steps, score, run_id, achieved_at) VALUES (?, ?, ?, 5, 1, 1)').run(p, d, steps);
+    ins(account.playerId, d1, 900);
+    ins(guestB.id, d1, 500);
+    ins(guestB.id, d2, 700);
+    const before = (c.db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM ledger WHERE currency = 'shards' AND ref LIKE 'loy:%'").get() as { n: number }).n;
+    expect(before).toBe(40);
+    const merged = await googleLogin(c, 'sub-R', { auth: guestB.auth, merge: true });
+    expect(merged.status).toBe(200);
+    // Aucun cycle perdu ; un seul cycle courant ; récompenses déjà réclamées toujours réclamées (aucun nouveau crédit possible)
+    const rows = c.db.prepare('SELECT player_id, current FROM loyalty_cycles').all() as { player_id: string; current: number }[];
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.player_id))).toEqual(new Set([account.playerId]));
+    expect(rows.filter((r) => r.current === 1)).toHaveLength(1);
+    const after = c.call('GET', '/api/loyalty', { auth: accountAuth }).body as { cycles: { id: number; days: { claimed: boolean; unlocked: boolean }[] }[] };
+    expect(after.cycles).toHaveLength(2);
+    expect(c.call('POST', '/api/loyalty/claim', { auth: accountAuth, body: { cycle: g1.cycles[0].id, day: 1 } }).body).toMatchObject({ credited: false });
+    expect(c.call('POST', '/api/loyalty/claim', { auth: accountAuth, body: { cycle: a3.cycles[0].id, day: 1 } }).body).toMatchObject({ credited: false });
+    expect((c.db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM ledger WHERE currency = 'shards' AND ref LIKE 'loy:%'").get() as { n: number }).n).toBe(40);
+    // Défi quotidien : le meilleur résultat de chaque date est conservé, une seule ligne par date
+    expect(c.db.prepare('SELECT date, steps FROM daily_bests WHERE player_id = ? ORDER BY date').all(account.playerId)).toEqual([{ date: d1, steps: 900 }, { date: d2, steps: 700 }]);
+    expect(c.db.prepare('SELECT COUNT(*) AS n FROM daily_bests WHERE player_id = ?').get(guestB.id)).toEqual({ n: 0 });
+  });
+
   it('un profil qui possède déjà un compte n’est JAMAIS fusionné (collision / prise de contrôle)', async () => {
     const c = ctx({ google: true, apple: true });
     const a = (await googleLogin(c, 'sub-A')).body as AuthResponse;

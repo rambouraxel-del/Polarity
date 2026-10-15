@@ -109,7 +109,7 @@ export type RejectReason =
   | 'rate_limited';
 
 export type RunResponse =
-  | { status: 'accepted'; time: number; score: number; rank: number; personalBest: boolean; balance: number; category: Category; powers?: { boost: number; gel: number; shield: number } }
+  | { status: 'accepted'; time: number; score: number; rank: number; personalBest: boolean; balance: number; category: Category; powers?: { boost: number; gel: number; shield: number }; /** Drop rare : un Prisme crédité par le service (jamais annoncé avant la validation). */ drop?: { prisms: number } }
   | { status: 'rejected'; reason: RejectReason; message: string };
 
 export interface LeaderboardEntry {

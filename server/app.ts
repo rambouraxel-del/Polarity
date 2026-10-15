@@ -28,6 +28,8 @@ import { transaction, type Db } from './db';
 import { checkNickname } from './moderation';
 import { eraseProfile, guestNickname, inventoryOf } from './profile';
 import { replaySurvival } from './verify';
+import { createRewards, rollDrop } from './rewards';
+import { DROPS } from '../src/config/rewards';
 
 /**
  * Logique du service de classement, indépendante du transport HTTP (testable sans réseau).
@@ -52,7 +54,11 @@ export interface AppConfig {
 }
 
 /** Gestionnaire du service : synchrone, sauf les routes qui attendent le réseau (clés des fournisseurs, courriel) exposées par `async`. */
-export type App = ((req: HttpRequest) => HttpResponse) & { async: (req: HttpRequest) => Promise<HttpResponse> | null };
+export type App = ((req: HttpRequest) => HttpResponse) & {
+  async: (req: HttpRequest) => Promise<HttpResponse> | null;
+  /** Clôture des défis quotidiens échus (minuteur du service ; rejouable après une panne). Renvoie le nombre de défis clos. */
+  tick: (force?: boolean) => number;
+};
 
 export interface HttpRequest {
   method: string;
@@ -144,9 +150,10 @@ export function createApp(db: Db, cfg: AppConfig): App {
     rename: db.prepare('UPDATE players SET nickname = ?, nickname_key = ? WHERE id = ?'),
     openTickets: db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE player_id = ? AND used_at IS NULL AND exp > ?'),
     insertTicket: db.prepare('INSERT INTO tickets (id, player_id, seed, exp, issued_at) VALUES (?, ?, ?, ?, ?)'),
-    ticket: db.prepare('SELECT id, player_id, seed, exp, used_at FROM tickets WHERE id = ?'),
+    ticket: db.prepare('SELECT id, player_id, seed, exp, used_at, started_at FROM tickets WHERE id = ?'),
+    ledgerDrop: db.prepare("INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, 'prisms', 'drop', ?, ?, ?, ?)"),
     useTicket: db.prepare('UPDATE tickets SET used_at = ? WHERE id = ? AND used_at IS NULL'),
-    insertRun: db.prepare('INSERT INTO runs (player_id, balance, ticket_id, seed, steps, score, flips, client_build, created_at, category, acts, powers, replay_v) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    insertRun: db.prepare('INSERT INTO runs (player_id, balance, ticket_id, seed, steps, score, flips, client_build, created_at, category, acts, powers, replay_v, drop_prisms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     best: db.prepare('SELECT steps, score, achieved_at FROM bests WHERE player_id = ? AND balance = ? AND category = ?'),
     upsertBest: db.prepare(
       'INSERT INTO bests (player_id, balance, category, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, balance, category) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at',
@@ -339,7 +346,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
     // La signature est liée au profil qui a reçu le ticket : celui-ci, ou un profil fusionné depuis (les parties en attente survivent à une fusion)
     const signers = [me.id, ...(db.prepare('SELECT id FROM players WHERE merged_into = ?').all(me.id) as unknown as { id: string }[]).map((r) => r.id)];
     if (!signers.some((id) => verifyTicketSig(cfg.ticketSecret, t, id))) return reject('bad_ticket');
-    const row = q.ticket.get(t.id) as unknown as { id: string; player_id: string; seed: number; exp: number; used_at: number | null } | undefined;
+    const row = q.ticket.get(t.id) as unknown as { id: string; player_id: string; seed: number; exp: number; used_at: number | null; started_at: number | null } | undefined;
     if (!row || row.player_id !== me.id || row.seed !== t.seed || row.exp !== t.exp) return reject('bad_ticket');
     if (row.used_at !== null) return reject('ticket_used');
     if (Math.floor(now() / 1000) > row.exp) return reject('ticket_expired');
@@ -381,9 +388,14 @@ export function createApp(db: Db, cfg: AppConfig): App {
       }
       if (!consume()) return null;
       const at = now();
+      // Drop rare de Prismes : seulement si la partie a DÉMARRÉ en ligne (heure de début enregistrée par le service, jamais rétroactive) et que la durée
+      // rejouée est compatible avec cette heure ; tirage dérivé du secret du service + ticket + index de balise ; un Prisme au plus par partie
+      let dropped = 0;
+      if (row.started_at !== null && row.started_at <= at && at - row.started_at >= rep.time * 1000 - 2000 && rollDrop(cfg.ticketSecret, row.id, rep.beacons) > 0) dropped = DROPS.prism.amount;
       const runId = Number(
-        (q.insertRun.run(me.id, balance, row.id, row.seed, rep.steps, rep.score, JSON.stringify(sub.replay!.flips), String(sub.client!.build ?? '').slice(0, 40), at, category, acts.length > 0 ? JSON.stringify(acts) : null, JSON.stringify(rep.powers), fmt) as unknown as { lastInsertRowid: number | bigint }).lastInsertRowid,
+        (q.insertRun.run(me.id, balance, row.id, row.seed, rep.steps, rep.score, JSON.stringify(sub.replay!.flips), String(sub.client!.build ?? '').slice(0, 40), at, category, acts.length > 0 ? JSON.stringify(acts) : null, JSON.stringify(rep.powers), fmt, dropped) as unknown as { lastInsertRowid: number | bigint }).lastInsertRowid,
       );
+      if (dropped > 0) q.ledgerDrop.run(me.id, dropped, `drop:${row.id}`, at, JSON.stringify({ run: runId, beacons: rep.beacons }));
       for (const kind of ['boost', 'gel'] as const) {
         if (needed[kind] > 0) q.ledgerUse.run(me.id, kind, -needed[kind], `use:${row.id}:${kind}`, at, JSON.stringify({ run: runId, category }));
       }
@@ -391,12 +403,12 @@ export function createApp(db: Db, cfg: AppConfig): App {
       const better = !prev || rep.steps > prev.steps || (rep.steps === prev.steps && rep.score > prev.score);
       if (better) q.upsertBest.run(me.id, balance, category, rep.steps, rep.score, runId, at);
       const ref = better || !prev ? { steps: rep.steps, score: rep.score, at } : { steps: prev.steps, score: prev.score, at: prev.achieved_at };
-      return { better, rank: rankOf(balance, category, ref.steps, ref.score, ref.at) };
+      return { better, rank: rankOf(balance, category, ref.steps, ref.score, ref.at), dropped };
     });
     if (!out) return reject('ticket_used');
     if ('retry' in out) return reject('bonus_sync_required', 409);
     if ('unfunded' in out) return reject('bonus_unfunded');
-    const res: RunResponse = { status: 'accepted', time: rep.time, score: rep.score, rank: out.rank, personalBest: out.better, balance, category, powers: rep.powers };
+    const res: RunResponse = { status: 'accepted', time: rep.time, score: rep.score, rank: out.rank, personalBest: out.better, balance, category, powers: rep.powers, ...(out.dropped > 0 ? { drop: { prisms: out.dropped } } : {}) };
     return json(200, res);
   }
 
@@ -432,6 +444,9 @@ export function createApp(db: Db, cfg: AppConfig): App {
     return json(200, res);
   }
 
+  const rewards = createRewards({ db, now, allow: (k, m, w) => limiter.allow(k, m, w), authenticate });
+  // Reprise après une panne : les défis quotidiens échus pendant l'arrêt sont clos dès le démarrage
+  rewards.tick(true);
   const accounts = createAccounts({ db, now, allow: (k, m, w) => limiter.allow(k, m, w), authenticate, cfg: cfg.accounts ?? {} });
 
   const handler = (req: HttpRequest): HttpResponse => {
@@ -440,6 +455,8 @@ export function createApp(db: Db, cfg: AppConfig): App {
       if (ASYNC_ROUTES.has(route)) return err(500, 'use_async', 'Route asynchrone : utilisez le gestionnaire async.');
       const acct = accounts.handle(req);
       if (acct) return acct;
+      const rw = rewards.handle(req);
+      if (rw) return rw;
       switch (route) {
         case 'GET /api/health': {
           q.ping.get(); // la base répond-elle ? (sinon 500 : le contrôle de santé échoue)
@@ -470,6 +487,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
   };
 
   const app = handler as App;
+  app.tick = (force) => rewards.tick(force);
   app.async = (req) => {
     try {
       const p = accounts.handleAsync(req);

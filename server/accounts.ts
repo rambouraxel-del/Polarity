@@ -206,6 +206,32 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     summary.sessions = Number(db.prepare('UPDATE sessions SET player_id = ? WHERE player_id = ?').run(intoId, fromId).changes);
     summary.installs = Number(db.prepare('UPDATE installs SET player_id = ? WHERE player_id = ?').run(intoId, fromId).changes);
 
+    // Récompenses gratuites (phase 4) : cycles du calendrier (identifiants globaux : les récompenses réclamées restent réclamées), tentatives et
+    // parties du défi quotidien, meilleur résultat par date (le meilleur), résultats figés (le meilleur rang : jamais deux récompenses pour une date,
+    // la clé de registre `daily:<date>` étant la même, la déduplication du registre garde un seul crédit)
+    db.prepare('UPDATE loyalty_cycles SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
+    // Un seul cycle courant : celui dont la dernière présence est la plus récente (l'autre reste récupérable, non courant)
+    const cur = db.prepare('SELECT id FROM loyalty_cycles WHERE player_id = ? AND current = 1 ORDER BY last_day DESC, days DESC, id DESC').all(intoId) as unknown as { id: number }[];
+    for (const c of cur.slice(1)) db.prepare('UPDATE loyalty_cycles SET current = 0 WHERE id = ?').run(c.id);
+    db.prepare('UPDATE daily_attempts SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
+    db.prepare('UPDATE daily_runs SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
+    const dBests = db.prepare('SELECT date, steps, score, run_id, achieved_at FROM daily_bests WHERE player_id = ?').all(fromId) as unknown as { date: string; steps: number; score: number; run_id: number; achieved_at: number }[];
+    for (const b of dBests) {
+      const c = db.prepare('SELECT steps, score, achieved_at FROM daily_bests WHERE player_id = ? AND date = ?').get(intoId, b.date) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
+      const better = !c || b.steps > c.steps || (b.steps === c.steps && (b.score > c.score || (b.score === c.score && b.achieved_at < c.achieved_at)));
+      if (better) db.prepare('INSERT INTO daily_bests (player_id, date, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, date) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at').run(intoId, b.date, b.steps, b.score, b.run_id, b.achieved_at);
+    }
+    db.prepare('DELETE FROM daily_bests WHERE player_id = ?').run(fromId);
+    const dRes = db.prepare('SELECT date, rank, steps, score, prisms, notified_at FROM daily_results WHERE player_id = ?').all(fromId) as unknown as { date: string; rank: number; steps: number; score: number; prisms: number; notified_at: number | null }[];
+    for (const r of dRes) {
+      const c = db.prepare('SELECT rank FROM daily_results WHERE player_id = ? AND date = ?').get(intoId, r.date) as unknown as { rank: number } | undefined;
+      if (!c || r.rank < c.rank) {
+        db.prepare('DELETE FROM daily_results WHERE player_id = ? AND date = ?').run(intoId, r.date);
+        db.prepare('INSERT INTO daily_results (date, player_id, rank, steps, score, prisms, notified_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(r.date, intoId, r.rank, r.steps, r.score, r.prisms, r.notified_at);
+      }
+    }
+    db.prepare('DELETE FROM daily_results WHERE player_id = ?').run(fromId);
+
     // Registre : déduplication PAR CLÉ. Récompenses / marqueurs : on garde le plus PETIT montant (un marqueur à 0 « déjà couvert par un import » l'emporte
     // sur un crédit) ; dépenses : le plus petit débit. Jamais de double crédit.
     const entries = db.prepare('SELECT id, currency, kind, amount, ref, at, meta FROM ledger WHERE player_id = ?').all(fromId) as unknown as { id: number; currency: string; kind: string; amount: number; ref: string; at: number; meta: string | null }[];

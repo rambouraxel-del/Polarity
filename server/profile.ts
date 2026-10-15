@@ -57,6 +57,11 @@ export function eraseProfile(db: Db, playerId: string): boolean {
         'DELETE FROM saves WHERE player_id = ?',
         'DELETE FROM installs WHERE player_id = ?',
         'DELETE FROM ledger WHERE player_id = ?',
+        'DELETE FROM loyalty_cycles WHERE player_id = ?',
+        'DELETE FROM daily_attempts WHERE player_id = ?',
+        'DELETE FROM daily_runs WHERE player_id = ?',
+        'DELETE FROM daily_bests WHERE player_id = ?',
+        'DELETE FROM daily_results WHERE player_id = ?',
       ]) {
         db.prepare(sql).run(id);
       }
