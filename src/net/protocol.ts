@@ -7,8 +7,21 @@
  * Voir docs/CLASSEMENT.md.
  */
 
-/** Version du format de rejeu. */
+/**
+ * Formats de rejeu. 1 = inversions seulement (anciens clients : toujours acceptés, parties SANS bonus) ; 2 = inversions + activations de pouvoirs
+ * (Boost, Gel, Bouclier) en pas de simulation. Le journal d'une partie ne couvre que la PREMIÈRE vie (la tentative classée).
+ */
 export const REPLAY_FORMAT = 1;
+export const REPLAY_FORMAT_POWERS = 2;
+export type ReplayFormat = typeof REPLAY_FORMAT | typeof REPLAY_FORMAT_POWERS;
+
+/**
+ * Catégorie de classement, DÉDUITE PAR LE SERVICE des activations qu'il a rejouées (jamais d'un indicateur du client) :
+ * `plain` = aucune activation réussie de Boost, Gel ou Bouclier pendant la première vie ; `bonus` = au moins une.
+ */
+export type Category = 'plain' | 'bonus';
+export const CATEGORIES: readonly Category[] = ['plain', 'bonus'];
+export const isCategory = (v: unknown): v is Category => v === 'plain' || v === 'bonus';
 
 export const LIMITS = {
   nickname: { min: 3, max: 16 },
@@ -16,6 +29,8 @@ export const LIMITS = {
   maxFlips: 20000,
   /** Durée maximale rejouée (pas de simulation à 120 Hz) : 1 heure. */
   maxSteps: 120 * 3600,
+  /** Activations de pouvoirs maximales d'une première vie (3 Boost + 3 Gel + Boucliers : une charge toutes les 18 balises). */
+  maxActs: 400,
   /** Taille maximale d'un corps de requête (octets). */
   maxBodyBytes: 256 * 1024,
   /** Tickets demandés en une fois et tickets non utilisés conservés par joueur. */
@@ -37,9 +52,11 @@ export interface Ticket {
 }
 
 export interface Replay {
-  v: typeof REPLAY_FORMAT;
+  v: ReplayFormat;
   /** Pas de simulation auxquels une inversion a été appliquée (croissants ; un pas peut apparaître plusieurs fois). */
   flips: number[];
+  /** Format 2 : activations RÉUSSIES de pouvoirs [pas, code] (0 Boost, 1 Gel, 2 Bouclier), dans l'ordre. Le service les rejoue et les juge. */
+  acts?: [number, number][];
 }
 
 export interface RunSubmission {
@@ -47,7 +64,13 @@ export interface RunSubmission {
   replay: Replay;
   /** Valeurs annoncées par le client : jamais utilisées pour le classement. */
   claimed: { time: number; score: number };
-  client: { balance: number; build: string };
+  client: {
+    balance: number;
+    build: string;
+    /** Installation et compteur d'achats de bonus au moment de la partie : servent SEULEMENT à décider « réessayer après synchronisation » ou « refus définitif ». */
+    installId?: string;
+    bonusBought?: { boost: number; gel: number };
+  };
 }
 
 export interface RegisterRequest {
@@ -80,10 +103,13 @@ export type RejectReason =
   | 'not_finished'
   | 'inputs_after_end'
   | 'divergence'
+  | 'bad_powers'
+  | 'bonus_unfunded'
+  | 'bonus_sync_required'
   | 'rate_limited';
 
 export type RunResponse =
-  | { status: 'accepted'; time: number; score: number; rank: number; personalBest: boolean; balance: number }
+  | { status: 'accepted'; time: number; score: number; rank: number; personalBest: boolean; balance: number; category: Category; powers?: { boost: number; gel: number; shield: number } }
   | { status: 'rejected'; reason: RejectReason; message: string };
 
 export interface LeaderboardEntry {
@@ -100,6 +126,8 @@ export interface LeaderboardEntry {
 
 export interface LeaderboardResponse {
   balance: number;
+  /** Classement affiché : sans bonus (anciens records inclus) ou avec bonus. */
+  category: Category;
   /** Version d'équilibrage du serveur (celle qui accepte de nouveaux résultats). */
   currentBalance: number;
   entries: LeaderboardEntry[];
@@ -111,8 +139,12 @@ export interface MeResponse {
   playerId: string;
   nickname: string;
   balance: number;
+  /** Meilleur résultat de la catégorie demandée. */
   best: { time: number; score: number; rank: number } | null;
   total: number;
+  category: Category;
+  /** Meilleur résultat dans chaque catégorie (un record distinct par catégorie). */
+  bests: Record<Category, { time: number; score: number; rank: number } | null>;
 }
 
 export interface BalancesResponse {
@@ -154,6 +186,20 @@ export function validFlips(flips: unknown): flips is number[] {
   for (const f of flips) {
     if (!Number.isInteger(f) || f < prev || f >= LIMITS.maxSteps) return false;
     prev = f;
+  }
+  return true;
+}
+
+/** Les activations forment-elles un journal plausible ? ([pas, code] croissants, codes 0 à 2, bornés). */
+export function validActs(acts: unknown): acts is [number, number][] {
+  if (!Array.isArray(acts) || acts.length > LIMITS.maxActs) return false;
+  let prev = 0;
+  for (const a of acts) {
+    if (!Array.isArray(a) || a.length !== 2) return false;
+    const [step, code] = a as [unknown, unknown];
+    if (!Number.isInteger(step) || (step as number) < prev || (step as number) >= LIMITS.maxSteps) return false;
+    if (code !== 0 && code !== 1 && code !== 2) return false;
+    prev = step as number;
   }
   return true;
 }

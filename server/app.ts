@@ -2,11 +2,15 @@ import { BALANCE_VERSION } from '../src/config/version';
 import {
   LIMITS,
   REPLAY_FORMAT,
+  REPLAY_FORMAT_POWERS,
+  isCategory,
   nicknameKey,
   normalizeNickname,
+  validActs,
   validFlips,
   validNickname,
   type BalancesResponse,
+  type Category,
   type LeaderboardEntry,
   type LeaderboardResponse,
   type MeResponse,
@@ -22,7 +26,7 @@ import { hashToken, newPlayerId, newTicketParts, newToken, parseBearer, signTick
 import { createAccounts, ASYNC_ROUTES, type AccountsConfig } from './accounts';
 import { transaction, type Db } from './db';
 import { checkNickname } from './moderation';
-import { eraseProfile, guestNickname } from './profile';
+import { eraseProfile, guestNickname, inventoryOf } from './profile';
 import { replaySurvival } from './verify';
 
 /**
@@ -77,6 +81,9 @@ const REJECT_MESSAGES: Record<RejectReason, string> = {
   not_finished: 'La partie rejouée ne se termine pas : résultat non validé.',
   inputs_after_end: 'Le journal contient des entrées après la fin de la partie : résultat non validé.',
   divergence: 'Le résultat annoncé ne correspond pas à la partie rejouée : résultat non validé.',
+  bad_powers: 'Le journal des pouvoirs (Boost, Gel, Bouclier) est refusé par les règles du jeu : résultat non validé.',
+  bonus_unfunded: 'Les charges de bonus utilisées pendant cette partie ne sont pas confirmées par le service : résultat non validé.',
+  bonus_sync_required: 'Les achats de bonus de cet appareil ne sont pas encore confirmés : synchronisez, la partie sera ré-essayée.',
   rate_limited: 'Trop de requêtes : réessayez plus tard.',
 };
 
@@ -139,20 +146,22 @@ export function createApp(db: Db, cfg: AppConfig): App {
     insertTicket: db.prepare('INSERT INTO tickets (id, player_id, seed, exp, issued_at) VALUES (?, ?, ?, ?, ?)'),
     ticket: db.prepare('SELECT id, player_id, seed, exp, used_at FROM tickets WHERE id = ?'),
     useTicket: db.prepare('UPDATE tickets SET used_at = ? WHERE id = ? AND used_at IS NULL'),
-    insertRun: db.prepare('INSERT INTO runs (player_id, balance, ticket_id, seed, steps, score, flips, client_build, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
-    best: db.prepare('SELECT steps, score, achieved_at FROM bests WHERE player_id = ? AND balance = ?'),
+    insertRun: db.prepare('INSERT INTO runs (player_id, balance, ticket_id, seed, steps, score, flips, client_build, created_at, category, acts, powers, replay_v) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    best: db.prepare('SELECT steps, score, achieved_at FROM bests WHERE player_id = ? AND balance = ? AND category = ?'),
     upsertBest: db.prepare(
-      'INSERT INTO bests (player_id, balance, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, balance) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at',
+      'INSERT INTO bests (player_id, balance, category, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, balance, category) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at',
     ),
     // Les joueurs exclus par l'opérateur (moderation = 2) ne comptent ni au classement ni dans les rangs
     rank: db.prepare(
-      'SELECT COUNT(*) + 1 AS rank FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND p.guest = 0 AND (b.steps > ? OR (b.steps = ? AND b.score > ?) OR (b.steps = ? AND b.score = ? AND b.achieved_at < ?))',
+      'SELECT COUNT(*) + 1 AS rank FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND b.category = ? AND p.moderation < 2 AND p.guest = 0 AND (b.steps > ? OR (b.steps = ? AND b.score > ?) OR (b.steps = ? AND b.score = ? AND b.achieved_at < ?))',
     ),
-    total: db.prepare('SELECT COUNT(*) AS n FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND p.guest = 0'),
+    total: db.prepare('SELECT COUNT(*) AS n FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND b.category = ? AND p.moderation < 2 AND p.guest = 0'),
     top: db.prepare(
-      'SELECT b.player_id, p.nickname, b.steps, b.score, b.achieved_at FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND p.moderation < 2 AND p.guest = 0 ORDER BY b.steps DESC, b.score DESC, b.achieved_at ASC LIMIT ?',
+      'SELECT b.player_id, p.nickname, b.steps, b.score, b.achieved_at FROM bests b JOIN players p ON p.id = b.player_id WHERE b.balance = ? AND b.category = ? AND p.moderation < 2 AND p.guest = 0 ORDER BY b.steps DESC, b.score DESC, b.achieved_at ASC LIMIT ?',
     ),
-    balances: db.prepare('SELECT b.balance AS balance, COUNT(*) AS players FROM bests b JOIN players p ON p.id = b.player_id WHERE p.moderation < 2 AND p.guest = 0 GROUP BY b.balance ORDER BY b.balance DESC'),
+    balances: db.prepare('SELECT b.balance AS balance, COUNT(DISTINCT b.player_id) AS players FROM bests b JOIN players p ON p.id = b.player_id WHERE p.moderation < 2 AND p.guest = 0 GROUP BY b.balance ORDER BY b.balance DESC'),
+    installBonus: db.prepare('SELECT player_id, bonus_boost, bonus_gel FROM installs WHERE install_id = ?'),
+    ledgerUse: db.prepare("INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, ?, 'use', ?, ?, ?, ?)"),
     insertReport: db.prepare('INSERT OR IGNORE INTO reports (reporter_id, target_id, target_nickname, reason, created_at) VALUES (?, ?, ?, ?, ?)'),
     log: db.prepare('INSERT INTO moderation_log (at, action, player_id, nickname, note) VALUES (?, ?, NULL, NULL, ?)'),
     ping: db.prepare('SELECT 1 AS ok'),
@@ -192,9 +201,15 @@ export function createApp(db: Db, cfg: AppConfig): App {
     return null;
   }
 
-  function rankOf(bal: number, steps: number, score: number, at: number): number {
-    return (q.rank.get(bal, steps, steps, score, steps, score, at) as unknown as { rank: number }).rank;
+  function rankOf(bal: number, category: Category, steps: number, score: number, at: number): number {
+    return (q.rank.get(bal, category, steps, steps, score, steps, score, at) as unknown as { rank: number }).rank;
   }
+
+  /** Classement demandé : « sans bonus » par défaut (les anciens records y figurent). */
+  const parseCategory = (req: HttpRequest): Category => {
+    const raw = req.query.get('category');
+    return isCategory(raw) ? raw : 'plain';
+  };
 
   const parseBalance = (req: HttpRequest): number => {
     const raw = req.query.get('balance');
@@ -312,7 +327,12 @@ export function createApp(db: Db, cfg: AppConfig): App {
     if (!sub || typeof sub !== 'object' || !sub.ticket || !sub.replay || !sub.claimed || !sub.client) return reject('bad_replay', 400);
     const t = sub.ticket as Ticket;
     if (typeof t.id !== 'string' || typeof t.sig !== 'string' || !Number.isInteger(t.seed) || !Number.isInteger(t.exp)) return reject('bad_ticket', 400);
-    if (sub.replay.v !== REPLAY_FORMAT || !validFlips(sub.replay.flips)) return reject('bad_replay', 400);
+    // Format 1 (anciens clients : inversions seulement) ou 2 (inversions + activations de pouvoirs) ; l'ancien format ne contient jamais d'activations
+    const fmt = sub.replay.v;
+    if ((fmt !== REPLAY_FORMAT && fmt !== REPLAY_FORMAT_POWERS) || !validFlips(sub.replay.flips)) return reject('bad_replay', 400);
+    const acts: [number, number][] = fmt === REPLAY_FORMAT_POWERS ? (sub.replay.acts ?? []) : [];
+    if (fmt === REPLAY_FORMAT && sub.replay.acts !== undefined && !(Array.isArray(sub.replay.acts) && sub.replay.acts.length === 0)) return reject('bad_replay', 400);
+    if (!validActs(acts)) return reject('bad_replay', 400);
     // Version d'équilibrage : seule la version courante peut être rejouée par ce code (les anciennes sont conservées en lecture)
     if (sub.client.balance !== balance) return reject('unsupported_balance');
     // Ticket : signature, propriétaire, expiration, usage unique
@@ -327,7 +347,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
     // Budget global de rejeux (calcul coûteux, exécuté dans le processus du service) : refus SANS consommer le ticket, le client réessaiera
     if (!limiter.allow('replay:global', maxReplays, 60_000)) return json(429, { status: 'rejected', reason: 'rate_limited', message: REJECT_MESSAGES.rate_limited } satisfies RunResponse);
     // Rejeu : le résultat est celui du serveur (graine du ticket + entrées du journal)
-    const rep = replaySurvival(row.seed, sub.replay.flips);
+    const rep = replaySurvival(row.seed, sub.replay.flips, acts);
     const consume = (): boolean => (q.useTicket.run(now(), row.id) as unknown as { changes: number }).changes === 1;
     if (!rep.ok) {
       transaction(db, () => void consume());
@@ -339,42 +359,70 @@ export function createApp(db: Db, cfg: AppConfig): App {
       transaction(db, () => void consume());
       return reject('divergence');
     }
-    // Tout ou rien : usage du ticket, partie enregistrée, meilleur résultat
+    const category = rep.category;
+    const needed = { boost: rep.powers.boost, gel: rep.powers.gel };
+    const cl = sub.client as { installId?: unknown; bonusBought?: { boost?: unknown; gel?: unknown } };
+    // Tout ou rien : (charges de bonus consommées,) usage du ticket, partie enregistrée, meilleur résultat de la catégorie
     const out = transaction(db, () => {
+      if (needed.boost > 0 || needed.gel > 0) {
+        // Les charges de bonus utilisées doivent exister dans le registre (achats CONFIRMÉS) : chaque partie classée les consomme, une seule fois
+        const inv = inventoryOf(db, me.id);
+        if (inv.boost < needed.boost || inv.gel < needed.gel) {
+          // Achats de cet appareil pas encore traités par le service → réessayer après synchronisation ; sinon l'achat a été refusé : refus définitif
+          const inst = typeof cl.installId === 'string' ? (q.installBonus.get(cl.installId) as unknown as { player_id: string; bonus_boost: number; bonus_gel: number } | undefined) : undefined;
+          const doneBoost = inst && inst.player_id === me.id ? inst.bonus_boost : 0;
+          const doneGel = inst && inst.player_id === me.id ? inst.bonus_gel : 0;
+          const claimedBoost = typeof cl.bonusBought?.boost === 'number' ? cl.bonusBought.boost : 0;
+          const claimedGel = typeof cl.bonusBought?.gel === 'number' ? cl.bonusBought.gel : 0;
+          if (claimedBoost > doneBoost || claimedGel > doneGel) return { retry: true as const };
+          consume();
+          return { unfunded: true as const };
+        }
+      }
       if (!consume()) return null;
       const at = now();
       const runId = Number(
-        (q.insertRun.run(me.id, balance, row.id, row.seed, rep.steps, rep.score, JSON.stringify(sub.replay!.flips), String(sub.client!.build ?? '').slice(0, 40), at) as unknown as { lastInsertRowid: number | bigint }).lastInsertRowid,
+        (q.insertRun.run(me.id, balance, row.id, row.seed, rep.steps, rep.score, JSON.stringify(sub.replay!.flips), String(sub.client!.build ?? '').slice(0, 40), at, category, acts.length > 0 ? JSON.stringify(acts) : null, JSON.stringify(rep.powers), fmt) as unknown as { lastInsertRowid: number | bigint }).lastInsertRowid,
       );
-      const prev = q.best.get(me.id, balance) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
+      for (const kind of ['boost', 'gel'] as const) {
+        if (needed[kind] > 0) q.ledgerUse.run(me.id, kind, -needed[kind], `use:${row.id}:${kind}`, at, JSON.stringify({ run: runId, category }));
+      }
+      const prev = q.best.get(me.id, balance, category) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
       const better = !prev || rep.steps > prev.steps || (rep.steps === prev.steps && rep.score > prev.score);
-      if (better) q.upsertBest.run(me.id, balance, rep.steps, rep.score, runId, at);
+      if (better) q.upsertBest.run(me.id, balance, category, rep.steps, rep.score, runId, at);
       const ref = better || !prev ? { steps: rep.steps, score: rep.score, at } : { steps: prev.steps, score: prev.score, at: prev.achieved_at };
-      return { better, rank: rankOf(balance, ref.steps, ref.score, ref.at) };
+      return { better, rank: rankOf(balance, category, ref.steps, ref.score, ref.at) };
     });
     if (!out) return reject('ticket_used');
-    const res: RunResponse = { status: 'accepted', time: rep.time, score: rep.score, rank: out.rank, personalBest: out.better, balance };
+    if ('retry' in out) return reject('bonus_sync_required', 409);
+    if ('unfunded' in out) return reject('bonus_unfunded');
+    const res: RunResponse = { status: 'accepted', time: rep.time, score: rep.score, rank: out.rank, personalBest: out.better, balance, category, powers: rep.powers };
     return json(200, res);
   }
 
   function leaderboard(req: HttpRequest): HttpResponse {
     if (!limiter.allow(`lb:${req.ip}`, 120, 60_000)) return err(429, 'rate_limited', REJECT_MESSAGES.rate_limited);
     const bal = parseBalance(req);
+    const category = parseCategory(req);
     const limit = Math.min(LIMITS.topSize, Math.max(1, Math.floor(Number(req.query.get('limit') ?? LIMITS.topSize)) || LIMITS.topSize));
     const me = authenticate(req);
-    const rows = q.top.all(bal, limit) as unknown as { player_id: string; nickname: string; steps: number; score: number; achieved_at: number }[];
+    const rows = q.top.all(bal, category, limit) as unknown as { player_id: string; nickname: string; steps: number; score: number; achieved_at: number }[];
     const entries: LeaderboardEntry[] = rows.map((r, i) => ({ rank: i + 1, nickname: r.nickname, time: r.steps * dt, score: r.score, at: r.achieved_at, ...(me && r.player_id === me.id ? { you: true } : {}) }));
-    const total = (q.total.get(bal) as unknown as { n: number }).n;
-    const res: LeaderboardResponse = { balance: bal, currentBalance: balance, entries, total };
+    const total = (q.total.get(bal, category) as unknown as { n: number }).n;
+    const res: LeaderboardResponse = { balance: bal, category, currentBalance: balance, entries, total };
     return json(200, res);
   }
 
   function meRoute(req: HttpRequest, me: PlayerRow): HttpResponse {
     const bal = parseBalance(req);
-    const b = q.best.get(me.id, bal) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
-    const total = (q.total.get(bal) as unknown as { n: number }).n;
-    const best: MeResponse['best'] = b ? { time: b.steps * dt, score: b.score, rank: rankOf(bal, b.steps, b.score, b.achieved_at) } : null;
-    const res: MeResponse = { playerId: me.id, nickname: me.nickname, balance: bal, best, total };
+    const category = parseCategory(req);
+    const bestOf = (c: Category): MeResponse['best'] => {
+      const b = q.best.get(me.id, bal, c) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
+      return b ? { time: b.steps * dt, score: b.score, rank: rankOf(bal, c, b.steps, b.score, b.achieved_at) } : null;
+    };
+    const total = (q.total.get(bal, category) as unknown as { n: number }).n;
+    const bests = { plain: bestOf('plain'), bonus: bestOf('bonus') };
+    const res: MeResponse = { playerId: me.id, nickname: me.nickname, balance: bal, best: bests[category], total, category, bests };
     return json(200, res);
   }
 

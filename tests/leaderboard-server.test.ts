@@ -108,7 +108,7 @@ describe('classement : rejeu côté serveur', () => {
     expect(altered.ok && base.ok && (altered.time !== base.time || altered.score !== base.score)).toBe(true);
     const lastStep = Math.round(run.time / SIM.dt);
     expect(replaySurvival(31, [...run.flips, lastStep + 50])).toEqual({ ok: false, reason: 'inputs_after_end' });
-    expect(replaySurvival(31, run.flips, 10)).toEqual({ ok: false, reason: 'not_finished' });
+    expect(replaySurvival(31, run.flips, [], 10)).toEqual({ ok: false, reason: 'not_finished' });
     expect(replaySurvival(-5, []).ok).toBe(false);
   });
 

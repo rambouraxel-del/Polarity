@@ -180,7 +180,40 @@ ALTER TABLE installs ADD COLUMN bonus_boost INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE installs ADD COLUMN bonus_gel INTEGER NOT NULL DEFAULT 0;
 `;
 
-export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4];
+/**
+ * v5 : économie v3, phase 3 — DEUX classements (sans bonus / avec bonus) et usage des charges de bonus. Additif et sans perte :
+ * - `bests` reçoit la colonne `category` dans sa clé primaire : la table est reconstruite et TOUS les records existants sont copiés tels quels
+ *   (joueur, version d'équilibrage, durée, score, partie, date) dans la catégorie `plain` (« sans bonus » : les anciennes parties n'avaient aucun
+ *   pouvoir) ; le classement « avec bonus » commence vide. Aucun score n'est effacé ni attribué deux fois.
+ * - `runs` : `category` (déduite du rejeu), `acts` (journal des activations, format de rejeu 2), `powers` (compteurs rejoués) et `replay_v`.
+ * - `installs.used_boost` / `used_gel` : compteurs monotones de charges utilisées dans des parties NON validées par le service (usage déclaré).
+ * Les charges utilisées dans une partie classée sont consommées par le rejeu lui-même (registre `ledger`, clé `use:<ticket>:<bonus>`).
+ */
+const V5 = `
+CREATE TABLE bests_v5 (
+  player_id TEXT NOT NULL REFERENCES players(id),
+  balance INTEGER NOT NULL,
+  category TEXT NOT NULL DEFAULT 'plain',
+  steps INTEGER NOT NULL,
+  score INTEGER NOT NULL,
+  run_id INTEGER NOT NULL,
+  achieved_at INTEGER NOT NULL,
+  PRIMARY KEY (player_id, balance, category)
+);
+INSERT INTO bests_v5 (player_id, balance, category, steps, score, run_id, achieved_at)
+  SELECT player_id, balance, 'plain', steps, score, run_id, achieved_at FROM bests;
+DROP TABLE bests;
+ALTER TABLE bests_v5 RENAME TO bests;
+CREATE INDEX bests_rank ON bests(balance, category, steps DESC, score DESC, achieved_at ASC);
+ALTER TABLE runs ADD COLUMN category TEXT NOT NULL DEFAULT 'plain';
+ALTER TABLE runs ADD COLUMN acts TEXT;
+ALTER TABLE runs ADD COLUMN powers TEXT;
+ALTER TABLE runs ADD COLUMN replay_v INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE installs ADD COLUMN used_boost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE installs ADD COLUMN used_gel INTEGER NOT NULL DEFAULT 0;
+`;
+
+export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4, V5];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 const userVersion = (db: Db): number => (db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }).user_version;

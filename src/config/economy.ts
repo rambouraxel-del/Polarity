@@ -72,8 +72,8 @@ export const BONUS = {
   maxStock: 99,
   /** Charges achetables d'un coup dans l'interface. */
   quantities: [1, 5] as readonly number[],
-  /** Les effets en partie sont-ils actifs ? (phase 3) Tant que faux, l'interface le dit honnêtement. */
-  activationEnabled: false,
+  /** Les effets en partie sont-ils actifs ? (phase 3 : oui) Si faux, l'interface le dit honnêtement. */
+  activationEnabled: true,
 } as const;
 
 export const bonusDef = (id: string): BonusDef | undefined => BONUS_LIST.find((b) => b.id === id);

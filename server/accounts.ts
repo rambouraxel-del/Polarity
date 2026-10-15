@@ -186,12 +186,12 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     if (from.moderation > into.moderation) db.prepare('UPDATE players SET moderation = ? WHERE id = ?').run(from.moderation, intoId);
 
     // Records vérifiés (rejeu serveur) : le meilleur par version d'équilibrage
-    const bests = db.prepare('SELECT balance, steps, score, run_id, achieved_at FROM bests WHERE player_id = ?').all(fromId) as unknown as { balance: number; steps: number; score: number; run_id: number; achieved_at: number }[];
+    const bests = db.prepare('SELECT balance, category, steps, score, run_id, achieved_at FROM bests WHERE player_id = ?').all(fromId) as unknown as { balance: number; category: string; steps: number; score: number; run_id: number; achieved_at: number }[];
     for (const b of bests) {
-      const cur = db.prepare('SELECT steps, score, achieved_at FROM bests WHERE player_id = ? AND balance = ?').get(intoId, b.balance) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
+      const cur = db.prepare('SELECT steps, score, achieved_at FROM bests WHERE player_id = ? AND balance = ? AND category = ?').get(intoId, b.balance, b.category) as unknown as { steps: number; score: number; achieved_at: number } | undefined;
       const better = !cur || b.steps > cur.steps || (b.steps === cur.steps && (b.score > cur.score || (b.score === cur.score && b.achieved_at < cur.achieved_at)));
       if (better) {
-        db.prepare('INSERT INTO bests (player_id, balance, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, balance) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at').run(intoId, b.balance, b.steps, b.score, b.run_id, b.achieved_at);
+        db.prepare('INSERT INTO bests (player_id, balance, category, steps, score, run_id, achieved_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(player_id, balance, category) DO UPDATE SET steps = excluded.steps, score = excluded.score, run_id = excluded.run_id, achieved_at = excluded.achieved_at').run(intoId, b.balance, b.category, b.steps, b.score, b.run_id, b.achieved_at);
       }
     }
     db.prepare('DELETE FROM bests WHERE player_id = ?').run(fromId);

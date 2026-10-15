@@ -199,6 +199,25 @@ export function arcCoverage(h: Hazard): number {
   return 0;
 }
 
+/**
+ * Retarde la frise temporelle d'un danger de `d` secondes (Gel temporel : à chaque pas gelé, les dangers perdent (1 − vitesse effective) · dt).
+ * Un danger étant une fonction pure du temps, retarder tous ses instants le ralentit exactement, sans toucher à l'horloge de la partie ni à la
+ * détection continue des collisions. Les dangers déjà annoncés, actifs ou à venir sont tous concernés.
+ */
+export function shiftHazard(h: Hazard, d: number): void {
+  h.warnStart += d;
+  h.end += d;
+  h.threatEnd += d;
+  if (h.kind === 'projectile') {
+    h.launch += d;
+    h.crossTime1 += d;
+    h.crossTime2 += d;
+    if (h.split) h.split = { x: h.split.x, y: h.split.y, t: h.split.t + d };
+  } else {
+    h.activeStart += d;
+  }
+}
+
 const R_ORBIT = ARENA.orbitRadius;
 /** Distance autour de l'orbite au-delà de laquelle un projectile ne peut plus toucher le vaisseau (hitboxes + marge du validateur). */
 const NEAR = 40;
