@@ -344,8 +344,9 @@ const submit = (c: Ctx, p: { auth: string }, t: Ticket, r: { flips: number[]; ti
 
 describe('Drop rare de Prismes : crédit par le service à la validation', () => {
   /** Cherche un identifiant de ticket dont le tirage gagne (ou perd) pour ce nombre de balises. */
-  const findId = (beacons: number, wins: boolean, not = ''): string => {
-    for (let k = 0; k < 400_000; k++) if ((rollDrop(SECRET, `drop-${wins ? 'w' : 'l'}-${k}`, beacons) > 0) === wins && `drop-${wins ? 'w' : 'l'}-${k}` !== not) return `drop-${wins ? 'w' : 'l'}-${k}`;
+  const findId = (beacons: number, wins: boolean, not: string | string[] = ''): string => {
+    const skip = Array.isArray(not) ? not : [not];
+    for (let k = 0; k < 400_000; k++) if ((rollDrop(SECRET, `drop-${wins ? 'w' : 'l'}-${k}`, beacons) > 0) === wins && !skip.includes(`drop-${wins ? 'w' : 'l'}-${k}`)) return `drop-${wins ? 'w' : 'l'}-${k}`;
     throw new Error('aucun identifiant');
   };
   const seed = 31;
@@ -385,6 +386,35 @@ describe('Drop rare de Prismes : crédit par le service à la validation', () =>
     c.call('POST', '/api/tickets/start', { auth: p.auth, body: { ticketId: t2.id } });
     c.now.t += (game.time + 5) * 1000;
     expect((submit(c, p, t2, game).body as { drop?: unknown }).drop).toEqual({ prisms: 1 });
+  });
+
+  it('un invité (profil serveur automatique) qui choisit un pseudo valide devient éligible au drop ; connecté à un compte mais sans pseudo : toujours non éligible', () => {
+    const c = ctx();
+    const g = guest(c);
+    const t1 = giveTicket(c, g, findId(game.beacons, true), seed);
+    const playIt = (who: { auth: string }, t: Ticket): RunResponse & { status: 'accepted' } => {
+      c.call('POST', '/api/tickets/start', { auth: who.auth, body: { ticketId: t.id } });
+      c.now.t += (game.time + 5) * 1000;
+      const r = submit(c, who, t, game);
+      expect(r.status).toBe(200);
+      return r.body as RunResponse & { status: 'accepted' };
+    };
+    // 1. Invité sans pseudo, même rattaché à une méthode de connexion : pas de drop
+    c.db.prepare("INSERT INTO identities (player_id, provider, subject, email, created_at) VALUES (?, 'email', 'sub-g', NULL, 1)").run(g.id);
+    expect(playIt(g, t1).drop).toBeUndefined();
+    expect(balancesOf(c.db, g.id).prisms).toBe(0);
+    // 2. Le même profil choisit un pseudo valide (PATCH /api/me) : il n'est plus invité, le prochain ticket gagnant est crédité
+    const nick = c.call('PATCH', '/api/me', { auth: g.auth, body: { nickname: 'Invite Devenu' }, ip: c.newIp() });
+    expect(nick.status, JSON.stringify(nick.body)).toBe(200);
+    expect(c.db.prepare('SELECT guest FROM players WHERE id = ?').get(g.id)).toEqual({ guest: 0 });
+    const t2 = giveTicket(c, g, findId(game.beacons, true, t1.id), seed);
+    expect(playIt(g, t2).drop).toEqual({ prisms: 1 });
+    expect(balancesOf(c.db, g.id).prisms).toBe(1);
+    // 3. Pseudo refusé (invalide) : reste non éligible
+    const g2 = guest(c);
+    expect(c.call('PATCH', '/api/me', { auth: g2.auth, body: { nickname: 'x' }, ip: c.newIp() }).status).toBe(400);
+    const t3 = giveTicket(c, g2, findId(game.beacons, true, [t1.id, t2.id]), seed);
+    expect(playIt(g2, t3).drop).toBeUndefined();
   });
 
   it('partie entièrement hors ligne (aucun démarrage enregistré) : aucun tirage, même avec un ticket « gagnant » ; démarrage tardif refusé', () => {

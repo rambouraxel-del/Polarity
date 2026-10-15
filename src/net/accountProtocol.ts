@@ -149,6 +149,8 @@ export interface SyncResponse {
   inventory: { boost: number; gel: number };
   /** Compteurs de charges traitées (acceptées + refusées) pour cette installation. */
   bonus: { boost: number; gel: number };
+  /** Compteurs d'usage non classé déjà déduits par le service pour cette installation (le client ne les fait jamais redescendre en dessous). */
+  used?: { boost: number; gel: number };
   /** Charges demandées mais refusées (fonds insuffisants ou inventaire plein) : retirées de l'inventaire local. */
   bonusRejected: { boost: number; gel: number };
   /** Succès dont les Médailles sont créditées (source de vérité) et réclamations refusées (succès absent de la progression). */

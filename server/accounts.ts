@@ -549,7 +549,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       const inst = installOf(installId, me.id);
       if (!inst) return err(409, 'install_conflict', 'Cette installation appartient à un autre profil.');
       const cur = readSnapshot(me.id);
-      const reply = (legacy: SyncResponse['legacy'], rev: number, save: SaveData): HttpResponse => respond(me.id, rev, save, { watermark: inst.earned, legacy, bonus: inst.bonus });
+      const reply = (legacy: SyncResponse['legacy'], rev: number, save: SaveData): HttpResponse => respond(me.id, rev, save, { watermark: inst.earned, legacy, bonus: inst.bonus, used: inst.used });
       if (inst.legacyImported) return reply('already', cur.rev, cur.save);
       const legacy = incoming.economy.legacy;
       if (!legacy || legacy.imported) return reply('none', cur.rev, cur.save);
@@ -694,7 +694,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       const rev = changed ? cur.rev + 1 : cur.rev;
       if (changed || cur.rev === 0) writeSnapshot(me.id, merged, rev === 0 ? 1 : rev, 'sync');
       saveInstall(installId, { ...inst, bonus, used }, watermark, bucket);
-      return respond(me.id, rev === 0 ? 1 : rev, merged, { watermark, capped, acknowledged, rejected, bonus, bonusRejected, rejectedClaims });
+      return respond(me.id, rev === 0 ? 1 : rev, merged, { watermark, capped, acknowledged, rejected, bonus, bonusRejected, rejectedClaims, used });
     });
   }
 

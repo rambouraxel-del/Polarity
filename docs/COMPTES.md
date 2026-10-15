@@ -85,3 +85,7 @@ Migration v<8 : les cosmétiques que les succès débloquaient directement (glac
 
 ## Achats de Prismes (phase 5)
 Un **compte connecté** est obligatoire pour acheter (l'invité joue sans paiement). Le service lie chaque achat au profil (identifiant de compte dérivé par HMAC transmis à Apple / Google) : un reçu n'est jamais réutilisable sur un autre profil. Voir `docs/MONETISATION.md`.
+
+## Compteurs et identifiant d'installation (finalisation)
+- La réponse de synchronisation contient aussi `used` (compteurs d'usage non classé déjà déduits pour l'installation) ; le jeu ne laisse jamais ses compteurs `bonusBought` / `bonusUsed` sous ceux du service (`applySyncResult`).
+- L'identifiant d'installation est doublé dans la clé locale `polarite.installation` : une ancienne version du jeu qui réécrirait la sauvegarde sans le bloc économie ne fait pas « changer d'installation » (aucun second import de l'héritage, compteurs cohérents). Une remise à zéro volontaire efface cette clé.

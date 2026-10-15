@@ -37,7 +37,7 @@ export interface LoyaltyState {
   absencesLeft: number | null;
   /** Nombre de récompenses débloquées et non récupérées (toutes cycles confondus). */
   claimable: number;
-  /** Récompense de Prismes réservée aux profils avec pseudo ou compte (jamais aux invités) : vrai si le profil actuel peut la récupérer. */
+  /** Récompense de Prismes réservée aux profils ayant choisi un pseudo (jamais aux invités sans pseudo) : vrai si le profil actuel peut la récupérer. */
   canClaimPrisms: boolean;
   /** Stock de bonus plein (99) : une récompense Boost/Gel ne peut pas être récupérée tant qu'il n'y a pas de place. */
   stock: { boost: number; gel: number; max: number };

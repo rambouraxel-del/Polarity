@@ -101,7 +101,7 @@ export function loyaltyScreen(v: LoyaltyView): string {
          )
          .join('')}`
     : '';
-  const prismNote = !st.canClaimPrisms ? `<div class="notice notice--cyan" role="status">Les <strong>Prismes</strong> se récupèrent avec un pseudo ou un compte (menu Classement ou Options → Compte) : la récompense du jour 10 vous attend.</div>` : '';
+  const prismNote = !st.canClaimPrisms ? `<div class="notice notice--cyan" role="status">Les <strong>Prismes</strong> se récupèrent avec un pseudo choisi (menu Classement) : la récompense du jour 10 vous attend.</div>` : '';
   const offline = !v.online ? `<div class="notice" role="status">Hors connexion : dernier état connu affiché. La présence d’aujourd’hui sera validée dès la reconnexion (même jour UTC) ; récupérer une récompense demande une connexion.</div>` : '';
   const burst = v.justClaimed.some((k) => k.endsWith(`:${LOYALTY_LENGTH}`)) ? `<div class="loy-burst" aria-hidden="true">${coin('prisms', 'coin--xl')}<i></i><i></i><i></i><i></i><i></i><i></i></div>` : '';
   return `<div class="panel panel--wide loy">${screenHead('Récompenses de connexion')}

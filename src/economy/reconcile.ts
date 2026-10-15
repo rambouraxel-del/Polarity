@@ -104,6 +104,11 @@ export function applySyncResult(local: SaveData, res: SyncResponse, sent: SaveDa
   local.medals.claimed = [...new Set([...res.claimed, ...sinceSent])];
   local.economy.confirmedClaims = [...res.claimed];
 
+  // Compteurs MONOTONES : jamais en dessous de ceux du service pour cette installation (sauvegarde locale réécrite par une ancienne version du jeu,
+  // restaurée ou remise à zéro). Sans cela, un compteur redescendu ferait ignorer des achats de charges jusqu'à rattraper l'ancien total, ou
+  // laisserait consommer gratuitement des charges déjà déduites.
+  local.economy.bonusBought = { boost: Math.max(local.economy.bonusBought.boost, res.bonus.boost), gel: Math.max(local.economy.bonusBought.gel, res.bonus.gel) };
+  if (res.used) local.economy.bonusUsed = { boost: Math.max(local.economy.bonusUsed.boost, res.used.boost), gel: Math.max(local.economy.bonusUsed.gel, res.used.gel) };
   local.economy.bonusProcessed = { boost: Math.min(res.bonus.boost, local.economy.bonusBought.boost), gel: Math.min(res.bonus.gel, local.economy.bonusBought.gel) };
   local.inventory = {
     boost: clamp(res.inventory.boost - (opts.pendingUse?.boost ?? 0) + (local.inventory.boost - sent.inventory.boost)),

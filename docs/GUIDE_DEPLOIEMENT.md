@@ -79,16 +79,24 @@ Les signalements ne produisent aucun effet automatique : c'est vous qui décidez
 Recommandé : une fois par jour (tâche `cron`) **et avant toute mise à jour** ; copier ensuite les fichiers **hors du serveur** (autre machine, stockage externe).
 Ne copiez jamais le fichier `leaderboard.sqlite` « à la main » pendant que le service tourne (mode WAL : la copie serait incohérente) : utilisez la commande ci-dessus.
 
-**Restaurer** (remplace la base actuelle ; la base remplacée est conservée dans `/data/avant-restauration/`). `VOL` = nom du volume : `<COMPOSE_PROJECT_NAME>_donnees`, soit `polar-rift-prod_donnees` avec le `.env` fourni (`docker volume ls` le confirme).
+**Restaurer** (remplace la base active ; la base remplacée est TOUJOURS conservée, dans un dossier daté `/data/avant-restauration-AAAAMMJJ-HHMMSS/` : aucun écrasement silencieux, la commande s'arrête si la copie échoue). `VOL` = nom du volume : `<COMPOSE_PROJECT_NAME>_donnees`, soit `polar-rift-prod_donnees` avec le `.env` fourni (`docker volume ls` le confirme).
 ```sh
 VOL=polar-rift-prod_donnees
 FICHIER=classement-AAAAMMJJ-HHMMSS.sqlite          # dans deploy/sauvegardes/
+sh sauvegarde.sh                                   # d'abord : copie de l'état COURANT (jamais restaurer sans elle)
 docker compose stop classement
 docker run --rm -v "$VOL":/data -v "$PWD/sauvegardes":/s:ro node:22-slim sh -c '
-  mkdir -p /data/avant-restauration && cp -a /data/leaderboard.sqlite* /data/avant-restauration/ 2>/dev/null;
-  rm -f /data/leaderboard.sqlite-wal /data/leaderboard.sqlite-shm;
-  cp /s/'"$FICHIER"' /data/leaderboard.sqlite && chown 1000:1000 /data/leaderboard.sqlite'
-docker compose start classement
+  set -e
+  D=/data/avant-restauration-$(date -u +%Y%m%d-%H%M%S)
+  test ! -e "$D"
+  mkdir "$D"
+  cp -a /data/leaderboard.sqlite* "$D"/
+  test -s "$D"/leaderboard.sqlite
+  rm -f /data/leaderboard.sqlite-wal /data/leaderboard.sqlite-shm
+  cp /s/'"$FICHIER"' /data/leaderboard.sqlite
+  chown 1000:1000 /data/leaderboard.sqlite
+  echo "Base remplacée conservée dans $D"'
+docker compose start classement      # (retour arrière de CODE : faire d'abord le « git checkout » voulu puis « docker compose up -d --build » à la place)
 docker compose exec classement node node_modules/tsx/dist/cli.mjs server/admin.ts check
 ```
 Supprimer les fichiers `-wal` et `-shm` est indispensable : ils appartiennent à l'ancienne base. Test conseillé : restaurer une fois à blanc (bêta) avant d'en avoir besoin.

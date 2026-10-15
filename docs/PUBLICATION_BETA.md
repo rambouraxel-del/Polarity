@@ -85,10 +85,23 @@ Un échec bloquant → retour arrière (§ 6). Les anomalies non bloquantes sont
 |---|---|---|---|
 | **R0 — jeu seul** | problème d'interface | `git revert -m 1 <SHA du merge>` sur `main` → push (nouvelle révision, pas de réécriture d'historique) → Pages republie l'ancien jeu | Intactes : le service (nouveau) reste compatible avec l'ancien jeu (§ 2). Les sauvegardes locales v10 sont lues par l'ancien jeu comme « version plus récente » : l'original est copié tel quel dans `polarite.save.corrompue` et la sauvegarde active est réécrite au format ancien à la première modification ; les monnaies viennent du service. Limite : le compteur local d'usage de Boost/Gel peut repartir de zéro au retour du nouveau jeu (au pire quelques charges non déduites, jamais de perte de monnaie). |
 | **R1 — configuration** | un fournisseur de paiement/pub se comporte mal | vider ses variables dans `deploy/.env` puis `docker compose up -d` : fournisseur désactivé, achats indisponibles | Intactes |
-| **R2 — code du service** | bug du service, schéma inchangé | `git checkout <commit précédent de la branche>` puis `docker compose up -d --build` | Intactes (même schéma v8) |
-| **R3 — service antérieur à la mise à jour** (dernier recours) | seulement si R0–R2 impossibles | 1) `sh sauvegarde.sh` (= `ETAT_COURANT`, **conservée**) ; 2) `docker compose stop classement` ; 3) restaurer `SAUVEGARDE_AVANT` (§ 6 du guide de déploiement : la base remplacée est copiée dans `/data/avant-restauration/`) ; 4) `git checkout <ancien commit>` ; `docker compose up -d --build` | Les données créées depuis la mise à jour ne sont **pas** dans la base active mais **intactes dans `ETAT_COURANT`** (et dans `/data/avant-restauration/`). Pour les récupérer plus tard : redéployer le nouveau service sur `ETAT_COURANT` (les deux périodes ne se fusionnent pas automatiquement : prévoir une reprise manuelle si des joueurs ont joué entre-temps). |
+| **R2 — code du service** | bug du service, schéma inchangé | `git checkout <commit précédent de la branche, au plus tôt c13d3ad (introduction du schéma v8)>` puis `docker compose up -d --build` | Intactes (même schéma v8) ; un commit antérieur à `c13d3ad` refuse la base v8 : voir R3 |
+| **R3 — service antérieur à la mise à jour** (dernier recours) | seulement si R0–R2 impossibles | voir « Procédure R3 » ci-dessous | Les données créées depuis la mise à jour ne sont **pas** dans la base active mais **intactes dans `ETAT_COURANT`** et dans le dossier daté `avant-restauration-…`. |
 
-Un ancien code **refuse de démarrer** sur une base plus récente (« base plus récente que ce service ») sans la modifier : c'est la protection prévue ; il ne faut donc jamais « forcer » : on passe par R3.
+### Un ancien service ne peut pas ouvrir une base v8
+Après la mise à jour, la base est au schéma **v8**. Le service d'avant la mise à jour (et tout code antérieur à v8) **refuse de démarrer** sur elle : « Base de données de version 8, plus récente que ce service… aucune donnée n'a été modifiée » (garde présente dans le code de production actuel : `openDb` s'arrête AVANT toute migration ; vérifié sur `main` et par test). Conséquences :
+- un simple `git checkout <ancien commit>` + `docker compose up -d --build` **ne fonctionne pas** (le conteneur redémarre en boucle, la base n'est pas touchée) ; ne **jamais** forcer en modifiant `PRAGMA user_version` à la main (l'ancien code travaillerait sur un schéma qu'il ne connaît pas) ;
+- revenir à un service antérieur impose de **restaurer un fichier de base antérieur** : seule la procédure R3 ci-dessous le fait, et **sans rien écraser** ;
+- tout retour au niveau R2 (code plus récent ou égal à l'introduction du schéma v8) reste possible sans toucher aux données.
+
+### Procédure R3 (aucune donnée écrasée silencieusement)
+1. **Figer l'état courant** : `sh sauvegarde.sh` → `ETAT_COURANT` (copie cohérente vérifiée par `check` ; le script **refuse d'écraser** un fichier existant et horodate le nom). Copier ce fichier **hors du serveur**. Ne pas continuer sans lui.
+2. `docker compose stop classement` (plus aucune écriture).
+3. **Restaurer `SAUVEGARDE_AVANT`** avec la commande du § 6 du guide de déploiement : la base active est d'abord copiée dans un dossier **daté** `/data/avant-restauration-AAAAMMJJ-HHMMSS/` (jamais réutilisé, la commande s'arrête si la copie échoue ou si le dossier existe) ; ensuite seulement la sauvegarde la remplace. (Alternative sans remplacement : le fichier `leaderboard.sqlite.avant-vN.bak` créé par la migration est exactement l'état d'avant.)
+4. `git checkout <ancien commit du service>` puis `docker compose up -d --build` (et non `start`), puis `curl …/api/health` et `server:admin check`.
+5. Noter dans `RESUME.md` le nom de `ETAT_COURANT` : il contient les parties, profils et monnaies créés depuis la mise à jour. Pour les retrouver plus tard : redéployer le service récent sur `ETAT_COURANT` (la période pendant laquelle l'ancien service a tourné n'est pas fusionnée automatiquement : prévoir une reprise manuelle des joueurs ayant joué entre-temps, par `server:admin export`).
+Interdits : supprimer le volume `donnees`, `docker compose down -v`, copier un fichier sur `leaderboard.sqlite` sans l'étape 3.
+
 Ordre en cas de retour arrière complet : jeu (R0) **puis** service (R3).
 
 ## 7. Après publication

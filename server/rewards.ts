@@ -218,7 +218,7 @@ export function createRewards(deps: RewardsDeps): Rewards {
   /**
    * Réclamation MANUELLE d'une récompense débloquée : atomique (décision + ligne du registre dans la même transaction), idempotente (clé
    * `loy:<cycle>:<jour>` unique par profil), jamais plus d'une fois. Boost/Gel : refusée tant que le stock est plein (la récompense reste récupérable).
-   * Prismes : réservés aux profils avec pseudo ou compte (protection contre la création en série de profils invités).
+   * Prismes : réservés aux profils ayant CHOISI un pseudo (`guest = 0`, identité du service) — règle commune au calendrier, au Top 10 quotidien et au drop rare ; un profil invité sans pseudo (même connecté à un compte) ne les reçoit pas (protection contre la création en série de profils).
    */
   function claim(req: HttpRequest, me: PlayerRow): HttpResponse {
     if (!allow(`loyalty-claim:${me.id}`, 120, HOUR)) return err(429, 'rate_limited', RATE);
@@ -237,7 +237,7 @@ export function createRewards(deps: RewardsDeps): Rewards {
       if (q.ledgerHas.get(me.id, ref)) return done(false);
       if (reward.kind === 'prisms') {
         const f = q.playerFlags.get(me.id) as unknown as { guest: number; moderation: number };
-        if (f.guest !== 0 || f.moderation >= 2) return err(403, 'account_required', 'Choisissez un pseudo (menu Classement) ou connectez un compte pour récupérer des Prismes : la récompense reste disponible.');
+        if (f.guest !== 0 || f.moderation >= 2) return err(403, 'account_required', 'Choisissez un pseudo (menu Classement) pour récupérer des Prismes : la récompense reste disponible.');
       }
       if (reward.kind === 'boost' || reward.kind === 'gel') {
         if (inventoryOf(db, me.id)[reward.kind] + reward.amount > BONUS.maxStock) return err(409, 'stock_full', 'Stock plein pour ce bonus : utilisez-en un, la récompense reste disponible.');

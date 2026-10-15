@@ -5,6 +5,7 @@
 - [x] Corrections : réconciliation Google/Apple + schéma v8, OIDC des notifications Google, drop refusé aux invités, clés de dette uniques, variables de déploiement des achats, limites des notifications
 - [x] `scripts/e2e.mjs` modernisé (service local réel, 120 contrôles, migration d'une sauvegarde de `main`), ancien jeu vérifié contre le nouveau service
 - [x] `npm run server:migrate-check`, `docs/PUBLICATION_BETA.md` (publication, retour arrière), 767 tests, build, `check:bundle`
+- [x] Vérifications finales (invités + pseudo, plafond 3 activations, compteurs au retour arrière, retour arrière serveur v8) : 778 tests, build, `check:bundle`
 - [ ] **Publication : en attente de l'accord explicite du propriétaire**
 
 ## Économie v3 — phase 5 : monétisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)

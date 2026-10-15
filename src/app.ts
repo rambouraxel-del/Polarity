@@ -42,7 +42,7 @@ import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
 import { AccountService } from './account/AccountService';
 import { mountGoogleButton, signInNative, signInWithAppleWeb } from './account/providers';
-import { ensureInstallId } from './economy/ids';
+import { INSTALL_KEY, ensureInstallId, useInstallStore } from './economy/ids';
 import { accountScreen } from './ui/accountScreens';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
 import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
@@ -244,6 +244,7 @@ export class App {
     });
     this.applyAudioOptions();
     this.normalizeSave();
+    useInstallStore(this.store);
     ensureInstallId(this.save);
     this.storageFailed = !storageWorks(this.store);
     // Sauvegarde modifiée par un AUTRE onglet : on adopte la plus récente (jamais d'écrasement silencieux, aucune récompense en double)
@@ -1844,6 +1845,7 @@ export class App {
       case 'confirm-reset': {
         this.save = resetProgress(this.store, this.save);
         this.save.economy.managed = this.lb.configured;
+        this.store.remove(INSTALL_KEY); // remise à zéro volontaire : nouvelle installation
         ensureInstallId(this.save);
         this.persist(false);
         if (this.store.failed === true) this.storageFailed = true;

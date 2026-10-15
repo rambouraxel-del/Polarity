@@ -13,6 +13,7 @@ import { createApp, type HttpRequest, type HttpResponse } from '../server/app';
 import { MIGRATIONS, openDb, type Db } from '../server/db';
 import { inventoryOf } from '../server/profile';
 import { replaySurvival } from '../server/verify';
+import { signTicket } from '../server/auth';
 
 const SECRET = 'secret-de-test-pour-les-tickets-0123456789';
 const INSTALL = 'install-pow-0001';
@@ -375,5 +376,99 @@ describe('usage déclaré (parties non classées) et reprises payées en Prismes
     // Le client ne fixe jamais le prix
     const res = revive(c, p.auth, { runId: 'run-abcdef03', life: 2, price: 0, prisms: 999 });
     expect(res.body).toMatchObject({ price: 5, balance: { prisms: 45 } });
+  });
+});
+
+describe('plafond de 3 activations par bonus et par première vie : jamais contournable', () => {
+  /** Écarts supérieurs à la recharge (Boost 1 200 pas, Gel 2 400 pas) ; durée de jeu du robot suffisante pour la quatrième demande. */
+  const PLAN = {
+    boost: { steps: [20, 1300, 2600, 3900], botSeconds: 45, minTime: 40 },
+    gel: { steps: [20, 2500, 5000, 7600], botSeconds: 90, minTime: 70 },
+  } as const;
+
+  /** Partie jouée avec le code du jeu : le robot survit ; quatre activations sont DEMANDÉES (le jeu refuse la quatrième). */
+  function playFourRequests(kind: 'boost' | 'gel', seed: number): { flips: number[]; acts: [number, number][]; time: number; score: number; rejected: number } {
+    const plan = PLAN[kind];
+    const sim = createSimulation({ mode: 'survival', seed, stock: { boost: 9, gel: 9 } });
+    const bot = new Bot(sim, true);
+    for (let i = 0; i < 120 * 900 && sim.state === 'running'; i++) {
+      if (i < 120 * plan.botSeconds) bot.tick();
+      if ((plan.steps as readonly number[]).includes(i)) sim.power(kind);
+      sim.step();
+      sim.events.length = 0;
+    }
+    expect(sim.state).toBe('dead');
+    return { flips: [...sim.flipLog], acts: sim.powers.log.map((a) => [a.step, POWER_CODES[a.kind]] as [number, number]), time: sim.time, score: sim.scoring.score, rejected: sim.powers.rejected };
+  }
+  const seedFor = (kind: 'boost' | 'gel'): number => {
+    const found = [5, 11, 12, 31, 77, 201, 202, 203, 1, 2, 3, 4, 6, 7, 8].find((sd) => playFourRequests(kind, sd).time > PLAN[kind].minTime);
+    if (found === undefined) throw new Error(`aucune graine assez longue pour ${kind}`);
+    return found;
+  };
+
+  for (const kind of ['boost', 'gel'] as const) {
+    it(`${kind} : le jeu refuse la quatrième demande ; le rejeu du service accepte 3 activations et REFUSE un journal qui en contient 4`, () => {
+      const seed = seedFor(kind);
+      const r = playFourRequests(kind, seed);
+      expect(r.acts).toHaveLength(3);
+      expect(r.rejected).toBe(1);
+      const ok = replaySurvival(seed, r.flips, r.acts);
+      expect(ok.ok && ok.powers[kind]).toBe(3);
+      // Client modifié : une quatrième activation (hors recharge) ajoutée au journal
+      const forged = [...r.acts, [PLAN[kind].steps[3], POWER_CODES[kind]] as [number, number]];
+      expect(replaySurvival(seed, r.flips, forged)).toEqual({ ok: false, reason: 'bad_powers' });
+    });
+  }
+
+  it('à la réception : record refusé (ticket consommé, aucune charge déduite, aucun record) ; la partie honnête à 3 activations est classée « avec bonus »', () => {
+    const c = ctx();
+    const p = player(c, 'Axel');
+    stockUp(c, p.auth, 5, 0);
+    const seed = seedFor('boost');
+    const r = playFourRequests('boost', seed);
+    const give = (id: string): Ticket => {
+      const exp = Math.floor(c.now.t / 1000) + 7 * 86400;
+      c.db.prepare('INSERT INTO tickets (id, player_id, seed, exp, issued_at) VALUES (?, ?, ?, ?, ?)').run(id, p.id, seed, exp, c.now.t);
+      return { id, seed, exp, sig: signTicket(SECRET, { id, seed, exp }, p.id) };
+    };
+    const before = inventoryOf(c.db, p.id);
+    const forgedTicket = give('cap-forged-0001');
+    const forged = send(c, p.auth, sub(forgedTicket, r, { acts: [...r.acts, [3900, POWER_CODES.boost]] }));
+    expect(forged.status).toBe(422);
+    expect(forged.body).toMatchObject({ status: 'rejected', reason: 'bad_powers' });
+    expect(inventoryOf(c.db, p.id)).toEqual(before);
+    expect((c.call('GET', '/api/leaderboard', { query: 'category=bonus' }).body as LeaderboardResponse).total).toBe(0);
+    expect(send(c, p.auth, sub(forgedTicket, r)).body).toMatchObject({ reason: 'ticket_used' });
+    const honest = send(c, p.auth, sub(give('cap-honest-0001'), r));
+    expect(honest.status).toBe(200);
+    expect(honest.body).toMatchObject({ status: 'accepted', category: 'bonus', powers: { boost: 3 } });
+    expect(inventoryOf(c.db, p.id).boost).toBe(before.boost - 3);
+  });
+});
+
+describe('compteurs de charges : jamais en dessous du service (retour arrière du jeu, sauvegarde ancienne)', () => {
+  const syncBody = (bought: { boost: number; gel: number }, used: { boost: number; gel: number }) => ({ installId: INSTALL, earned: 1500, purchases: {}, claims: [], bonusBought: bought, bonusUsed: used, save: defaultSave() });
+
+  it('la réponse indique les compteurs d’usage déjà déduits ; un compteur local redescendu ne déduit rien, ne rend rien, et n’empêche pas un nouvel achat une fois réaligné', () => {
+    const c = ctx();
+    const p = player(c, 'Axel');
+    const post = (b: ReturnType<typeof syncBody>): { used: { boost: number; gel: number }; bonus: { boost: number; gel: number }; inventory: { boost: number; gel: number } } => {
+      const r = c.call('POST', '/api/sync', { token: p.auth, body: b });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      return r.body as never;
+    };
+    expect(post(syncBody({ boost: 4, gel: 0 }, { boost: 0, gel: 0 })).inventory.boost).toBe(4);
+    const a = post(syncBody({ boost: 4, gel: 0 }, { boost: 2, gel: 0 }));
+    expect(a.used).toEqual({ boost: 2, gel: 0 });
+    expect(a.bonus).toEqual({ boost: 4, gel: 0 });
+    expect(a.inventory.boost).toBe(2);
+    // Sauvegarde réécrite : compteurs à zéro. Le service ne déduit rien de plus ni ne rend rien, et répond avec SES compteurs
+    const stale = post(syncBody({ boost: 0, gel: 0 }, { boost: 0, gel: 0 }));
+    expect(stale.used).toEqual({ boost: 2, gel: 0 });
+    expect(stale.bonus).toEqual({ boost: 4, gel: 0 });
+    expect(stale.inventory.boost).toBe(2);
+    // Le client réaligné (max) peut racheter : 5ᵉ charge achetée = compteur 5 → créditée
+    const next = post(syncBody({ boost: 5, gel: 0 }, { boost: 2, gel: 0 }));
+    expect(next.inventory.boost).toBe(3);
   });
 });
