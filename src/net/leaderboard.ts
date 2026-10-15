@@ -1,5 +1,6 @@
 import { REPLAY_FORMAT_POWERS, validNickname, normalizeNickname, type BalancesResponse, type Category, type LeaderboardResponse, type MeResponse, type RegisterResponse, type RejectReason, type Replay, type RunResponse, type RunSubmission, type Ticket, type TicketsResponse } from './protocol';
-import type { DailyAttempt, DailyBoard, DailyNoticesResponse, DailyRunResponse, DailyRunSubmission, DailyRejectReason, LoyaltyClaimResponse, LoyaltyState } from './rewardsProtocol';
+import { sha256Hex } from '../core/sha256';
+import { dailyDigestInput, type DailyAttempt, type DailyBoard, type DailyNoticesResponse, type DailyRunResponse, type DailyRunSubmission, type DailyRejectReason, type LoyaltyClaimResponse, type LoyaltyState } from './rewardsProtocol';
 import type { KeyValueStore } from '../save/save';
 import { sanitizeBaseUrl } from './baseUrl';
 
@@ -67,6 +68,9 @@ export interface PendingDaily {
   status: PendingStatus;
   attempts: number;
   lastError?: string;
+  /** Empreinte d'engagement de la tentative (SHA-256) ; `committed` : le service l'a reçue et horodatée. */
+  digest?: string;
+  committed?: boolean;
   reason?: DailyRejectReason;
   message?: string;
   result?: { time: number; score: number; rank: number; personalBest: boolean; late: boolean; state: 'open' | 'grace' | 'final'; eligible: boolean };
@@ -488,7 +492,7 @@ export class LeaderboardClient {
     const owner = this.identity()?.playerId;
     if (!owner) return null;
     const submission: DailyRunSubmission = { attemptId: attempt.id, date: attempt.date, replay: { v: 1, flips: [...flips] }, claimed, client: { build: this.o.build } };
-    const run: PendingDaily = { id: attempt.id, owner, date: attempt.date, submission, createdAt: this.now(), status: 'pending', attempts: 0 };
+    const run: PendingDaily = { id: attempt.id, owner, date: attempt.date, submission, createdAt: this.now(), status: 'pending', attempts: 0, digest: sha256Hex(dailyDigestInput(attempt.date, claimed.score, flips)) };
     this.savePendingDaily([...this.pendingDaily().filter((p) => p.id !== run.id), run]);
     return run;
   }
@@ -498,6 +502,18 @@ export class LeaderboardClient {
     if (!this.configured || !this.identity()) return this.pendingDaily();
     const mine = this.ownerIds();
     for (const run of this.pendingDaily().filter((p) => p.status === 'pending' && !!p.owner && mine.has(p.owner))) {
+      // 1. Engagement horodaté par le service dès que possible (preuve de fin avant minuit si le journal complet arrive après) ; échec réseau : non bloquant
+      if (run.digest && !run.committed) {
+        const c = await this.request<{ committedAt: number }>('POST', '/api/daily/commit', { auth: true, body: { attemptId: run.id, digest: run.digest } });
+        if (c.ok || (!c.ok && c.kind === 'http' && c.status === 409)) {
+          const l = this.pendingDaily();
+          const e = l.find((p) => p.id === run.id);
+          if (e && c.ok) {
+            e.committed = true;
+            this.savePendingDaily(l);
+          }
+        }
+      }
       const res = await this.request<DailyRunResponse>('POST', '/api/daily/runs', { auth: true, body: run.submission });
       const list = this.pendingDaily();
       const cur = list.find((p) => p.id === run.id);

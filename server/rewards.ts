@@ -2,7 +2,9 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { SIM } from '../src/config/balance';
 import { BONUS } from '../src/config/economy';
 import { DAILY_RANKING, DROPS, LOYALTY, LOYALTY_LENGTH, dailyPrizeForRank } from '../src/config/rewards';
+import { sha256Hex } from '../src/core/sha256';
 import { validFlips } from '../src/net/protocol';
+import { dailyDigestInput } from '../src/net/rewardsProtocol';
 import type {
   DailyAttempt,
   DailyBoard,
@@ -107,7 +109,7 @@ const DAILY_MESSAGES: Record<DailyRejectReason, string> = {
   bad_attempt: 'Tentative inconnue : une tentative classée doit être démarrée en ligne.',
   attempt_used: 'Cette tentative a déjà été envoyée.',
   closed: 'Ce défi est clos : les résultats ne sont plus acceptés.',
-  late_unproven: 'Soumission tardive refusée : la fin de la tentative avant minuit ne peut pas être prouvée par le service.',
+  late_unproven: 'Soumission tardive refusée : aucun engagement de fin de tentative reçu par le service avant minuit (ou engagement différent du résultat envoyé).',
   too_fast: 'Durée incohérente avec l’heure de début enregistrée par le service.',
   bad_replay: 'Journal des entrées invalide.',
   not_finished: 'La partie rejouée ne se termine pas.',
@@ -132,7 +134,8 @@ export function createRewards(deps: RewardsDeps): Rewards {
     ledgerHas: db.prepare('SELECT amount FROM ledger WHERE player_id = ? AND ref = ?'),
     ledgerAdd: db.prepare('INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     playerFlags: db.prepare('SELECT guest, moderation FROM players WHERE id = ?'),
-    attempt: db.prepare('SELECT id, player_id, date, started_at, used_at FROM daily_attempts WHERE id = ?'),
+    attempt: db.prepare('SELECT id, player_id, date, started_at, used_at, commit_digest, committed_at FROM daily_attempts WHERE id = ?'),
+    commitAttempt: db.prepare('UPDATE daily_attempts SET commit_digest = ?, committed_at = ? WHERE id = ? AND commit_digest IS NULL AND used_at IS NULL'),
     insertAttempt: db.prepare('INSERT INTO daily_attempts (id, player_id, date, started_at) VALUES (?, ?, ?, ?)'),
     useAttempt: db.prepare('UPDATE daily_attempts SET used_at = ? WHERE id = ? AND used_at IS NULL'),
     openAttempts: db.prepare('SELECT COUNT(*) AS n FROM daily_attempts WHERE player_id = ? AND date = ? AND used_at IS NULL'),
@@ -322,7 +325,7 @@ export function createRewards(deps: RewardsDeps): Rewards {
     const t = now();
     const end = dayStartMs(date) + DAY_MS;
     const grace = end + DAILY_RANKING.graceMinutes * MIN_MS;
-    const att = q.attempt.get(sub.attemptId) as unknown as { id: string; player_id: string; date: string; started_at: number; used_at: number | null } | undefined;
+    const att = q.attempt.get(sub.attemptId) as unknown as { id: string; player_id: string; date: string; started_at: number; used_at: number | null; commit_digest: string | null; committed_at: number | null } | undefined;
     // La tentative appartient au profil (ou à un profil qu'il a absorbé : les lignes sont déplacées à la fusion), à cette date
     if (!att || att.player_id !== me.id || att.date !== date) return reject('bad_attempt');
     if (att.used_at !== null) return reject('attempt_used');
@@ -343,11 +346,20 @@ export function createRewards(deps: RewardsDeps): Rewards {
       transaction(db, () => void consume());
       return reject('too_fast');
     }
-    // 2. soumission tardive (après 00 h 00) : la tentative doit avoir pu se terminer avant minuit (début + durée active ≤ minuit) — condition nécessaire,
-    //    bornée par la grâce de 15 min : au-delà, plus rien n'est accepté
-    if (late && (att.started_at >= end || att.started_at + durMs > end)) {
-      transaction(db, () => void consume());
-      return reject('late_unproven');
+    // 2. soumission tardive (après 00 h 00, grâce de 15 min) : un début horodaté + une durée simulée ne PROUVENT PAS l'heure de fin (pauses, parties
+    //    jouées après minuit). Preuve exigée : un ENGAGEMENT reçu et horodaté par le service AVANT minuit, dont l'empreinte (date, score, inversions) est
+    //    exactement celle du journal envoyé maintenant, et qui est postérieur au début + la durée active (la tentative ne pouvait pas être finie plus tôt)
+    if (late) {
+      const proven =
+        att.committed_at !== null &&
+        att.committed_at < end &&
+        att.started_at < end &&
+        att.committed_at - att.started_at >= durMs - 2000 &&
+        att.commit_digest === sha256Hex(dailyDigestInput(date, rep.score, flips));
+      if (!proven) {
+        transaction(db, () => void consume());
+        return reject('late_unproven');
+      }
     }
     const c = sub.claimed;
     if (typeof c.time !== 'number' || typeof c.score !== 'number' || Math.abs(c.time - rep.time) >= dt / 2 || c.score !== rep.score) {
@@ -368,6 +380,27 @@ export function createRewards(deps: RewardsDeps): Rewards {
     if (!out) return reject('attempt_used');
     const flags = q.playerFlags.get(me.id) as unknown as { guest: number };
     return json(200, { status: 'accepted', date, time: rep.time, score: rep.score, rank: out.rank, personalBest: out.better, late, state: statusOf(date, t), eligible: flags.guest === 0 } satisfies DailyRunResponse);
+  }
+
+  /**
+   * ENGAGEMENT d'une tentative terminée : l'empreinte SHA-256 (date, score, inversions) est enregistrée avec l'heure du SERVICE, avant minuit seulement,
+   * une seule fois par tentative (la première est conservée : impossible d'en changer). Il ne crédite ni ne classe rien : il sert de preuve de fin
+   * pour une soumission tardive.
+   */
+  function dailyCommit(req: HttpRequest, me: PlayerRow): HttpResponse {
+    if (!allow(`daily-commit:${me.id}`, 120, HOUR)) return err(429, 'rate_limited', RATE);
+    const b = req.body as { attemptId?: unknown; digest?: unknown } | undefined;
+    if (typeof b?.attemptId !== 'string' || typeof b.digest !== 'string' || !/^[0-9a-f]{64}$/.test(b.digest)) return err(400, 'bad_request', 'Requête invalide.');
+    const t = now();
+    return transaction(db, () => {
+      const att = q.attempt.get(b.attemptId as string) as unknown as { player_id: string; date: string; used_at: number | null; commit_digest: string | null; committed_at: number | null } | undefined;
+      if (!att || att.player_id !== me.id) return err(400, 'bad_attempt', 'Tentative inconnue.');
+      if (att.commit_digest !== null) return att.commit_digest === b.digest ? json(200, { committedAt: att.committed_at, repeated: true }) : err(409, 'already_committed', 'Un engagement différent existe déjà pour cette tentative.');
+      if (t >= dayStartMs(att.date) + DAY_MS) return err(409, 'too_late', 'L’engagement doit être reçu avant minuit (UTC).');
+      if (att.used_at !== null) return err(409, 'attempt_used', 'Tentative déjà envoyée.');
+      q.commitAttempt.run(b.digest as string, t, b.attemptId as string);
+      return json(200, { committedAt: t, repeated: false });
+    });
   }
 
   function dailyBoard(req: HttpRequest): HttpResponse {
@@ -448,6 +481,7 @@ export function createRewards(deps: RewardsDeps): Rewards {
         case 'POST /api/loyalty/claim': return withAuth((me) => claim(req, me));
         case 'POST /api/daily/start': return withAuth((me) => (tick(), dailyStart(req, me)));
         case 'POST /api/daily/runs': return withAuth((me) => dailyRun(req, me));
+        case 'POST /api/daily/commit': return withAuth((me) => dailyCommit(req, me));
         case 'GET /api/daily/leaderboard': return dailyBoard(req);
         case 'GET /api/daily/notices': return withAuth(dailyNotices);
         case 'POST /api/daily/ack': return withAuth((me) => dailyAck(req, me));

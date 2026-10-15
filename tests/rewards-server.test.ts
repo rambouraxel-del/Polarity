@@ -12,6 +12,8 @@ import { createApp, type HttpRequest, type HttpResponse } from '../server/app';
 import { signTicket } from '../server/auth';
 import { openDb, type Db } from '../server/db';
 import { balancesOf, inventoryOf } from '../server/profile';
+import { sha256Hex } from '../src/core/sha256';
+import { dailyDigestInput } from '../src/net/rewardsProtocol';
 import { dayString, dayStartMs, dropDraw, nextPresence, rollDrop, utcDayNumber, validDate, type CycleCounters } from '../server/rewards';
 import { replayDaily, replaySurvival } from '../server/verify';
 
@@ -441,6 +443,9 @@ function playDaily(date: string, every = 29): { flips: number[]; time: number; s
   return { flips: [...sim.flipLog], time: sim.time, score: sim.scoring.score, steps: sim.stepIndex };
 }
 const dailyBody = (attemptId: string, date: string, r: { flips: number[]; time: number; score: number }): unknown => ({ attemptId, date, replay: { v: 1, flips: r.flips }, claimed: { time: r.time, score: r.score }, client: { build: 't' } });
+/** Engagement horodaté d'une tentative terminée (empreinte date + score + inversions). */
+const commitDaily = (c: Ctx, auth: string, attemptId: string, date: string, r: { flips: number[]; score: number }): HttpResponse =>
+  c.call('POST', '/api/daily/commit', { auth, body: { attemptId, digest: sha256Hex(dailyDigestInput(date, r.score, r.flips)) } });
 const startDaily = (c: Ctx, auth: string, date = dayString(utcDayNumber(c.now.t))): string => {
   const r = c.call('POST', '/api/daily/start', { auth, body: { date } });
   expect(r.status, JSON.stringify(r.body)).toBe(200);
@@ -531,42 +536,81 @@ describe('Défi quotidien : soumission, preuves d’horaire, anti-rejeu', () => 
     expect(c.db.prepare('SELECT COUNT(*) AS n FROM daily_bests').get()).toEqual({ n: 0 });
   });
 
-  it('soumission tardive (00 h 00 – 00 h 15) : acceptée seulement si le service a enregistré un début avant minuit compatible avec la durée', () => {
+  it('soumission tardive (00 h 00 – 00 h 15) : acceptée SEULEMENT avec un engagement horodaté par le service avant minuit, identique au résultat envoyé', () => {
     const r = playDaily(date);
     const end = dayStartMs(date) + DAY;
-    // Début à 23 h 50, fin de partie avant minuit, envoi à 00 h 05 : accepté « tardif »
-    {
-      const c = ctx(openDb(':memory:'), end - 10 * 60_000);
+    const setup = (startAt: number): { c: Ctx; p: { id: string; auth: string }; id: string } => {
+      const c = ctx(openDb(':memory:'), startAt);
       const p = player(c, 'Axel');
-      const id = startDaily(c, p.auth);
+      return { c, p, id: startDaily(c, p.auth) };
+    };
+    // Engagement reçu à 23 h 55 (la partie est finie), journal complet envoyé à 00 h 05 : accepté « tardif »
+    {
+      const { c, p, id } = setup(end - 10 * 60_000);
+      c.now.t = end - 5 * 60_000;
+      expect(commitDaily(c, p.auth, id, date, r).status).toBe(200);
       c.now.t = end + 5 * 60_000;
-      const res = c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) });
-      expect(res.body).toMatchObject({ status: 'accepted', late: true, state: 'grace' });
+      expect(c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) }).body).toMatchObject({ status: 'accepted', late: true, state: 'grace' });
     }
-    // Début juste avant minuit, durée qui déborde sur le jour suivant : la fin avant minuit est impossible → refusé
+    // Début + durée compatibles avec minuit MAIS aucun engagement avant minuit : refusé (une durée simulée ne prouve pas l'heure de fin)
     {
-      const c = ctx(openDb(':memory:'), end - 1000);
-      const p = player(c, 'Axel');
-      const id = startDaily(c, p.auth);
+      const { c, p, id } = setup(end - 10 * 60_000);
       c.now.t = end + 5 * 60_000;
       const res = c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) });
       expect(res.status).toBe(422);
       expect(res.body).toMatchObject({ reason: 'late_unproven' });
     }
-    // Après 00 h 15 : plus rien n'est accepté (même avec un début et une durée parfaitement compatibles)
+    // Engagement d'un AUTRE contenu (score ou inversions différents) : refusé ; engagement trop précoce (avant la durée de jeu) : refusé
     {
-      const c = ctx(openDb(':memory:'), end - 10 * 60_000);
-      const p = player(c, 'Axel');
-      const id = startDaily(c, p.auth);
-      c.now.t = end + 15 * 60_000;
-      const res = c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) });
-      expect(res.body).toMatchObject({ reason: 'closed' });
+      const { c, p, id } = setup(end - 10 * 60_000);
+      c.now.t = end - 5 * 60_000;
+      const other = playDaily(date, 7);
+      commitDaily(c, p.auth, id, date, other);
+      c.now.t = end + 5 * 60_000;
+      expect(c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) }).body).toMatchObject({ reason: 'late_unproven' });
     }
-    // Un ticket de Survie, un horodatage ou une date annoncés par le client ne prouvent rien : on ne peut démarrer une tentative que pour le jour UTC du service
     {
-      const c = ctx(openDb(':memory:'), end + 60_000);
-      const p = player(c, 'Axel');
-      expect(c.call('POST', '/api/daily/start', { auth: p.auth, body: { date, startedAt: end - 5000 } }).status).toBe(400);
+      const { c, p, id } = setup(end - 1000);
+      c.now.t = end - 500;
+      commitDaily(c, p.auth, id, date, r); // moins d'une seconde après le début : la partie n'a pas pu être jouée
+      c.now.t = end + 5 * 60_000;
+      expect(c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) }).body).toMatchObject({ reason: 'late_unproven' });
+    }
+    // Engagement envoyé APRÈS minuit : refusé (409), donc aucune soumission tardive possible ; engagement figé (le premier reste) ; format invalide
+    {
+      const { c, p, id } = setup(end - 10 * 60_000);
+      c.now.t = end - 5 * 60_000;
+      expect(commitDaily(c, p.auth, id, date, r).body).toMatchObject({ repeated: false });
+      expect(commitDaily(c, p.auth, id, date, r).body).toMatchObject({ repeated: true });
+      expect(commitDaily(c, p.auth, id, date, playDaily(date, 7)).status).toBe(409);
+      expect(c.call('POST', '/api/daily/commit', { auth: p.auth, body: { attemptId: id, digest: 'zz' } }).status).toBe(400);
+      expect(c.call('POST', '/api/daily/commit', { auth: p.auth, body: { attemptId: '0'.repeat(32), digest: 'a'.repeat(64) } }).status).toBe(400);
+      c.now.t = end + 1000;
+      const id2 = id;
+      expect(commitDaily(c, p.auth, id2, date, r).status).toBe(200); // déjà engagé avant minuit : répétition sans effet
+    }
+    {
+      const { c, p, id } = setup(end - 10 * 60_000);
+      c.now.t = end + 60_000;
+      expect(commitDaily(c, p.auth, id, date, r).status).toBe(409);
+      expect(c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) }).body).toMatchObject({ reason: 'late_unproven' });
+    }
+    // Après 00 h 15 : plus rien n'est accepté, même avec un engagement parfait
+    {
+      const { c, p, id } = setup(end - 10 * 60_000);
+      c.now.t = end - 5 * 60_000;
+      commitDaily(c, p.auth, id, date, r);
+      c.now.t = end + 15 * 60_000;
+      expect(c.call('POST', '/api/daily/runs', { auth: p.auth, body: dailyBody(id, date, r) }).body).toMatchObject({ reason: 'closed' });
+    }
+    // Avant minuit : l'envoi complet suffit (l'heure d'arrivée est celle du service) ; un ticket ou un horodatage client ne prouvent rien
+    {
+      const { c, p, id } = setup(end - 10 * 60_000);
+      c.now.t = end - 60_000;
+      expect(c.call('POST', '/api/daily/runs', { auth: p.auth, body: { ...(dailyBody(id, date, r) as object), startedAt: end - 5000, finishedAt: end - 1 } }).body).toMatchObject({ status: 'accepted', late: false });
+      const c2 = ctx(openDb(':memory:'), end + 60_000);
+      const p2 = player(c2, 'Lea');
+      expect(c2.call('POST', '/api/daily/start', { auth: p2.auth, body: { date, startedAt: end - 5000 } }).status).toBe(400);
     }
   });
 });
@@ -649,6 +693,19 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     expect(results(c).map((x) => [x.player_id, x.rank, x.prisms])).toEqual([[ps[0].id, 1, 15], [ps[1].id, 2, 10]]);
     expect(balancesOf(c.db, g.id).prisms).toBe(0);
     expect(board(c, date).entries.map((e) => e.rank)).toEqual([1, 2]);
+  });
+
+  it('un invité obtient ses récompenses avec un simple pseudo (aucun compte OAuth) : classement du jour et Prismes, avant la clôture', () => {
+    const c = ctx();
+    const g = guest(c);
+    c.db.prepare('INSERT INTO daily_bests (player_id, date, steps, score, run_id, achieved_at) VALUES (?, ?, 5000, 9, 1, 1)').run(g.id, date);
+    expect(board(c, date, g.auth).me).toMatchObject({ eligible: false, prisms: 0 });
+    expect(c.call('PATCH', '/api/me', { auth: g.auth, body: { nickname: 'Nova' } }).status).toBe(200);
+    expect(board(c, date, g.auth).me).toMatchObject({ eligible: true, rank: 1, prisms: 15 });
+    closeAt(c);
+    expect(balancesOf(c.db, g.id).prisms).toBe(15);
+    // Pas de compte OAuth : aucune identité n'est associée au profil
+    expect(c.db.prepare('SELECT COUNT(*) AS n FROM identities WHERE player_id = ?').get(g.id)).toEqual({ n: 0 });
   });
 
   it('clôture : rien avant 00 h 15 UTC, tout à 00 h 15 ; statut ouvert → provisoire → définitif', () => {
@@ -763,7 +820,7 @@ describe('Migration SQLite v6 : additive, sans toucher aux données existantes',
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
-    expect(SCHEMA_VERSION).toBe(6);
+    expect(SCHEMA_VERSION).toBe(7);
     const dir = mkdtempSync(join(tmpdir(), 'polar-rift-v6-'));
     try {
       const path = join(dir, 'c.sqlite');
@@ -776,7 +833,7 @@ describe('Migration SQLite v6 : additive, sans toucher aux données existantes',
       old.prepare("INSERT INTO bests (player_id, balance, category, steps, score, run_id, achieved_at) VALUES ('p1', 3, 'plain', 4000, 900, 1, 10)").run();
       old.close();
       const db = openDb(path);
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 6 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 7 });
       expect(db.prepare('SELECT steps, score FROM bests').all()).toEqual([{ steps: 4000, score: 900 }]);
       expect(db.prepare('SELECT id, started_at FROM tickets').all()).toEqual([{ id: 't1', started_at: null }]);
       expect(db.prepare('SELECT drop_prisms FROM runs').all()).toEqual([{ drop_prisms: 0 }]);
@@ -785,5 +842,15 @@ describe('Migration SQLite v6 : additive, sans toucher aux données existantes',
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('SHA-256 de l’engagement : identique à node:crypto', () => {
+  it('vecteurs connus, longueurs limites du bourrage, texte accentué', async () => {
+    const { createHash } = await import('node:crypto');
+    for (const t of ['', 'abc', 'a'.repeat(55), 'a'.repeat(56), 'a'.repeat(63), 'a'.repeat(64), 'a'.repeat(119), 'é€😀 inversions', JSON.stringify(Array.from({ length: 500 }, (_, i) => i * 7))]) {
+      expect(sha256Hex(t), t.slice(0, 12)).toBe(createHash('sha256').update(t).digest('hex'));
+    }
+    expect(sha256Hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
 });

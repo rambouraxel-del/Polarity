@@ -282,7 +282,63 @@ ALTER TABLE tickets ADD COLUMN started_at INTEGER;
 ALTER TABLE runs ADD COLUMN drop_prisms INTEGER NOT NULL DEFAULT 0;
 `;
 
-export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4, V5, V6];
+/**
+ * Schéma v7 (phase 5 : monétisation), ADDITIF — aucune table existante n'est reconstruite :
+ * - `daily_attempts.commit_digest/committed_at` : engagement horodaté par le service d'une tentative terminée du Défi quotidien (preuve de fin avant minuit) ;
+ * - `payments` : un justificatif de fournisseur = une ligne (UNIQUE fournisseur + identifiant), état `pending | credited | cancelled | refunded`,
+ *   `player_id` effaçable (mise à NULL à la suppression du profil : le justificatif reste « utilisé », sans donnée personnelle) ;
+ * - `payment_events` : journal d'audit/support (sans justificatif brut ni donnée sensible) ;
+ * - `payment_debts` : Prismes remboursés déjà dépensés (jamais de solde négatif : la dette est recouvrée sur les crédits suivants) ;
+ * - `ad_sessions` : sessions de publicité récompensée (usage unique, confirmation serveur à serveur).
+ */
+const V7 = `
+ALTER TABLE daily_attempts ADD COLUMN commit_digest TEXT;
+ALTER TABLE daily_attempts ADD COLUMN committed_at INTEGER;
+CREATE TABLE payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL,
+  provider_ref TEXT NOT NULL,
+  player_id TEXT,
+  product_id TEXT NOT NULL,
+  prisms INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  environment TEXT NOT NULL DEFAULT 'production',
+  consumed INTEGER NOT NULL DEFAULT 0,
+  unrecovered INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE (provider, provider_ref)
+);
+CREATE INDEX payments_player ON payments(player_id);
+CREATE TABLE payment_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  provider_ref TEXT,
+  player_id TEXT,
+  kind TEXT NOT NULL,
+  detail TEXT
+);
+CREATE INDEX payment_events_ref ON payment_events(provider, provider_ref);
+CREATE TABLE payment_debts (
+  player_id TEXT PRIMARY KEY REFERENCES players(id),
+  amount INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE ad_sessions (
+  id TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL REFERENCES players(id),
+  run_id TEXT NOT NULL,
+  life INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  rewarded_at INTEGER,
+  consumed_at INTEGER,
+  ssv_tx TEXT UNIQUE,
+  UNIQUE (player_id, run_id, life)
+);
+`;
+
+export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4, V5, V6, V7];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 const userVersion = (db: Db): number => (db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }).user_version;

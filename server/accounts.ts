@@ -214,6 +214,16 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     const cur = db.prepare('SELECT id FROM loyalty_cycles WHERE player_id = ? AND current = 1 ORDER BY last_day DESC, days DESC, id DESC').all(intoId) as unknown as { id: number }[];
     for (const c of cur.slice(1)) db.prepare('UPDATE loyalty_cycles SET current = 0 WHERE id = ?').run(c.id);
     db.prepare('UPDATE daily_attempts SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
+    // Monétisation (phase 5) : justificatifs et journal déplacés (un justificatif reste lié à UN profil), dettes de remboursement cumulées, sessions publicitaires déplacées
+    db.prepare('UPDATE payments SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
+    db.prepare('UPDATE payment_events SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
+    const debt = db.prepare('SELECT amount FROM payment_debts WHERE player_id = ?').get(fromId) as unknown as { amount: number } | undefined;
+    if (debt) {
+      db.prepare('INSERT INTO payment_debts (player_id, amount) VALUES (?, ?) ON CONFLICT(player_id) DO UPDATE SET amount = amount + excluded.amount').run(intoId, debt.amount);
+      db.prepare('DELETE FROM payment_debts WHERE player_id = ?').run(fromId);
+    }
+    db.prepare('UPDATE OR IGNORE ad_sessions SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
+    db.prepare('DELETE FROM ad_sessions WHERE player_id = ?').run(fromId);
     db.prepare('UPDATE daily_runs SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
     const dBests = db.prepare('SELECT date, steps, score, run_id, achieved_at FROM daily_bests WHERE player_id = ?').all(fromId) as unknown as { date: string; steps: number; score: number; run_id: number; achieved_at: number }[];
     for (const b of dBests) {

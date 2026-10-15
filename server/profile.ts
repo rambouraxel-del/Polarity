@@ -62,6 +62,11 @@ export function eraseProfile(db: Db, playerId: string): boolean {
         'DELETE FROM daily_runs WHERE player_id = ?',
         'DELETE FROM daily_bests WHERE player_id = ?',
         'DELETE FROM daily_results WHERE player_id = ?',
+        'DELETE FROM ad_sessions WHERE player_id = ?',
+        'DELETE FROM payment_debts WHERE player_id = ?',
+        // Justificatifs de paiement : conservés SANS donnée personnelle (le justificatif reste « utilisé » : il ne peut pas être rejoué sur un autre profil)
+        'UPDATE payments SET player_id = NULL WHERE player_id = ?',
+        'UPDATE payment_events SET player_id = NULL WHERE player_id = ?',
       ]) {
         db.prepare(sql).run(id);
       }

@@ -67,6 +67,15 @@ export interface DailyAttempt {
   startedAt: number;
 }
 
+/**
+ * Empreinte d'ENGAGEMENT d'une tentative terminée du Défi quotidien (SHA-256 de la date, du score et des inversions). Envoyée au service dès la fin de la
+ * partie, elle fixe le contenu de la tentative à l'instant (horloge du service) où elle est reçue : c'est la preuve que la tentative était terminée
+ * AVANT minuit quand le journal complet n'arrive qu'après (grâce de 15 min). Sans engagement reçu avant minuit, aucune soumission tardive n'est acceptée.
+ */
+export function dailyDigestInput(date: string, score: number, flips: readonly number[]): string {
+  return `polar-rift-daily|${date}|${score}|${flips.join(',')}`;
+}
+
 export interface DailyRunSubmission {
   attemptId: string;
   date: string;
