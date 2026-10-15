@@ -103,22 +103,23 @@ describe('écrans : données réelles', () => {
   });
 });
 
-describe('menu Cosmétiques (Apparences + Boutique fusionnés)', () => {
+describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', () => {
   const base = (): ReturnType<typeof defaultSave> => {
     const s = defaultSave();
-    s.wallet = { shards: 1200, prisms: 0 };
+    s.wallet = { shards: 1200, medals: 700, prisms: 0 };
     s.owned = ['aurore'];
     s.skin = 'aurore';
     s.achievements = { first_cycle: 1 };
     return s;
   };
 
-  it('soldes affichés une seule fois, trois catégories, trois filtres', () => {
+  it('soldes affichés une seule fois, quatre catégories (dont Bonus), trois filtres', () => {
     const html = S.cosmeticsScreen(base(), 'ships', 'all');
     expect(html.match(/data-wallet="shards"/g)?.length).toBe(1);
-    // Les Prismes ne sont ni achetables ni gagnables en V1 : leur solde n'est pas affiché
+    expect(html.match(/data-wallet="medals"/g)?.length).toBe(1);
+    // Sans service de comptes, le solde de Prismes n'est pas affiché (aucune monnaie « fantôme »)
     expect(html).not.toContain('data-wallet="prisms"');
-    for (const a of ['cat-ships', 'cat-trails', 'cat-packs', 'filter-all', 'filter-owned', 'filter-locked']) expect(html).toContain(`data-action="${a}"`);
+    for (const a of ['cat-ships', 'cat-trails', 'cat-packs', 'cat-bonus', 'filter-all', 'filter-owned', 'filter-locked']) expect(html).toContain(`data-action="${a}"`);
     expect(html).not.toContain('tab-shop');
     expect(S.homeScreen(base(), '2026-10-12')).not.toContain('data-action="skins"');
   });
@@ -140,46 +141,58 @@ describe('menu Cosmétiques (Apparences + Boutique fusionnés)', () => {
     expect(S.cosmeticsScreen(save, 'packs', 'owned')).toContain('aucun article');
   });
 
-  it('états : Acheter, Solde insuffisant, Équiper, Équipé, Succès requis, Bientôt disponible', () => {
+  it('états : Acheter, Médailles insuffisantes, Équiper, Équipé, Bientôt disponible', () => {
     const save = base();
     let html = S.cosmeticsScreen(save, 'ships', 'all', 'menthe');
     expect(html).toMatch(/data-action="buy"[^>]*data-item="menthe"/);
     expect(html).toContain('Acheter');
-    save.wallet.shards = 50;
+    save.wallet.medals = 50;
     html = S.cosmeticsScreen(save, 'ships', 'all', 'menthe');
-    expect(html).toContain('Solde insuffisant');
+    expect(html).toContain('Médailles insuffisantes');
     expect(html).toMatch(/data-action="buy"\s+disabled/);
-    expect(html).toContain('Il vous manque 150 Éclats');
+    expect(html).toContain('Il vous manque 100 Médailles');
+    // Les Éclats ne financent pas un cosmétique : le solde d'Éclats n'y change rien
+    save.wallet.shards = 100000;
+    expect(S.cosmeticsScreen(save, 'ships', 'all', 'menthe')).toContain('Il vous manque 100 Médailles');
     save.owned.push('ambre');
     html = S.cosmeticsScreen(save, 'ships', 'all', 'ambre');
     expect(html).toMatch(/data-action="equip-item"[^>]*data-item="ambre"/);
     expect(html).toContain('Possédé');
     html = S.cosmeticsScreen(save, 'ships', 'all', 'aurore');
     expect(html).toContain('Équipé');
+    // Plus de « succès requis » : un ancien vaisseau d'exclusivité s'achète en Médailles
     html = S.cosmeticsScreen(save, 'ships', 'all', 'solaire');
-    expect(html).toContain('Succès requis');
-    expect(html).toContain('Endurance');
+    expect(html).not.toContain('Succès requis');
+    expect(html).toContain('190');
+    // Premium sans service : prix annoncé mais aucun achat possible
     html = S.cosmeticsScreen(save, 'ships', 'all', 'neon');
     expect(html).toContain('Bientôt disponible');
-    // Premium inactif : aucun prix en Prismes, aucun bouton d'achat actif
-    expect(html).not.toContain('Prismes');
+    expect(html).toContain('150');
     expect(html).not.toMatch(/<button[^>]*data-action="buy"(?![^>]*disabled)[^>]*>/);
+  });
+
+  it('cosmétiques en Médailles et premium en Prismes sont présentés dans deux sections distinctes', () => {
+    const html = S.cosmeticsScreen(base(), 'ships', 'all');
+    expect(html).toContain('En Médailles');
+    expect(html).toContain('Premium · en Prismes');
+    expect(html.indexOf('En Médailles')).toBeLessThan(html.indexOf('Premium · en Prismes'));
+    expect(S.cosmeticsScreen(base(), 'trails', 'all')).toContain('Premium · en Prismes');
+    // Pack : uniquement premium
+    const packs = S.cosmeticsScreen(base(), 'packs', 'all');
+    expect(packs).not.toContain('En Médailles');
+    expect(packs).toContain('Premium · en Prismes');
   });
 
   it('chaque article affiche aperçu animé, description, contenu, prix ou condition', () => {
     const save = base();
-    const pack = S.cosmeticsScreen(save, 'packs', 'all', 'pack-spectre');
-    expect(pack).toContain('data-skin-preview="spectre"');
-    expect(pack).toContain('Vaisseau Spectre');
-    expect(pack).toContain('Traînée Ultraviolet');
-    expect(pack).toContain('900');
+    const pack = S.cosmeticsScreen(save, 'packs', 'all', 'pack-neon');
+    expect(pack).toContain('data-skin-preview="neon"');
+    expect(pack).toContain('Vaisseau Néon');
+    expect(pack).toContain('Traînée Nébuleuse');
+    expect(pack).toContain('200');
     const trail = S.cosmeticsScreen(save, 'trails', 'all', 'glacier');
     expect(trail).toContain('data-trail-color=');
-    expect(trail).toContain('250');
-    // Exclusivité de succès : condition précise et récompense liée
-    const ex = S.cosmeticsScreen(save, 'trails', 'all', 'citron');
-    expect(ex).toContain('Chasseur d’éclats');
-    expect(ex).toContain('Succès requis');
+    expect(trail).toContain('80');
   });
 
   it('aucun article premium n’a de bouton de paiement actif, dans aucune catégorie', () => {
@@ -197,37 +210,55 @@ describe('menu Cosmétiques (Apparences + Boutique fusionnés)', () => {
     const save = base();
     const html = S.confirmPurchaseScreen(save, 'spectre');
     expect(html).toContain('Confirmer l’achat');
-    expect(html).toContain('600');
+    expect(html).toContain('170');
     expect(html).toMatch(/data-action="confirm-buy"[^>]*data-item="spectre"/);
     expect(html).toContain('data-action="back-cosmetics"');
-    expect(save.wallet.shards).toBe(1200);
+    expect(save.wallet.medals).toBe(700);
     expect(save.owned).toEqual(['aurore']);
     expect(S.confirmPurchaseScreen(save, 'inconnu')).not.toContain('confirm-buy');
   });
 });
 
 describe('menu Succès', () => {
-  it('liste tous les succès par catégorie avec progression, récompense et état', () => {
+  it('liste tous les succès par catégorie avec progression, Médailles et état ; « Récupérer » uniquement pour un succès accompli non réclamé', () => {
     const save = defaultSave();
-    save.achievements = { first_cycle: 1 };
-    save.rewarded = ['first_cycle'];
+    save.achievements = { first_cycle: 1, first_level: 2 };
+    save.medals.claimed = ['first_level'];
     save.stats.totalCycles = 7;
     const html = S.achievementsScreen(save);
     for (const a of ACHIEVEMENTS) {
       expect(html).toContain(a.name);
-      expect(html).toContain(`+${formatScore(a.shards)}`);
+      expect(html).toContain(`+${formatScore(a.medals)}`);
     }
     for (const c of ['Découverte', 'Survie', 'Niveaux', 'Collectes', 'Maîtrise']) expect(html).toContain(c);
     expect(html).toContain('Obtenu');
-    expect(html).toContain('récompense reçue');
+    expect(html.match(/data-action="claim-medal"/g)).toHaveLength(1);
+    expect(html).toMatch(/data-action="claim-medal"[^>]*data-ach="first_cycle"/);
+    expect(html).toContain('Médailles récupérées');
+    expect(html).toContain('data-action="claim-all"');
+    expect(html).toContain('Tout récupérer (20 Médailles)');
     // Progression : 7 cycles sur 10
     expect(html).toContain('7 / 10');
     expect(html).toContain('role="progressbar"');
-    // Durées lisibles et cosmétiques liés
     expect(html).toContain('0:00 / 1:00');
-    expect(html).toContain('Vaisseau Glace');
-    expect(html).toContain('Traînée Citron');
-    expect(html).toContain(`1 / ${ACHIEVEMENTS.length}`);
+    expect(html).toContain(`2 / ${ACHIEVEMENTS.length}`);
+    // Plus aucun cosmétique annoncé comme récompense d'un succès
+    expect(html).not.toContain('Vaisseau Glace');
+    expect(html).not.toContain('Traînée Citron');
+    // Rien à récupérer : ni « Récupérer » ni « Tout récupérer »
+    save.medals.claimed = ['first_level', 'first_cycle'];
+    const done = S.achievementsScreen(save);
+    expect(done).not.toContain('data-action="claim-medal"');
+    expect(done).not.toContain('data-action="claim-all"');
+  });
+
+  it('animation de réclamation : la ligne réclamée à l’instant est marquée ; message annoncé aux lecteurs d’écran', () => {
+    const save = defaultSave();
+    save.achievements = { first_cycle: 1 };
+    save.medals.claimed = ['first_cycle'];
+    const html = S.achievementsScreen(save, { kind: 'ok', text: '+20 Médailles' }, ['first_cycle']);
+    expect(html).toContain('ach--just-claimed');
+    expect(html).toMatch(/role="status"[^>]*>\+20 Médailles/);
   });
 });
 
@@ -250,21 +281,27 @@ describe('aide aux contrôles', () => {
 describe('boutique et soldes', () => {
   const base = (): ReturnType<typeof defaultSave> => {
     const s = defaultSave();
-    s.wallet = { shards: 1200, prisms: 0 };
+    s.wallet = { shards: 1200, medals: 0, prisms: 0 };
     s.owned = ['aurore'];
     s.skin = 'aurore';
     return s;
   };
 
-  it('le solde d’Éclats est affiché sur l’accueil et la boutique ; les Prismes (non achetables en V1) ne le sont pas', () => {
+  it('les trois monnaies sont distinctes : Éclats et Médailles sur l’accueil et la boutique ; les Prismes seulement avec un service de comptes', () => {
     const save = base();
+    save.wallet.medals = 345;
     for (const html of [S.homeScreen(save, '2026-10-12'), S.cosmeticsScreen(save, 'ships', 'all')]) {
       expect(html).toContain('data-wallet="shards"');
+      expect(html).toContain('data-wallet="medals"');
       expect(html).not.toContain('data-wallet="prisms"');
       expect(html).toContain(formatScore(1200));
+      expect(html).toContain(formatScore(345));
       expect(html).toContain('Éclats');
-      expect(html).not.toContain('Prismes');
+      expect(html).toContain('Médailles');
     }
+    save.economy.managed = true;
+    expect(S.homeScreen(save, '2026-10-12')).toContain('data-wallet="prisms"');
+    expect(S.cosmeticsScreen(save, 'ships', 'all')).toContain('data-wallet="prisms"');
   });
 
   it('un fournisseur de paiement actif ferait apparaître le solde de Prismes (et seulement alors)', async () => {
@@ -282,7 +319,7 @@ describe('boutique et soldes', () => {
   it('résultat : Éclats gagnés, origine et nouveau solde ; réafficher l’écran ne recrédite rien', () => {
     const save = defaultSave();
     const rep = applyRun(save, { mode: 'level', levelId: 1, time: 90, score: 60000, cycles: 2, bestMultiplier: 2, outcome: 'complete' });
-    expect(save.wallet.shards).toBe(rep.levelReward!.total + rep.achievementShards);
+    expect(save.wallet.shards).toBe(rep.levelReward!.total);
     const html = S.resultScreen(rep, true);
     expect(html).toContain('Première réussite du niveau');
     expect(html).toContain(`+${rep.levelReward!.total}`);
@@ -296,13 +333,15 @@ describe('boutique et soldes', () => {
     const h2 = S.resultScreen(surv, false);
     expect(h2).toContain('Éclats collectés sur l’orbite');
     expect(h2).toContain('+25');
-    // Seules les récompenses de succès de cette partie ont été versées ; réafficher l'écran ne crédite rien
-    expect(save.wallet.shards).toBe(before + surv.achievementShards);
+    // Les succès ne versent plus d'Éclats ; réafficher l'écran ne crédite rien
+    expect(save.wallet.shards).toBe(before);
     const after = save.wallet.shards;
     S.resultScreen(surv, false);
     S.resultScreen(surv, false);
     expect(save.wallet.shards).toBe(after);
-    // Notification des succès obtenus avec leur gain
-    expect(S.resultScreen(rep, true)).toContain('Succès');
+    // Notification des succès obtenus : Médailles à récupérer (non créditées)
+    const notif = S.resultScreen(rep, true);
+    expect(notif).toContain('Succès');
+    expect(notif).toContain('Médailles à récupérer');
   });
 });

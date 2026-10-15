@@ -596,7 +596,7 @@ describe('synchronisation : gains, récompenses uniques, achats', () => {
     const c = ctx();
     const g = guest(c);
     const evil = defaultSave();
-    evil.wallet = { shards: 1e9, prisms: 1e9 };
+    evil.wallet = { shards: 1e9, medals: 1e9, prisms: 1e9 };
     evil.economy.legacy = { shards: 10, imported: false };
     c.call('POST', '/api/migrate', { auth: g.auth, body: migrateBody('install-prm-0001', { ...legacySave(), wallet: { shards: 5, prisms: 777777 } }) });
     sync(c, g, { installId: 'install-prm-0001', earned: 50, purchases: { neon: 150, 'pack-neon': 200 }, save: evil });

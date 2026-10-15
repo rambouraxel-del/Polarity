@@ -50,7 +50,7 @@ describe('progression de campagne (niveaux 1 à 10)', () => {
 
   it('les gains vont à la réserve de campagne, jamais au portefeuille de la Survie, aux succès ni aux statistiques', () => {
     const s = defaultSave();
-    s.wallet = { shards: 123, prisms: 4 };
+    s.wallet = { shards: 123, medals: 0, prisms: 4 };
     const before = JSON.stringify({ wallet: s.wallet, stats: s.stats, ach: s.achievements, rewarded: s.rewarded, survival: s.survival, owned: s.owned, skin: s.skin });
     const r = applyMission(s, report(1, { cycles: 12, maxMultiplier: 6 }, { challenge: true }));
     expect(r.rewards.total).toBe(CAMPAIGN_REWARDS.firstClear + CAMPAIGN_REWARDS.star);
@@ -160,7 +160,7 @@ describe('sauvegarde v6', () => {
     const { data, status } = loadSave(store);
     expect(status).toBe('migrated');
     expect(data.version).toBe(SAVE_VERSION);
-    expect(data.wallet).toEqual({ shards: 321, prisms: 4 });
+    expect(data.wallet).toEqual({ shards: 321, medals: 0, prisms: 4 });
     expect(data.survival.bestTime).toBe(123.4);
     expect(data.skin).toBe('aurore');
     expect(data.owned).toEqual(['aurore']);

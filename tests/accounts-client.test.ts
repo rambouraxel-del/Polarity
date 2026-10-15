@@ -95,7 +95,7 @@ describe('compte : profil invité, migration et synchronisation', () => {
   it('ancienne sauvegarde : importée intégralement UNE fois ; les Prismes locaux ne sont jamais repris', async () => {
     const w = world();
     const d = w.device(oldSave());
-    expect(SAVE_VERSION).toBe(7);
+    expect(SAVE_VERSION).toBe(8);
     expect(d.save.economy.legacy).toEqual({ shards: 340, imported: false });
     expect(d.account.state.pending.legacy).toBe(true);
     await d.account.start('');
@@ -105,7 +105,7 @@ describe('compte : profil invité, migration et synchronisation', () => {
     expect(d.save.owned).toContain('aurore');
     expect(d.save.achievements.first_cycle).toBe(1000);
     const id = d.lb.identity()!;
-    expect(balancesOf(w.db, id.playerId)).toEqual({ shards: 340, prisms: 0 });
+    expect(balancesOf(w.db, id.playerId)).toEqual({ shards: 340, medals: 0, prisms: 0 });
     // Synchronisations répétées : jamais de nouveau crédit
     for (let i = 0; i < 3; i++) await d.account.syncNow(true);
     expect(balancesOf(w.db, id.playerId).shards).toBe(340);
@@ -255,15 +255,35 @@ describe('compte : connexion par courriel et fusion', () => {
   });
 });
 
+/** Réponse de synchronisation de test (valeurs neutres, surchargées au besoin). */
+function serverReply(over: Partial<SyncResponse> = {}): SyncResponse {
+  return {
+    rev: 1,
+    balance: { shards: 0, medals: 0, prisms: 0 },
+    inventory: { boost: 0, gel: 0 },
+    bonus: { boost: 0, gel: 0 },
+    bonusRejected: { boost: 0, gel: 0 },
+    claimed: [],
+    rejectedClaims: [],
+    watermark: 0,
+    capped: false,
+    acknowledged: [],
+    rejected: [],
+    save: defaultSave(),
+    at: 0,
+    ...over,
+  };
+}
+
 describe('compte : règles pures de réconciliation', () => {
   it('achat refusé par le serveur : article retiré, aucun Éclat perdu', () => {
     const save = defaultSave();
     ensureInstallId(save);
     save.owned = ['aurore'];
     save.economy.purchases = { aurore: 100 };
-    const res = { rev: 1, balance: { shards: 500, prisms: 0 }, watermark: 0, capped: false, acknowledged: [], rejected: [{ item: 'aurore', reason: 'insufficient' }], save: { ...defaultSave(), owned: [] } } as unknown as SyncResponse;
+    const res = serverReply({ balance: { shards: 500, medals: 0, prisms: 0 }, rejected: [{ item: 'aurore', reason: 'insufficient' }], save: { ...defaultSave(), owned: [] } });
     save.wallet.shards = 0;
-    applySyncResult(save, res, 0);
+    applySyncResult(save, res, structuredClone(save));
     expect(save.owned).not.toContain('aurore');
     expect(save.economy.purchases).toEqual({});
     expect(save.wallet.shards).toBe(500);
@@ -273,8 +293,10 @@ describe('compte : règles pures de réconciliation', () => {
     const save = defaultSave();
     ensureInstallId(save);
     save.wallet.shards = 130;
-    const res = { rev: 1, balance: { shards: 100, prisms: 0 }, watermark: 0, capped: false, acknowledged: [], rejected: [], save: defaultSave() } as unknown as SyncResponse;
-    applySyncResult(save, res, 100);
+    const res = serverReply({ balance: { shards: 100, medals: 0, prisms: 0 } });
+    const sent = structuredClone(save);
+    sent.wallet.shards = 100; // solde au moment de l'envoi : 30 gagnés depuis
+    applySyncResult(save, res, sent);
     expect(save.wallet.shards).toBe(130);
   });
 
