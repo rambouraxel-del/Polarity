@@ -5,7 +5,9 @@
 > La version publique existante (GitHub Pages + éventuel service de classement déjà déployé) doit continuer à fonctionner : tout ce qui est ajouté est **additif et désactivé tant que le service n'est pas configuré**.
 
 ## Où reprendre
-*(mis à jour à chaque étape — voir le journal en bas)*
+**Phase 1, étape en cours : E4 — client** (`src/account/` : AccountClient, fournisseurs web/Capacitor, synchronisation hors ligne, écran « Compte »), puis E5 (documentation `docs/COMPTES.md`, tests client, build, commits).
+Déjà fait : sauvegarde v7 + règles partagées + fusion pure (E1) ; serveur complet avec tests (E2/E3 : `server/accounts.ts`, `oidc.ts`, `mailer.ts`, `profile.ts`, `tests/accounts-server.test.ts`).
+Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run tests/accounts-server.test.ts` (doit être vert), puis continuer à l'étape indiquée.
 
 ## Les six phases
 | # | Phase | État |
@@ -42,4 +44,6 @@ Solde serveur = Σ du **registre** (`ledger`) :
 Fusion de deux profils : registre dédupliqué **par clé** (récompense : on garde le plus petit montant ; dépense : le plus petit débit) → jamais de double crédit ; les filigranes d'installation changent de propriétaire.
 
 ## Journal des étapes (le plus récent en haut)
-- *(création du document ; aucune étape terminée)*
+- **E2/E3 terminés** — serveur : schéma v3, invités (`POST /api/register` sans pseudo), accès par appareil (sessions) et alias de fusion, `/api/auth/{providers,nonce,google,apple,email/request,email/verify,logout,unlink}`, `/api/profile`, `/api/migrate`, `/api/sync`, registre `ledger`, suppression RGPD complète ; 38 tests (`tests/accounts-server.test.ts`).
+- **E1 terminé** — sauvegarde v7 (`economy`), `src/economy/{rules,merge,local,ids}.ts`, points de crédit/dépense.
+- Création du document et de la branche.

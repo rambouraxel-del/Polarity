@@ -325,7 +325,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     return transaction(db, () => {
       const res = completeLogin(req, { provider: name, subject: v.sub, email: v.email }, body.merge === true);
       // Le nonce n'est consommé que si la connexion a abouti (un conflit à confirmer peut être relancé avec le même jeton)
-      if (res.status < 300 && q.useNonce.run(now(), body.nonce as string, now()).changes !== 1) throw new ReplayError();
+      if (res.status < 300 && q.useNonce.run(now(), body.nonce as string, Math.floor(now() / 1000)).changes !== 1) throw new ReplayError();
       return res;
     });
   }
