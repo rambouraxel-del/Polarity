@@ -37,8 +37,9 @@ export function buyBonus(save: SaveData, kind: string, quantity: number): BonusR
 }
 
 /**
- * Crédite des charges SANS achat (ex. calendrier de connexion futur, phase suivante) : même inventaire, plafonné au stock maximal.
- * Ne touche pas aux compteurs d'achat. Renvoie le nombre de charges réellement ajoutées.
+ * Crédite des charges SANS achat dans l'inventaire LOCAL (jeu sans service) : même inventaire, plafonné au stock maximal ; ne touche pas aux
+ * compteurs d'achat. Avec un service, l'inventaire est le reflet du registre : une charge offerte (calendrier de connexion futur) doit alors être
+ * créditée PAR LE SERVICE (ligne du registre en monnaie `boost` / `gel`, clé unique) ; un crédit purement local serait écrasé à la synchronisation.
  */
 export function grantCharges(save: SaveData, kind: BonusKind, quantity: number): number {
   const n = Math.max(0, Math.min(Math.floor(quantity), BONUS.maxStock - save.inventory[kind]));

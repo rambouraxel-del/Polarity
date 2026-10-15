@@ -1,5 +1,12 @@
 # Suivi d'avancement
 
+## Économie v3 — phase 2 : trois monnaies, Médailles, cosmétiques, bonus (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`)
+- [x] Correctif phase 1 : parties classées en attente conservées après déconnexion (rattachées à leur profil, jamais envoyées avec une autre identité, sans doublon) ; plantage de démarrage de la phase 1 corrigé
+- [x] Médailles : 27 succès = 1 650, à réclamer (« Récupérer »), rétroactif, anciens Éclats et cosmétiques conservés ; cosmétiques non premium en Médailles (1 640), premium en Prismes (Néon 150, Nébuleuse 75, pack 200) ; anciens packs supprimés
+- [x] Bonus Boost 50 / Gel 100 Éclats : inventaire persistant, boutique (onglet Bonus), écran « Préparer la partie » ; effets en partie = phase 3
+- [x] Sauvegarde format 8, schéma SQLite v4, service : médailles / bonus / achats premium (`POST /api/shop/prisms`), fonds confirmés vs provisoires, rejet des achats non financés
+- [x] 574 tests, build, `check:bundle`, contrôle navigateur léger ; **reste** : configuration externe (comptes), phase 3 (effets des bonus), e2e à réécrire (phase 6). Voir `docs/ETAT_MAJ_ECONOMIE.md`
+
 ## Économie v3 — phase 1 : comptes, migration, synchronisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`)
 - [x] Sauvegarde v7 (`economy`), migration locale idempotente des anciennes sauvegardes (copie conservée), règles et fusion partagées jeu/serveur
 - [x] Serveur : schéma v3 additif, profils invités, accès par appareil, Google/Apple (OIDC, nonce) et lien magique (désactivés sans configuration), registre `ledger`, `/api/migrate`, `/api/sync`, fusion confirmée sans double crédit (38 tests)

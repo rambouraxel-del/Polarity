@@ -182,7 +182,8 @@ export class App {
         if (this.session) return;
         if (this.screen === 'account') this.rerenderAccount();
         // Soldes confirmés par le service : les écrans de boutique, succès et préparation se mettent à jour (jamais pendant un achat à confirmer)
-        else if (this.screen === 'cosmetics' || this.screen === 'achievements' || this.screen === 'prep' || this.screen === 'home') this.showScreen(this.screen, false);
+        // Actualisation silencieuse (soldes confirmés) : les messages d'achat et l'animation de réclamation restent affichés jusqu'à la prochaine action
+      else if (this.screen === 'cosmetics' || this.screen === 'achievements' || this.screen === 'prep' || this.screen === 'home') this.showScreen(this.screen, false);
       },
     });
     this.applyAudioOptions();
@@ -990,19 +991,15 @@ export class App {
       case 'daily': html = S.dailyScreen(this.save, today); break;
       case 'cosmetics':
         html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage);
-        this.shopMessage = null; // affiché une seule fois
         break;
       case 'achievements':
         html = S.achievementsScreen(this.save, this.achMessage, this.justClaimed);
-        this.achMessage = null;
-        this.justClaimed = [];
         break;
       case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
       case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? '', this.purchaseBusy); break;
       case 'confirm-bonus': html = S.confirmBonusScreen(this.save, this.bonusOrder?.kind ?? '', this.bonusOrder?.qty ?? 0, this.bonusOrder?.back ?? 'cosmetics'); break;
       case 'prep':
         html = S.prepScreen(this.save, this.prepMessage, this.save.survival.bestTime > 0 ? `Record : ${formatTime(this.save.survival.bestTime)}` : '');
-        this.prepMessage = null;
         break;
       case 'options': html = S.optionsScreen(this.save, this.lb.configured); break;
       case 'account': html = accountScreen({ state: this.account.state, methods: this.account.availability() }); break;
@@ -1105,6 +1102,11 @@ export class App {
     if (!target || (target as HTMLButtonElement).disabled) return;
     this.unlockAudio();
     const action = target.dataset.action!;
+    // Messages d'achat / de réclamation : affichés jusqu'à la prochaine action du joueur (une synchronisation en arrière-plan ne les efface pas)
+    this.shopMessage = null;
+    this.prepMessage = null;
+    this.achMessage = null;
+    this.justClaimed = [];
     if (action !== 'replay' && action !== 'resume') this.sfx.play('ui');
     switch (action) {
       case 'home': this.showScreen('home'); break;
