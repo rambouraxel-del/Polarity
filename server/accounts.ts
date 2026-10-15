@@ -25,6 +25,7 @@ import { parseSave, sanitize, type SaveData } from '../src/save/save';
 import type { HttpRequest, HttpResponse, PlayerRow } from './app';
 import { hashToken, newPlayerId, newToken, parseBearer } from './auth';
 import { transaction, type Db } from './db';
+import { settleDebt } from './payments';
 import type { Mailer } from './mailer';
 import { APPLE_ISSUERS, APPLE_JWKS, GOOGLE_ISSUERS, GOOGLE_JWKS, JwksCache, OidcError, defaultJwksFetcher, nonceMatches, verifyIdToken, type JwksFetcher, type OidcProvider } from './oidc';
 import { balancesOf, claimedMedals, guestNickname, inventoryOf } from './profile';
@@ -711,6 +712,8 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     if (item.acquire.type !== 'price' || item.acquire.currency !== 'prisms') return err(400, 'not_premium', 'Cet article ne s’achète pas avec des Prismes.');
     const catalogPrice = item.acquire.amount;
     return transaction(db, () => {
+      // Dette de remboursement éventuelle recouvrée AVANT de contrôler le solde (jamais de dépense avec des Prismes remboursés)
+      settleDebt(db, me.id, now());
       const cur = readSnapshot(me.id);
       const owned = new Set(cur.save.owned);
       const granted = grantedBy(item);
@@ -749,6 +752,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     return transaction(db, () => {
       const prior = q.ledgerHas.get(me.id, ref) as unknown as { amount: number } | undefined;
       if (!prior) {
+        settleDebt(db, me.id, now());
         if (balancesOf(db, me.id).prisms < price) return err(409, 'insufficient', 'Prismes insuffisants.');
         ledger(me.id, 'spend', -price, ref, { revive: true, life }, 'prisms');
       }

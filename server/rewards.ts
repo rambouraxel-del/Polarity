@@ -21,6 +21,7 @@ import type { HttpRequest, HttpResponse, PlayerRow } from './app';
 import { transaction, type Db } from './db';
 import { balancesOf, inventoryOf } from './profile';
 import { replayDaily } from './verify';
+import { settleDebt } from './payments';
 
 /**
  * Récompenses gratuites (phase 4) : calendrier de connexion, classement mondial du Défi quotidien, drop rare de Prismes.
@@ -242,6 +243,7 @@ export function createRewards(deps: RewardsDeps): Rewards {
         if (inventoryOf(db, me.id)[reward.kind] + reward.amount > BONUS.maxStock) return err(409, 'stock_full', 'Stock plein pour ce bonus : utilisez-en un, la récompense reste disponible.');
       }
       ledger(me.id, reward.kind, 'loyalty', reward.amount, ref, { cycle: cycleId, day });
+      if (reward.kind === 'prisms') settleDebt(db, me.id, now());
       return done(true);
     });
   }
@@ -289,7 +291,10 @@ export function createRewards(deps: RewardsDeps): Rewards {
         for (const r of rankedRows(date, DAILY_RANKING.lastRewardedRank, 10_000)) {
           const prisms = dailyPrizeForRank(r.rank);
           q.insertResult.run(date, r.player_id, r.rank, r.steps, r.score, prisms);
-          if (prisms > 0 && ledger(r.player_id, 'prisms', 'daily', prisms, `daily:${date}`, { date, rank: r.rank })) rewarded += prisms;
+          if (prisms > 0 && ledger(r.player_id, 'prisms', 'daily', prisms, `daily:${date}`, { date, rank: r.rank })) {
+            rewarded += prisms;
+            settleDebt(db, r.player_id, t);
+          }
         }
         q.insertClosed.run(date, t, rewarded);
         closedCount++;

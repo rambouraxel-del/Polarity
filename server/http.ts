@@ -111,12 +111,13 @@ export function createHttpServer(app: HttpApp, opts: HttpOptions): Server {
     req.on('end', () => {
       if (answered) return;
       let body: unknown;
+      const rawText = chunks.length > 0 ? Buffer.concat(chunks).toString('utf8') : undefined;
       if (chunks.length > 0) {
         if (BODY_METHODS.has(method) && !/^application\/json\b/i.test(String(req.headers['content-type'] ?? ''))) {
           return send(415, { error: 'unsupported_media_type', message: 'Content-Type application/json requis.' });
         }
         try {
-          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          body = JSON.parse(rawText as string);
         } catch {
           return send(400, { error: 'bad_json', message: 'Corps JSON invalide.' });
         }
@@ -125,8 +126,11 @@ export function createHttpServer(app: HttpApp, opts: HttpOptions): Server {
         method,
         path: url.pathname,
         query: url.searchParams,
-        headers: { authorization: req.headers.authorization, 'user-agent': req.headers['user-agent'] },
+        // En-têtes transmis tels quels (minuscules) : les prestataires de paiement signent leurs notifications (vérification faite par leur module, sur le corps brut)
+        headers: Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(',') : v])),
         body,
+        raw: rawText,
+        rawQuery: url.search.startsWith('?') ? url.search.slice(1) : url.search,
         ip: clientIp(String(req.headers['x-forwarded-for'] ?? ''), req.socket.remoteAddress, opts.trustProxy),
       };
       // Routes qui attendent le réseau (fournisseurs de connexion, courriel) : réponse différée ; les autres restent synchrones

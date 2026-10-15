@@ -29,6 +29,8 @@ import { checkNickname } from './moderation';
 import { eraseProfile, guestNickname, inventoryOf } from './profile';
 import { replaySurvival } from './verify';
 import { createRewards, rollDrop } from './rewards';
+import { createPayments, PAYMENT_ASYNC_ROUTES, settleDebt, type PaymentsConfig } from './payments';
+import { createAds, ADS_ASYNC_ROUTES } from './ads';
 import { DROPS } from '../src/config/rewards';
 
 /**
@@ -51,6 +53,8 @@ export interface AppConfig {
   limits?: { replaysPerMinute?: number; registrationsPerHour?: number };
   /** Comptes, connexions facultatives, synchronisation (économie v3) ; chaque méthode externe reste DÉSACTIVÉE tant qu'elle n'est pas configurée. */
   accounts?: AccountsConfig;
+  /** Achats réels de Prismes et publicités récompensées (phase 5) : chaque fournisseur reste DÉSACTIVÉ tant que ses identifiants ne sont pas fournis. */
+  payments?: PaymentsConfig;
 }
 
 /** Gestionnaire du service : synchrone, sauf les routes qui attendent le réseau (clés des fournisseurs, courriel) exposées par `async`. */
@@ -67,6 +71,10 @@ export interface HttpRequest {
   headers: Record<string, string | undefined>;
   /** Corps JSON déjà analysé (undefined si absent ou invalide). */
   body: unknown;
+  /** Corps brut (texte) : nécessaire à la vérification des signatures de notifications de paiement. */
+  raw?: string;
+  /** Chaîne de requête brute (sans « ? ») : nécessaire à la vérification de la signature des confirmations publicitaires. */
+  rawQuery?: string;
   ip: string;
 }
 
@@ -395,7 +403,10 @@ export function createApp(db: Db, cfg: AppConfig): App {
       const runId = Number(
         (q.insertRun.run(me.id, balance, row.id, row.seed, rep.steps, rep.score, JSON.stringify(sub.replay!.flips), String(sub.client!.build ?? '').slice(0, 40), at, category, acts.length > 0 ? JSON.stringify(acts) : null, JSON.stringify(rep.powers), fmt, dropped) as unknown as { lastInsertRowid: number | bigint }).lastInsertRowid,
       );
-      if (dropped > 0) q.ledgerDrop.run(me.id, dropped, `drop:${row.id}`, at, JSON.stringify({ run: runId, beacons: rep.beacons }));
+      if (dropped > 0) {
+        q.ledgerDrop.run(me.id, dropped, `drop:${row.id}`, at, JSON.stringify({ run: runId, beacons: rep.beacons }));
+        settleDebt(db, me.id, at);
+      }
       for (const kind of ['boost', 'gel'] as const) {
         if (needed[kind] > 0) q.ledgerUse.run(me.id, kind, -needed[kind], `use:${row.id}:${kind}`, at, JSON.stringify({ run: runId, category }));
       }
@@ -447,16 +458,20 @@ export function createApp(db: Db, cfg: AppConfig): App {
   const rewards = createRewards({ db, now, allow: (k, m, w) => limiter.allow(k, m, w), authenticate });
   // Reprise après une panne : les défis quotidiens échus pendant l'arrêt sont clos dès le démarrage
   rewards.tick(true);
+  const payments = createPayments({ db, now, secret: cfg.ticketSecret, allow: (k, m, w) => limiter.allow(k, m, w), authenticate, cfg: cfg.payments ?? {} });
+  const ads = createAds({ db, now, secret: cfg.ticketSecret, allow: (k, m, w) => limiter.allow(k, m, w), authenticate, cfg: cfg.payments?.ads, fetch: cfg.payments?.fetch });
   const accounts = createAccounts({ db, now, allow: (k, m, w) => limiter.allow(k, m, w), authenticate, cfg: cfg.accounts ?? {} });
 
   const handler = (req: HttpRequest): HttpResponse => {
     const route = `${req.method} ${req.path}`;
     try {
-      if (ASYNC_ROUTES.has(route)) return err(500, 'use_async', 'Route asynchrone : utilisez le gestionnaire async.');
+      if (ASYNC_ROUTES.has(route) || PAYMENT_ASYNC_ROUTES.has(route) || ADS_ASYNC_ROUTES.has(route)) return err(500, 'use_async', 'Route asynchrone : utilisez le gestionnaire async.');
       const acct = accounts.handle(req);
       if (acct) return acct;
       const rw = rewards.handle(req);
       if (rw) return rw;
+      const pay = payments.handle(req) ?? ads.handle(req);
+      if (pay) return pay;
       switch (route) {
         case 'GET /api/health': {
           q.ping.get(); // la base répond-elle ? (sinon 500 : le contrôle de santé échoue)
@@ -490,7 +505,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
   app.tick = (force) => rewards.tick(force);
   app.async = (req) => {
     try {
-      const p = accounts.handleAsync(req);
+      const p = accounts.handleAsync(req) ?? payments.handleAsync(req) ?? ads.handleAsync(req);
       if (!p) return null;
       return p.catch((e) => {
         console.error('Erreur serveur :', e);
