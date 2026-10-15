@@ -2,6 +2,7 @@ import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
 import { ACHIEVEMENT_CATEGORIES, type MetricKey } from '../config/achievements';
 import { POWERS } from '../config/powers';
+import { prismShopHtml, privacyHtml, type StoreView } from './storeScreens';
 import { BONUS, BONUS_LIST, bonusDef, type BonusKind } from '../config/economy';
 import { bonusStock, maxAffordable } from '../economy/bonus';
 import { chargeProvenance, provisional, spendable } from '../economy/funds';
@@ -186,7 +187,7 @@ export function dailyScreen(save: SaveData, today: string, board = ''): string {
 
 // ————————————————————————————————————————————— Boutique (cosmétiques en Médailles / Prismes, bonus en Éclats)
 
-export type CosmeticsTab = 'ships' | 'trails' | 'packs' | 'bonus';
+export type CosmeticsTab = 'ships' | 'trails' | 'packs' | 'bonus' | 'prisms';
 export type CosmeticsFilter = 'all' | 'owned' | 'locked';
 
 export const COSMETIC_TABS: { id: CosmeticsTab; label: string; kind: ItemKind | null }[] = [
@@ -194,6 +195,7 @@ export const COSMETIC_TABS: { id: CosmeticsTab; label: string; kind: ItemKind | 
   { id: 'trails', label: 'Traînées', kind: 'trail' },
   { id: 'packs', label: 'Packs', kind: 'pack' },
   { id: 'bonus', label: 'Bonus', kind: null },
+  { id: 'prisms', label: 'Prismes', kind: null },
 ];
 
 export const COSMETIC_FILTERS: { id: CosmeticsFilter; label: string }[] = [
@@ -357,10 +359,18 @@ const itemGrid = (save: SaveData, items: CatalogItem[], selectedId: string, labe
   `<div class="skins" role="group" aria-label="${escapeHtml(label)}">${items.map((i) => itemCard(save, i, i.id === selectedId)).join('')}</div>`;
 
 /** Menu unique « Boutique » : soldes, catégories, filtres, aperçu animé et action adaptée ; cosmétiques en Médailles et premium en Prismes séparés ; Bonus en Éclats. */
-export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string, message: { kind: 'ok' | 'error'; text: string } | null = null): string {
+export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string, message: { kind: 'ok' | 'error'; text: string } | null = null, store?: StoreView): string {
   const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
   const wallet = walletBar(save.wallet, { prisms: save.economy.managed });
   const tabBar = tabs(COSMETIC_TABS.map((t) => ({ id: t.id, label: t.label, action: `cat-${t.id}` })), tab);
+  if (tab === 'prisms' && store) {
+    return `<div class="panel panel--wide">${screenHead('Boutique')}
+      ${msg}
+      ${wallet}
+      ${tabBar}
+      ${prismShopHtml(store)}
+    </div>`;
+  }
   if (tab === 'bonus') {
     return `<div class="panel panel--wide">${screenHead('Boutique')}
       ${msg}
@@ -729,9 +739,11 @@ export interface ReviveView {
   score: number;
   category: 'plain' | 'bonus';
   /** Publicité récompensée (deuxième chance seulement) : disponible seulement si un fournisseur réel est enregistré et prêt. */
-  ad: { offered: boolean; available: boolean };
+  ad: { offered: boolean; available: boolean; /** Fournisseur présent mais aucune publicité prête : l'option n'est pas montrée. */ hidden?: boolean; /** Explication affichée quand l'option est indisponible. */ reason?: string };
   prisms: { price: number; balance: number | null; /** Raison pour laquelle le paiement est impossible maintenant (null = possible). */ blocked: string | null };
   busy: boolean;
+  /** Confirmation avant de dépenser des Prismes (affichée à la place des choix). */
+  confirm?: boolean;
   message: { kind: 'ok' | 'error'; text: string } | null;
   lb: RunLbStatus;
 }
@@ -743,9 +755,26 @@ export interface ReviveView {
 export function reviveScreen(v: ReviveView): string {
   const ordinal = v.life === 2 ? 'Deuxième' : 'Troisième';
   const msg = v.message ? `<div role="${v.message.kind === 'error' ? 'alert' : 'status'}" class="notice${v.message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(v.message.text)}</div>` : '';
-  const ad = v.ad.offered
-    ? button({ action: 'revive-ad', label: 'Regarder une publicité', sub: v.ad.available ? 'Reprendre gratuitement' : 'Indisponible dans cette version', icon: 'play', variant: 'secondary', attrs: v.ad.available && !v.busy ? '' : 'disabled' })
+  const ad = v.ad.offered && !v.ad.hidden
+    ? button({ action: 'revive-ad', label: 'Regarder une publicité', sub: v.ad.available ? 'Reprendre gratuitement' : v.ad.reason ?? 'Indisponible dans cette version', icon: 'play', variant: 'secondary', attrs: v.ad.available && !v.busy ? '' : 'disabled' })
     : '';
+  if (v.confirm) {
+    const left = v.prisms.balance !== null ? v.prisms.balance - v.prisms.price : null;
+    return `<div class="panel panel--pause revive">
+      <h2 class="title title--cyan">Confirmer la dépense</h2>
+      <div class="confirm">
+        <div class="confirm__row"><span>${ordinal} chance</span><strong>${v.prisms.price} Prismes</strong></div>
+        ${v.prisms.balance !== null ? `<div class="confirm__row"><span>Solde confirmé</span><strong>${formatScore(v.prisms.balance)} → ${formatScore(Math.max(0, left ?? 0))}</strong></div>` : ''}
+      </div>
+      <p class="small">Les Prismes sont débités par le service, une seule fois pour cette reprise. La suite est une survie libre, non classée ; votre résultat classé reste enregistré.</p>
+      ${msg}
+      <div class="btn-stack" style="margin-top:14px">
+        ${button({ action: 'revive-prisms-confirm', label: `Dépenser ${v.prisms.price} Prismes`, icon: 'check', variant: 'primary', attrs: v.busy ? 'disabled' : 'data-autofocus' })}
+        ${button({ action: 'revive-prisms-back', label: 'Retour', variant: 'ghost', attrs: v.busy ? 'disabled' : '' })}
+      </div>
+      ${v.busy ? '<p class="small" role="status">Paiement en cours de vérification par le service… Aucune reprise n’est accordée tant qu’il n’est pas confirmé.</p>' : ''}
+    </div>`;
+  }
   const pay = button({
     action: 'revive-prisms',
     label: `Reprendre — ${v.prisms.price} Prismes`,
@@ -797,6 +826,7 @@ export function optionsScreen(save: SaveData, accountEnabled = false): string {
     <h3 class="section-title">Sauvegarde et données</h3>
     ${accountEnabled ? `${setting('shop', 'Compte et synchronisation', 'Retrouver votre progression sur un autre appareil (facultatif)', button({ action: 'account', label: 'Ouvrir', variant: 'secondary', size: 'sm' }))}<p class="small">Sans compte, votre progression reste <strong>sur cet appareil</strong> (aucune synchronisation).</p>` : ''}
     <p class="small">Votre progression (niveaux, campagne, Éclats, cosmétiques, succès, records) est enregistrée <strong>dans ce navigateur, sur cet appareil</strong>. Elle n’est pas synchronisée automatiquement avec un autre appareil, un autre navigateur ni une version installée (application native) du jeu. Vider les données du site ou passer en navigation privée l’efface. Le profil du classement mondial est lui aussi lié à ce navigateur.</p>
+    ${accountEnabled ? `<h3 class="section-title">Achats, publicités et confidentialité</h3>${privacyHtml()}` : ''}
     ${button({ action: 'ask-reset', label: 'Effacer toute la progression…', icon: 'trash', variant: 'danger' })}
     <p class="small" style="margin-top:14px">Sauvegarde locale (cet appareil, ce navigateur). ${escapeHtml(GAME_NAME)} v${__APP_VERSION__} · version ${__BUILD_ID__}</p>
   </div>`;

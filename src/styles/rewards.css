@@ -287,3 +287,106 @@
   text-shadow: 0 0 10px rgb(var(--c-prism-rgb) / 0.7);
   animation: loy-claimed 1.1s ease-out 1;
 }
+
+/* ———————————————————————————— Boutique : packs de Prismes, statut d'achat, confidentialité */
+.store-balance {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px 0 10px;
+  font-size: 15px;
+}
+
+.store-balance .coin {
+  width: 22px;
+  height: 22px;
+}
+
+.store-status {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.store-status span {
+  font-size: 14px;
+  color: var(--c-muted);
+}
+
+.store-status--ok {
+  border-color: rgb(var(--c-cyan-rgb) / 0.7);
+}
+
+.store-status--wait {
+  border-color: rgb(var(--c-gold-rgb) / 0.6);
+}
+
+.store-status--bad {
+  border-color: rgb(var(--c-coral-rgb) / 0.8);
+}
+
+.pack-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+@media (max-width: 480px) {
+  .pack-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pack-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border-radius: var(--r-md);
+  border: 1px solid rgb(var(--c-prism-rgb) / 0.45);
+  background: rgb(var(--c-panel-rgb) / 0.75);
+  text-align: center;
+}
+
+.pack-card--best {
+  border-color: rgb(var(--c-prism-rgb) / 0.9);
+  box-shadow: 0 0 18px rgb(var(--c-prism-rgb) / 0.35);
+}
+
+.pack-card__n {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--c-white);
+}
+
+.pack-card__n span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-muted);
+}
+
+.pack-card__name {
+  font-size: 13px;
+  color: var(--c-muted);
+}
+
+.pack-card__price {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-gold);
+}
+
+.store-privacy {
+  margin-top: 10px;
+  text-align: left;
+}
+
+.store-privacy summary {
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--c-cyan);
+  min-height: 32px;
+}

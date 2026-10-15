@@ -15,7 +15,11 @@ import { BALANCE_VERSION } from './config/version';
 import { randomSeed } from './core/rng';
 import { InputController } from './game/input';
 import { POWER_CODES, REVIVE, type PowerKind } from './config/powers';
-import { getAdProvider } from './monetization/ads';
+import { getAdProvider, initNativeAds } from './monetization/ads';
+import { getPaymentProvider, initNativePayments } from './monetization/payments';
+import { StoreService } from './monetization/store';
+import { reviveWithAd as adRevive } from './monetization/adReward';
+import * as ST from './ui/storeScreens';
 import { PowersBar, POWER_KEYS } from './ui/powers';
 import { GameSession, type Phase } from './game/session';
 import { utcDateString } from './modes/daily';
@@ -55,7 +59,7 @@ import * as RW from './ui/rewardsScreens';
 import { applyLoyaltyClaim } from './economy/loyalty';
 import type { DailyAttempt, DailyBoard } from './net/rewardsProtocol';
 
-type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | 'revive' | 'loyalty' | 'notices' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | 'revive' | 'loyalty' | 'notices' | 'confirm-prisms' | null;
 
 /** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
 const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
@@ -67,6 +71,7 @@ const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
   account: 'options',
   prep: 'home',
   loyalty: 'home',
+  'confirm-prisms': 'cosmetics',
 };
 
 /** Scène en cours d'affichage : réplique courante, avancement du texte progressif et suite à donner. */
@@ -181,6 +186,28 @@ export class App {
   /** Paiement d'une reprise en cours de vérification par le service (boutons neutralisés). */
   private reviveBusy = false;
   private reviveMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  /** Dépense de Prismes en attente de confirmation (écran de reprise). */
+  private reviveConfirm = false;
+  /** Achats de Prismes (boutique) : vérifiés par le service avant tout crédit. */
+  private readonly prismStore: StoreService = new StoreService(
+    {
+      get configured() {
+        return LEADERBOARD_URL.length > 0;
+      },
+      api: (m, p, o) => this.lb.api(m, p, o),
+      hasIdentity: () => !!this.lb.identity(),
+      isAccount: () => (this.account?.state.profile ? this.account.state.profile.canBuyPremium : null),
+      commit: (mutate) => {
+        mutate(this.save);
+        this.persist(false);
+      },
+    },
+    () => {
+      if (this.session) return;
+      if (this.screen === 'cosmetics' && this.cosmeticsTab === 'prisms') this.showScreen('cosmetics', false);
+    },
+  );
+  private pendingPrismPack: string | null = null;
   // Récompenses gratuites (phase 4)
   /** Le service a répondu à la validation de présence pendant cette ouverture (sinon : dernier état connu). */
   private loyaltyOnline = false;
@@ -333,7 +360,7 @@ export class App {
     void this.account.start().then(() => {
       this.cleanMagicLink();
       return this.initRewards();
-    });
+    }).then(() => this.initStore());
     void this.checkForUpdate();
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) void this.checkForUpdate();
@@ -1008,6 +1035,33 @@ export class App {
     });
   }
 
+  // ————————————————————————————————————————————— boutique : achats de Prismes
+
+  private storeName(): string {
+    const st = getPaymentProvider().store;
+    return st === 'apple' ? ST.STORE_NAMES.apple : st === 'google' ? ST.STORE_NAMES.google : ST.STORE_NAMES.web;
+  }
+
+  private storeView(): ST.StoreView {
+    return {
+      availability: this.prismStore.availability(),
+      state: this.prismStore.state,
+      confirmedPrisms: this.save.economy.confirmed?.prisms ?? null,
+      canRestore: !!getPaymentProvider().pending && getPaymentProvider().isAvailable(),
+      storeName: this.storeName(),
+    };
+  }
+
+  /** Au démarrage : plugins natifs (s'ils existent), configuration du service, achats non terminés à revérifier. Sans plugin ni service : rien ne change. */
+  private async initStore(): Promise<void> {
+    await initNativePayments();
+    await initNativeAds();
+    if (!this.lb.configured) return;
+    await this.prismStore.loadConfig();
+    await this.account.loadProfile();
+    await this.prismStore.restore(true);
+  }
+
   // ————————————————————————————————————————————— reprise (deuxième / troisième chance)
 
   /** Affiche ou masque les commandes des pouvoirs et recalcule la taille de l'arène (la barre réserve sa place). */
@@ -1021,6 +1075,7 @@ export class App {
     if (s !== this.session) return;
     this.reviveBusy = false;
     this.reviveMessage = null;
+    this.reviveConfirm = false;
     this.setPowersVisible(false);
     this.hud.show(false);
     this.hideBanner();
@@ -1040,15 +1095,16 @@ export class App {
     else if (!this.lb.identity()) blocked = 'Connexion au service requise';
     else if (typeof navigator !== 'undefined' && navigator.onLine === false) blocked = 'Hors connexion : paiement impossible';
     else if (conf !== null && conf < price) blocked = `Prismes insuffisants (${conf} sur ${price})`;
-    const ad = getAdProvider();
+    const adView = this.adView(life);
     this.screenEl.innerHTML = S.reviveScreen({
       life,
       time: report?.run.time ?? 0,
       score: report?.run.score ?? 0,
       category: report?.run.category ?? 'plain',
-      ad: { offered: life === 2 && REVIVE.adLives.includes(2), available: ad.isAvailable() },
+      ad: adView,
       prisms: { price, balance: conf, blocked },
       busy: this.reviveBusy,
+      confirm: this.reviveConfirm && !blocked,
       message: this.reviveMessage,
       lb: this.runLb,
     });
@@ -1070,6 +1126,7 @@ export class App {
     this.reviveMessage = null;
     this.renderRevive();
     const res = await this.account.payRevive(this.runId, life);
+    this.reviveConfirm = false;
     if (this.session !== s || s.phase !== 'offer') return;
     this.reviveBusy = false;
     if (res.ok) this.startRevive(s);
@@ -1079,21 +1136,38 @@ export class App {
     }
   }
 
-  /** Reprise par publicité récompensée : seulement avec un VRAI fournisseur prêt ; une publicité interrompue n'accorde rien. */
+  /** Vue de l'option « publicité » : prête, indisponible (expliquée) ou masquée (fournisseur présent mais aucune publicité prête). */
+  private adView(life: 2 | 3): { offered: boolean; available: boolean; hidden?: boolean; reason?: string } {
+    if (life !== 2 || !REVIVE.adLives.includes(2)) return { offered: false, available: false };
+    const ad = getAdProvider();
+    if (ad.kind !== 'native') return { offered: true, available: false, reason: 'Indisponible dans cette version' };
+    if (this.prismStore.config && !this.prismStore.config.ads.enabled) return { offered: true, available: false, reason: 'Publicité non activée sur le service' };
+    if (!this.lb.identity() || (typeof navigator !== 'undefined' && navigator.onLine === false)) return { offered: true, available: false, hidden: !ad.isAvailable(), reason: 'Connexion requise' };
+    // Un fournisseur existe mais aucune publicité n'est prête : on ne montre pas l'option (jamais de bouton qui ne fait rien)
+    return { offered: true, available: ad.isAvailable() && this.prismStore.config?.ads.enabled === true, hidden: !ad.isAvailable() };
+  }
+
+  /**
+   * Reprise par publicité récompensée : session créée par le SERVICE → publicité (régie) → confirmation serveur à serveur → réclamation (usage unique).
+   * Publicité interrompue, fermée, échouée ou non confirmée : aucune reprise. Aucune minuterie ne remplace la confirmation. Aucun Prisme débité.
+   */
   private async reviveWithAd(): Promise<void> {
     const s = this.session;
     const ad = getAdProvider();
-    if (!s || this.reviveBusy || s.phase !== 'offer' || !ad.isAvailable()) return;
+    const view = this.adView(2);
+    if (!s || this.reviveBusy || s.phase !== 'offer' || s.sim.life !== 1 || !view.available || view.hidden || !ad.isAvailable()) return;
     this.reviveBusy = true;
+    this.reviveMessage = null;
     this.renderRevive();
-    const res = await ad.showRewarded('revive');
+    const res = await adRevive({ api: (m, p, o) => this.lb.api(m, p, o), provider: ad, runId: this.runId, onReturn: () => this.sfx.resume() });
     if (this.session !== s || s.phase !== 'offer') return;
     this.reviveBusy = false;
-    if (res === 'rewarded') this.startRevive(s);
-    else {
-      this.reviveMessage = { kind: 'error', text: res === 'dismissed' ? 'Publicité interrompue : la reprise n’est pas accordée.' : 'Publicité indisponible pour le moment.' };
-      this.renderRevive();
+    if (res.ok) {
+      this.startRevive(s);
+      return;
     }
+    this.reviveMessage = { kind: 'error', text: res.message };
+    this.renderRevive();
   }
 
   private startRevive(s: GameSession): void {
@@ -1371,12 +1445,13 @@ export class App {
       case 'loyalty': html = RW.loyaltyScreen(this.loyaltyView()); break;
       case 'notices': html = RW.noticesScreen(this.gainQueue); break;
       case 'cosmetics':
-        html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage);
+        html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage, this.storeView());
         break;
       case 'achievements':
         html = S.achievementsScreen(this.save, this.achMessage, this.justClaimed);
         break;
       case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
+      case 'confirm-prisms': html = ST.confirmPrismsScreen(this.pendingPrismPack ?? '', this.storeName()); break;
       case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? '', this.purchaseBusy); break;
       case 'confirm-bonus': html = S.confirmBonusScreen(this.save, this.bonusOrder?.kind ?? '', this.bonusOrder?.qty ?? 0, this.bonusOrder?.back ?? 'cosmetics'); break;
       case 'prep':
@@ -1618,7 +1693,24 @@ export class App {
         this.showScreen('prep');
         void this.account.syncNow();
         break;
-      case 'revive-prisms': void this.reviveWithPrisms(); break;
+      case 'revive-prisms': this.reviveConfirm = true; this.renderRevive(); break;
+      case 'revive-prisms-back': if (!this.reviveBusy) { this.reviveConfirm = false; this.renderRevive(); } break;
+      case 'revive-prisms-confirm': void this.reviveWithPrisms(); break;
+      case 'prisms-buy': this.pendingPrismPack = target.dataset.pack ?? null; this.showScreen('confirm-prisms'); break;
+      case 'prisms-cancel': this.pendingPrismPack = null; this.showScreen('cosmetics'); break;
+      case 'prisms-confirm': {
+        const pack = target.dataset.pack ?? this.pendingPrismPack ?? '';
+        this.pendingPrismPack = null;
+        this.cosmeticsTab = 'prisms';
+        this.showScreen('cosmetics');
+        void this.prismStore.buy(pack).then(() => {
+          if (this.screen === 'cosmetics') this.showScreen('cosmetics', false);
+          void this.account.syncNow(true);
+        });
+        break;
+      }
+      case 'prisms-restore': void this.prismStore.restore().then(() => this.screen === 'cosmetics' && this.showScreen('cosmetics', false)); break;
+      case 'prisms-account': this.showScreen('account'); break;
       case 'revive-ad': void this.reviveWithAd(); break;
       case 'revive-decline': if (!this.reviveBusy) this.session?.decline(); break;
       case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
@@ -1648,6 +1740,12 @@ export class App {
       case 'cat-trails':
       case 'cat-packs':
       case 'cat-bonus':
+      case 'cat-prisms':
+        if (action === 'cat-prisms') {
+          this.prismStore.reset();
+          void this.prismStore.loadConfig();
+          void this.account.loadProfile();
+        }
         this.cosmeticsTab = action.slice('cat-'.length) as S.CosmeticsTab;
         this.selectedItem = null;
         this.showScreen('cosmetics', false);
