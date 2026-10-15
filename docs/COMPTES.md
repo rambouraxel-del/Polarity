@@ -89,3 +89,6 @@ Un **compte connecté** est obligatoire pour acheter (l'invité joue sans paieme
 ## Compteurs et identifiant d'installation (finalisation)
 - La réponse de synchronisation contient aussi `used` (compteurs d'usage non classé déjà déduits pour l'installation) ; le jeu ne laisse jamais ses compteurs `bonusBought` / `bonusUsed` sous ceux du service (`applySyncResult`).
 - L'identifiant d'installation est doublé dans la clé locale `polarite.installation` : une ancienne version du jeu qui réécrirait la sauvegarde sans le bloc économie ne fait pas « changer d'installation » (aucun second import de l'héritage, compteurs cohérents). Une remise à zéro volontaire efface cette clé.
+
+## Service pas à jour (jeu plus récent que le service)
+`GET /api/health` renvoie `{ ok, balance, api }` ; `api` (niveau d'API, `API_LEVEL` dans `src/net/protocol.ts`) vaut 2 pour le service de l'économie v3 ; un ancien service n'a pas ce champ. Le jeu reconnaît un service pas à jour à sa réponse 404 `not_found` (« Route inconnue ») sur une route récente, ou au refus de l'inscription invité (pseudo exigé) : il affiche un message dédié, distinct de « hors ligne », conserve toutes les données en attente et réessaie après 5 minutes. Voir `docs/PUBLICATION_BETA.md` § 10.

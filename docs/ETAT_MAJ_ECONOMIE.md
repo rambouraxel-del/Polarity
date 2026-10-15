@@ -5,6 +5,8 @@
 > La version publique existante (GitHub Pages + éventuel service de classement déjà déployé) doit continuer à fonctionner : tout ce qui est ajouté est **additif et désactivé tant que le service n'est pas configuré**.
 
 ## Où reprendre
+**Mise à jour post-fusion (allègement de l'interface et diagnostic de synchronisation)** : la branche a été fusionnée dans `main` (PR n° 1), donc **le nouveau jeu est publié sur GitHub Pages, mais le service OVH est resté à l'ancien code** : c'est la cause des trois anomalies constatées (voir `docs/PUBLICATION_BETA.md` § 10). **Action restante : mettre à jour le service OVH** (procédure §§ 1 à 5, sur autorisation) ; aucune autre correction de synchronisation n'est nécessaire. Interface compacte (Préparation, Boutique, Prismes) : `docs/INTERFACE.md`. Méthode Git (travail sur `main`, sauvegardes `backup/pre-…`) : `CLAUDE.md`, `scripts/git-backup.sh`.
+
 **Phases 1 à 6 : TERMINÉES côté code, tests et documentation** (commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**, aucune opération sur la production).
 **Prochaine étape : l'accord explicite du propriétaire pour publier**, puis suivre à la lettre `docs/PUBLICATION_BETA.md` (inventaire → sauvegarde → migration sur copie → service → jeu → contrôle → retour arrière si besoin). Ne rien publier avant cet accord.
 Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run` (tests verts attendus : voir le dernier relevé de `RESUME.md`), `npm run build && npm run check:bundle`, `npm run e2e` (≈ 3 min, service local réel, **120 contrôles**).

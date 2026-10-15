@@ -1,5 +1,11 @@
 # Suivi d'avancement
 
+## Allègement de l'interface et diagnostic (travail sur `main`)
+- [x] Méthode Git : `scripts/git-backup.sh` (sauvegarde `backup/pre-…`, 3 conservées), règles dans `CLAUDE.md`
+- [x] Diagnostic : nouveau jeu face à l'ancien service (reproduit en local) ; détection « service pas à jour » + messages ; `/api/health` annonce `api: 2` ; tests `tests/service-compat.test.ts`
+- [x] Préparation compacte, boutique allégée, onglet Packs supprimé, pack premium dans Prismes ; contrôles 360×780 / 390×844 / 844×390 / 1280×800
+- [ ] **Mise à jour du service OVH : en attente d'autorisation** (`docs/PUBLICATION_BETA.md`)
+
 ## Économie v3 — phase 6 : finalisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
 - [x] Audit fonctionnel (chiffres validés figés dans `tests/phase6-spec.test.ts`) et audit de sécurité (paiements, publicités, récompenses, tickets, UTC, invités)
 - [x] Corrections : réconciliation Google/Apple + schéma v8, OIDC des notifications Google, drop refusé aux invités, clés de dette uniques, variables de déploiement des achats, limites des notifications
