@@ -270,7 +270,7 @@ describe('Écran de reprise : honnêteté sur la publicité et les Prismes', () 
 
 describe('Sauvegarde v9 : record « avec bonus » et compteurs d’usage', () => {
   it('nouveau format, valeurs par défaut, sanitize, migration depuis la v8 sans perte', () => {
-    expect(SAVE_VERSION).toBe(9);
+    expect(SAVE_VERSION).toBe(10);
     const d = defaultSave();
     expect(d.survivalBonus).toEqual({ bestTime: 0, bestScore: 0, runs: 0 });
     expect(d.economy.bonusUsed).toEqual({ boost: 0, gel: 0 });
@@ -280,7 +280,7 @@ describe('Sauvegarde v9 : record « avec bonus » et compteurs d’usage', () =>
     const back = parseSave(JSON.stringify(v8));
     expect(back?.survival.bestTime).toBe(77);
     expect(back?.survivalBonus.bestTime).toBe(0);
-    expect(back?.version).toBe(9);
+    expect(back?.version).toBe(10);
     // Valeurs aberrantes ramenées à la raison ; une partie « en cours » à la fermeture est tranchée (liveUse remis à zéro)
     const bad = sanitize({ ...d, survivalBonus: { bestTime: -5, bestScore: 'x', runs: 2.5 }, economy: { ...d.economy, bonusUsed: { boost: -3, gel: 4 }, liveUse: { boost: 2, gel: 2 } } });
     expect(bad.survivalBonus.bestTime).toBe(0);

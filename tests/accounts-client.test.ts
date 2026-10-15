@@ -102,7 +102,7 @@ describe('compte : profil invité, migration et synchronisation', () => {
   it('ancienne sauvegarde : importée intégralement UNE fois ; les Prismes locaux ne sont jamais repris', async () => {
     const w = world();
     const d = w.device(oldSave());
-    expect(SAVE_VERSION).toBe(9);
+    expect(SAVE_VERSION).toBe(10);
     expect(d.save.economy.legacy).toEqual({ shards: 340, imported: false });
     expect(d.account.state.pending.legacy).toBe(true);
     await d.account.start('');

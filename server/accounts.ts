@@ -284,6 +284,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     stored.medals = { claimed: [] };
     stored.inventory = { boost: 0, gel: 0 };
     stored.rewardNotice = null;
+    stored.loyalty = { shownDay: "", localDay: "", snapshot: null };
     stored.economy = sanitize({}).economy;
     q.upsertSave.run(playerId, rev, JSON.stringify(stored), now(), device.slice(0, 40));
   }

@@ -1,4 +1,5 @@
 import { REPLAY_FORMAT_POWERS, validNickname, normalizeNickname, type BalancesResponse, type Category, type LeaderboardResponse, type MeResponse, type RegisterResponse, type RejectReason, type Replay, type RunResponse, type RunSubmission, type Ticket, type TicketsResponse } from './protocol';
+import type { DailyAttempt, DailyBoard, DailyNoticesResponse, DailyRunResponse, DailyRunSubmission, DailyRejectReason, LoyaltyClaimResponse, LoyaltyState } from './rewardsProtocol';
 import type { KeyValueStore } from '../save/save';
 import { sanitizeBaseUrl } from './baseUrl';
 
@@ -14,6 +15,7 @@ export { sanitizeBaseUrl };
 export const IDENTITY_KEY = 'polarite.classement.identite';
 export const TICKETS_KEY = 'polarite.classement.tickets';
 export const PENDING_KEY = 'polarite.classement.attente';
+export const PENDING_DAILY_KEY = 'polarite.classement.quotidien';
 
 /** URL du service, fixée à la construction du jeu (variable d'environnement publique : aucune clé secrète). */
 export const LEADERBOARD_URL: string = sanitizeBaseUrl(import.meta.env?.VITE_LEADERBOARD_URL as string | undefined);
@@ -47,11 +49,27 @@ export interface PendingRun {
   lastError?: string;
   reason?: RejectReason;
   message?: string;
-  result?: { time: number; score: number; rank: number; personalBest: boolean; category?: Category };
+  result?: { time: number; score: number; rank: number; personalBest: boolean; category?: Category; /** Drop rare : Prisme crédité par le service à la validation. */ drop?: { prisms: number }; /** Le joueur a déjà vu l'animation du drop. */ dropSeen?: boolean };
   /** Charges de Boost/Gel consommées pendant cette partie : déduites de l'inventaire local tant que le service ne l'a pas validée (voir economy/reconcile.ts). */
   bonusUse?: { boost: number; gel: number };
   /** Le service demande de synchroniser d'abord les achats de bonus (la partie reste en attente, ticket conservé). */
   needsSync?: boolean;
+}
+
+/** Tentative du Défi quotidien terminée, conservée jusqu'à sa validation par le service. */
+export interface PendingDaily {
+  /** Identifiant de la tentative (donné par le service au démarrage). */
+  id: string;
+  owner?: string;
+  date: string;
+  submission: DailyRunSubmission;
+  createdAt: number;
+  status: PendingStatus;
+  attempts: number;
+  lastError?: string;
+  reason?: DailyRejectReason;
+  message?: string;
+  result?: { time: number; score: number; rank: number; personalBest: boolean; late: boolean; state: 'open' | 'grace' | 'final'; eligible: boolean };
 }
 
 export type NetResult<T> = { ok: true; data: T } | { ok: false; kind: 'offline' | 'unauthorized' | 'http'; status: number; message: string; reason?: RejectReason; /** Corps de l'erreur renvoyé par le service (ex. conflit de compte à confirmer). */ body?: unknown };
@@ -376,7 +394,7 @@ export class LeaderboardClient {
       cur.attempts++;
       if (res.ok && res.data.status === 'accepted') {
         cur.status = 'accepted';
-        cur.result = { time: res.data.time, score: res.data.score, rank: res.data.rank, personalBest: res.data.personalBest, category: res.data.category };
+        cur.result = { time: res.data.time, score: res.data.score, rank: res.data.rank, personalBest: res.data.personalBest, category: res.data.category, ...(res.data.drop ? { drop: res.data.drop } : {}) };
         delete cur.lastError;
         delete cur.needsSync;
       } else if (!res.ok && res.kind === 'http' && res.status === 422) {
@@ -404,6 +422,109 @@ export class LeaderboardClient {
       this.savePending(list);
     }
     return this.pendingOwn();
+  }
+
+  /** Parties acceptées avec un drop rare de Prismes dont l'animation n'a pas encore été montrée (retour en ligne tardif, application rouverte). */
+  unseenDrops(): PendingRun[] {
+    return this.pendingOwn().filter((p) => p.status === 'accepted' && !!p.result?.drop && !p.result.dropSeen);
+  }
+
+  markDropSeen(id: string): void {
+    const list = this.pending();
+    const cur = list.find((p) => p.id === id);
+    if (!cur?.result) return;
+    cur.result.dropSeen = true;
+    this.savePending(list);
+  }
+
+  // ————————————————————————— récompenses gratuites (phase 4) : calendrier, défi quotidien mondial, démarrage de partie
+
+  /** Valide la présence du jour (heure du SERVICE) et renvoie le calendrier. */
+  loyaltyCheckin(): Promise<NetResult<LoyaltyState>> {
+    return this.request('POST', '/api/loyalty/checkin', { auth: true, body: {} });
+  }
+
+  loyaltyClaim(cycle: number, day: number): Promise<NetResult<LoyaltyClaimResponse>> {
+    return this.request('POST', '/api/loyalty/claim', { auth: true, body: { cycle, day } });
+  }
+
+  /** Enregistre côté service le démarrage EN LIGNE d'une partie de Survie (condition du drop rare) ; silencieux hors ligne. */
+  async startTicket(ticketId: string): Promise<boolean> {
+    if (!this.configured || !this.identity()) return false;
+    const res = await this.request<{ started: boolean }>('POST', '/api/tickets/start', { auth: true, body: { ticketId } });
+    return res.ok;
+  }
+
+  dailyStart(date: string): Promise<NetResult<{ attempt: DailyAttempt }>> {
+    return this.request('POST', '/api/daily/start', { auth: true, body: { date } });
+  }
+
+  dailyBoard(date?: string): Promise<NetResult<DailyBoard>> {
+    return this.request('GET', '/api/daily/leaderboard', { auth: !!this.identity(), query: date ? `date=${date}` : '' });
+  }
+
+  dailyNotices(): Promise<NetResult<DailyNoticesResponse>> {
+    return this.request('GET', '/api/daily/notices', { auth: true });
+  }
+
+  dailyAck(dates: string[]): Promise<NetResult<{ ok: boolean }>> {
+    return this.request('POST', '/api/daily/ack', { auth: true, body: { dates } });
+  }
+
+  /** Tentatives du Défi quotidien terminées, conservées jusqu'à leur validation par le service (le jeu reste jouable hors ligne). */
+  pendingDaily(): PendingDaily[] {
+    const raw = this.read<PendingDaily[]>(PENDING_DAILY_KEY, []);
+    return Array.isArray(raw) ? raw.filter((p) => p && typeof p.id === 'string') : [];
+  }
+
+  private savePendingDaily(list: PendingDaily[]): void {
+    const kept = list.slice(-10);
+    if (kept.length === 0) this.o.store.remove(PENDING_DAILY_KEY);
+    else this.write(PENDING_DAILY_KEY, kept);
+  }
+
+  /** Conserve une tentative terminée du Défi quotidien (démarrée en ligne : le service en connaît l'heure de début). */
+  recordDaily(attempt: DailyAttempt, flips: readonly number[], claimed: { time: number; score: number }): PendingDaily | null {
+    const owner = this.identity()?.playerId;
+    if (!owner) return null;
+    const submission: DailyRunSubmission = { attemptId: attempt.id, date: attempt.date, replay: { v: 1, flips: [...flips] }, claimed, client: { build: this.o.build } };
+    const run: PendingDaily = { id: attempt.id, owner, date: attempt.date, submission, createdAt: this.now(), status: 'pending', attempts: 0 };
+    this.savePendingDaily([...this.pendingDaily().filter((p) => p.id !== run.id), run]);
+    return run;
+  }
+
+  /** Envoie les tentatives du Défi en attente. Échec réseau : on réessaie ; refus du service : définitif (message du service). */
+  async flushDaily(): Promise<PendingDaily[]> {
+    if (!this.configured || !this.identity()) return this.pendingDaily();
+    const mine = this.ownerIds();
+    for (const run of this.pendingDaily().filter((p) => p.status === 'pending' && !!p.owner && mine.has(p.owner))) {
+      const res = await this.request<DailyRunResponse>('POST', '/api/daily/runs', { auth: true, body: run.submission });
+      const list = this.pendingDaily();
+      const cur = list.find((p) => p.id === run.id);
+      if (!cur) continue;
+      cur.attempts++;
+      if (res.ok && res.data.status === 'accepted') {
+        cur.status = 'accepted';
+        cur.result = { time: res.data.time, score: res.data.score, rank: res.data.rank, personalBest: res.data.personalBest, late: res.data.late, state: res.data.state, eligible: res.data.eligible };
+        delete cur.lastError;
+      } else if (!res.ok && res.kind === 'http' && (res.status === 422 || res.status === 400 || res.status === 403)) {
+        cur.status = 'rejected';
+        cur.reason = res.reason as unknown as DailyRejectReason | undefined;
+        cur.message = res.message;
+      } else if (!res.ok) {
+        cur.lastError = res.kind === 'offline' ? 'Hors ligne' : res.message;
+        this.savePendingDaily(list);
+        if (res.kind === 'offline' || res.kind === 'unauthorized' || res.status === 429) break;
+        continue;
+      }
+      this.savePendingDaily(list);
+    }
+    return this.pendingDaily();
+  }
+
+  /** Supprime les tentatives du Défi déjà traitées (acceptées ou refusées). */
+  clearDailyDone(): void {
+    this.savePendingDaily(this.pendingDaily().filter((p) => p.status === 'pending'));
   }
 
   /** Charges de bonus consommées par les parties du profil actuel encore en attente de validation. */

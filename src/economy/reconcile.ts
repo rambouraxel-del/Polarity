@@ -16,6 +16,7 @@ function payload(save: SaveData): Record<string, unknown> {
   const out = structuredClone(save) as unknown as Record<string, unknown>;
   delete out.options;
   delete out.rewardNotice;
+  delete out.loyalty;
   return out;
 }
 

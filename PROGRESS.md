@@ -1,5 +1,12 @@
 # Suivi d'avancement
 
+## Économie v3 — phase 4 : récompenses gratuites (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
+- [x] Vérifications phase 3 : reprise sûre, pas de 4ᵉ vie, rejeu exact du Bouclier (tests)
+- [x] Calendrier de connexion (10 jours, UTC service, absences, réclamation idempotente, stock plein, Prismes avec pseudo), écran néon + accueil + ouverture quotidienne
+- [x] Défi quotidien mondial : rejeu, départ en ligne, grâce 00 h 15, ex æquo, Top 10 en Prismes, clôture rejouable, notifications
+- [x] Drop rare de Prismes (0,02 %/balise, HMAC serveur, 1 max, départ en ligne), `PRISM_SOURCES` futures désactivées
+- [x] SQLite v6, sauvegarde 10, 689 tests, build, `check:bundle`, contrôle navigateur léger ; **non fait** : E2E complet, achats réels et publicité (phase 5)
+
 ## Économie v3 — phase 3 : pouvoirs, deux classements, reprises (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
 - [x] Simulation : Boost (×1,5, 5 s, recharge 10 s), Gel (menaces à 40 %, 6 s, recharge 20 s, par décalage des frises — physique sans bonus identique, `BALANCE_VERSION` inchangée), Bouclier gratuit (18 balises, 8 s, un impact), exclusivité, plafond 3, vies et reprise sécurisée (3 s d'invulnérabilité)
 - [x] Protocole de rejeu 2 (activations en pas de simulation), rejeu serveur, catégories `plain` / `bonus` déduites par le service, stocks consommés dans le registre (`use:`), usage déclaré (`bonusUsed`), SQLite v5 additif (anciens records → « Sans bonus »), `POST /api/revive` (5 / 10 Prismes, idempotent)

@@ -5,13 +5,14 @@
 > La version publique existante (GitHub Pages + éventuel service de classement déjà déployé) doit continuer à fonctionner : tout ce qui est ajouté est **additif et désactivé tant que le service n'est pas configuré**.
 
 ## Où reprendre
-**Phases 1, 2 et 3 : TERMINÉES** (code, tests, documentation, commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**).
-**Prochaine étape : phase 4 — Prismes : achats en argent réel** (compte connecté obligatoire, reçus Apple / Google, remboursements) **— À NE PAS COMMENCER sans demande du propriétaire.** Pré-requis déjà en place :
-- le service est la seule source des Prismes : solde du registre (`ledger`, monnaie `prisms`), débit idempotent par clé (`spend:<article>`, `revive:<partie>:<vie>`) ; **aucune ligne de crédit de Prismes n'existe encore** (aucun achat réel) : la phase 4 ajoute les crédits (`iap:<reçu>`), la vérification des reçus et les remboursements (ligne négative / blocage) ;
-- l'interface de reprise (`reviveScreen`) et la boutique lisent déjà le solde CONFIRMÉ (`economy.confirmed.prisms`) ; `monetization/payments.ts` est l'interface prévue (aucun paiement actif) ;
-- la publicité récompensée n'a **aucun fournisseur** (`NoAdProvider`) : la deuxième chance par publicité reste affichée « Indisponible dans cette version » jusqu'à l'intégration d'un SDK validé (hors périmètre jusqu'ici).
-Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run` (**628 tests verts attendus**, 32 fichiers).
-Reste à la charge du propriétaire (action externe, voir `docs/COMPTES.md`) : identifiants OAuth Google / Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL`, module natif de connexion sociale (Android/iOS), redéploiement du service (**schéma SQLite v5**, une fois toute la mise à jour prête).
+**Phases 1, 2, 3 et 4 : TERMINÉES** (code, tests, documentation, commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**).
+**Prochaine étape : phase 5 — achats réels (Prismes en argent) et publicités récompensées** — **À NE PAS COMMENCER sans demande du propriétaire.** Pré-requis en place :
+- le service est la seule source des Prismes (registre `ledger`, monnaie `prisms`) ; sources déjà actives : calendrier jour 10 (`loy:<cycle>:10`), Top 10 quotidien (`daily:<date>`), drop rare (`drop:<ticket>`) ; dépenses : cosmétiques premium (`spend:`), reprises (`revive:`). La phase 5 ajoutera les crédits d'achat (`iap:<reçu>`), la vérification des reçus Apple / Google et les remboursements ;
+- `config/rewards.ts › PRISM_SOURCES` : sources futures déclarées, **désactivées** (clé de registre `<préfixe>:<occurrence>`) ;
+- publicité récompensée : `monetization/ads.ts` (`NoAdProvider`), la 2ᵉ chance par publicité reste « Indisponible dans cette version » tant qu'aucun fournisseur réel n'est validé ; `monetization/payments.ts` = interface prévue, aucun paiement actif ;
+- anti-abus des profils invités : les Prismes (jour 10, Top 10) exigent un pseudo ou un compte ; la phase 5 devra exiger un compte connecté pour tout achat réel.
+Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run` (**689 tests verts attendus**, 35 fichiers).
+Reste à la charge du propriétaire (action externe, voir `docs/COMPTES.md`) : identifiants OAuth Google / Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL`, module natif de connexion sociale, redéploiement du service (**schéma SQLite v6**, une fois toute la mise à jour prête ; le service doit tourner en continu ou être relancé : la clôture des défis est rejouable au démarrage).
 
 ## Les six phases
 | # | Phase | État |
@@ -19,8 +20,8 @@ Reste à la charge du propriétaire (action externe, voir `docs/COMPTES.md`) : i
 | **1** | **Fondations : profils invités, comptes (Google / Apple / lien magique e-mail), migration des anciennes sauvegardes, synchronisation, hors ligne, registre serveur** | **TERMINÉE** (configuration externe restante) |
 | **2** | **Nouvelle économie : 3 monnaies (Éclats / Médailles / Prismes), Médailles des 27 succès (1 650) réclamables rétroactivement, cosmétiques en Médailles (1 640) ou Prismes, inventaire de bonus (Boost 50 / Gel 100 Éclats), boutique et écran de préparation de la Survie, registre serveur** | **TERMINÉE** |
 | **3** | **Effets de gameplay : Boost, Gel temporel, Bouclier gratuit ; deux classements mondiaux (Sans bonus / Avec bonus) ; première mort = résultat classé figé ; deuxième et troisième chances ; survie libre non classée ; rejeu serveur étendu** | **TERMINÉE** (publicité récompensée : interface seulement, aucun fournisseur) |
-| 4 | Prismes : achats en argent réel (compte connecté obligatoire), reçus Apple / Google, remboursements | à faire *(proposition)* |
-| 5 | Interface compte et économie : écrans complets, fusion guidée, support, messages | à faire *(proposition)* |
+| **4** | **Récompenses gratuites : calendrier de connexion (10 jours), classement mondial du Défi quotidien (Top 10 récompensé en Prismes), drop rare de Prismes en Survie** | **TERMINÉE** |
+| 5 | Achats réels de Prismes (compte obligatoire, reçus Apple / Google, remboursements) et publicités récompensées | à faire *(annoncée par le propriétaire)* |
 | 6 | Intégration finale, essais, configuration de production (OAuth, e-mail), **déploiement unique** | à faire *(proposition)* |
 
 Les phases 3 à 6 sont un découpage **proposé** (le propriétaire n'a fixé explicitement que la phase 2 : les Médailles) ; à confirmer ou corriger.
@@ -46,6 +47,39 @@ Solde serveur = Σ du **registre** (`ledger`) :
 | (phase 2+) Médailles, Prismes | à définir | **serveur uniquement** |
 
 Fusion de deux profils : registre dédupliqué **par clé** (récompense : on garde le plus petit montant ; dépense : le plus petit débit) → jamais de double crédit ; les filigranes d'installation changent de propriétaire.
+
+## Phase 4 — ce qui a été fait (commits `de9d5c7`, `419f1f1` + derniers)
+### Vérifications de la phase 3 (aucune lacune trouvée) — `tests/phase4-verify.test.ts`
+Reprise : menaces écartées, 3 s d'invulnérabilité sans entrée, vaisseau resté sur son orbite, aucun Bouclier consommé ; aucune quatrième vie (simulation et `POST /api/revive` vie 4 → 400) ; rejeu serveur exact d'une partie où le Bouclier **absorbe réellement** un impact (même durée, score, compteurs ; sans l'activation la partie ne serait pas la même).
+### Calendrier de connexion (`config/rewards.ts › LOYALTY`, `server/rewards.ts`)
+- Cycle de 10 jours : 20 Éclats, 1 Boost, 30 Éclats, 1 Gel, 40 Éclats, 1 Boost, 50 Éclats, 1 Gel, 60 Éclats, 5 Prismes (total 200 / 2 / 2 / 5).
+- **Le service fait seul autorité** sur les jours UTC (00 h 00). `POST /api/loyalty/checkin` valide la présence du jour du SERVICE (jamais une date envoyée) ; une connexion suffit, rien à récupérer tout de suite. Une absence tolérée par cycle ; la deuxième (même non consécutive, ou deux jours d'un coup) réinitialise ; après le jour 10, nouveau cycle au prochain jour UTC éligible (`nextPresence`, fonction pure testée).
+- Réclamation manuelle `POST /api/loyalty/claim {cycle, day}` : atomique, **idempotente** (clé de registre `loy:<cycle>:<jour>`, identifiant de cycle global), une fois ; les récompenses débloquées restent récupérables indéfiniment, même après réinitialisation (anciens cycles conservés). Boost/Gel : inventaire existant, plafond 99 — **stock plein : refus `stock_full`, rien consommé, la récompense reste disponible**. Prismes : réservés aux profils avec pseudo ou compte (`account_required` pour un invité : protection contre les profils invités en série ; la récompense reste disponible).
+- **Hors ligne** : présence **provisoire** uniquement (`save.loyalty.localDay`, affichage) : elle n'est jamais créditée ; seule la validation du service le même jour UTC compte. Aucun Prisme ne repose sur l'horloge de l'appareil. Réclamer exige une connexion.
+- Interface : `ui/rewardsScreens.ts` (écran Récompenses : 10 cellules, statuts, « Récupérer », absence restante, compte à rebours, anciens cycles, animation spéciale des 5 Prismes), bouton à l'accueil avec nombre à récupérer, ouverture automatique à la première ouverture de chaque jour UTC, revalidation au retour en ligne / visibilité.
+### Classement mondial du Défi quotidien
+- Gameplay, graine (date UTC) et difficulté **inchangés** ; aucun pouvoir (`replayDaily` : inversions seules). Survie : deux classements intacts.
+- Flux : `POST /api/daily/start {date}` (en ligne, jour UTC du service : le service **enregistre l'heure de début**) → partie → `POST /api/daily/runs` (journal, rejoué par le service) ; tentative à usage unique, liée au joueur et à la date. Hors ligne au départ : résultat local expliqué, jamais classé. Tentative terminée mais non envoyée : conservée « en attente » (`polarite.classement.quotidien`) et renvoyée.
+- Preuves d'horaire (jamais un ticket ancien ni un horodatage client) : début enregistré par le service ; durée active rejouée ≤ temps écoulé depuis ce début (`too_fast`) ; **soumission tardive 00 h 00 – 00 h 15** acceptée seulement si le début est avant minuit **et** début + durée active ≤ minuit (`late_unproven` sinon) ; après 00 h 15 : `closed`. Limite assumée : la fin réelle n'est pas observable par le service ; la fenêtre d'abus est bornée par la grâce de 15 min et ne donne aucune information nouvelle (graine identique pour tous).
+- Classement par rangs « compétition » : ex æquo = durée **et** score identiques ⇒ même rang, même récompense, rangs suivants sautés ; tous les ex æquo du 10ᵉ rang sont récompensés. Prismes : 15 / 10 / 5 / 2×4 / 1×3 (41 par jour standard). Invités et profils exclus par la modération : ni classés ni récompensés.
+- **Clôture à 00 h 15 UTC** (`tick`, au démarrage du service, chaque minute, et à la consultation) : Top 10 figé dans `daily_results`, Prismes au registre (`daily:<date>`, unique par profil) dans UNE transaction avec le marqueur `daily_closed` ; **rejouable après une panne** (rien n'est dupliqué, les jours échus pendant l'arrêt sont clos au redémarrage).
+- Consultation : `GET /api/daily/leaderboard?date=` (rang, ex æquo, Prismes, rang personnel, `open | grace | final`, heures de fin), notifications au prochain lancement `GET /api/daily/notices` + `POST /api/daily/ack`. Écran : section « Classement mondial du jour » dans le Défi quotidien.
+### Drop rare de Prismes (`config/rewards.ts › DROPS`, `server/rewards.ts › rollDrop`)
+- Survie seulement, première vie seulement (le rejeu s'arrête à la première mort), 0,02 % par balise collectée, **1 Prisme au plus par partie**. Tirage = HMAC(secret du service, ticket, index de balise) : déterministe, non prévisible ni contrôlable par le client ; collectes vérifiées par le rejeu (`replaySurvival().beacons`). Jamais de drop au Défi quotidien, en Campagne ni après la première mort.
+- Condition « en ligne » : `POST /api/tickets/start` enregistre l'heure de démarrage côté service ; sans elle (partie hors ligne), ou si la durée rejouée dépasse le temps écoulé, **aucun tirage**, et jamais rétroactivement (démarrage refusé une fois le ticket utilisé). Ticket à usage unique, signé, lié à sa graine : pas de reroll (changer la graine, rejouer le ticket ou soumettre deux fois ne change rien).
+- Crédit : ligne `drop:<ticket>` du registre dans la transaction d'acceptation ; réponse `drop: {prisms: 1}` ; animation « Prisme trouvé » **seulement après confirmation du service** (statut provisoire = « en attente de validation »), annoncée au lancement si reçue tard.
+- Sources futures : `PRISM_SOURCES` (déclarées, désactivées) ; les 27 succès et leurs 1 650 Médailles ne sont pas touchés.
+### Migration SQLite v6 (additive, copie `.avant-v5.bak` automatique)
+`loyalty_cycles`, `daily_attempts`, `daily_runs`, `daily_bests`, `daily_results`, `daily_closed`, `tickets.started_at`, `runs.drop_prisms`. Aucune table existante reconstruite, aucune donnée modifiée. Effacement RGPD et fusion de profils étendus (cycles déplacés, un seul cycle courant, meilleur résultat par date, registre dédupliqué par clé : aucun double crédit).
+### Sauvegarde format 10
+`loyalty { shownDay, localDay, snapshot }` (affichage seulement, instantané validé champ par champ, récompenses toujours lues dans la configuration) ; exclue de la synchronisation. Migration additive depuis la v9.
+### Tests exécutés (phase 4)
+`npx tsc --noEmit` : OK. `npx vitest run` : **35 fichiers, 689 tests verts** (nouveaux : `rewards-server` 42, `rewards-client` 14, `phase4-verify` 4, 1 fusion dans `accounts-server` ; adaptés : migration, versions de sauvegarde). `npm run build` : OK. `npm run check:bundle` : OK. Contrôle navigateur **léger** avec vrai service local (390×844, 1280×800) : calendrier automatique, réclamation, classement du Défi, aucune erreur de page. **Non fait volontairement** : E2E complet, monitoring, simulation massive.
+### Limites connues (phase 4)
+- Preuve d'horaire du Défi quotidien : voir ci-dessus (fin réelle non observable ; bornée à 15 min, début obligatoirement en ligne).
+- Le Défi quotidien classé exige d'être en ligne au démarrage ; sans cela, résultat local seulement.
+- Les Prismes du calendrier (jour 10) et du Top 10 exigent un pseudo ou un compte ; un invité garde ses récompenses en attente.
+- `scripts/e2e.mjs` toujours obsolète côté économie (à réécrire en phase 6).
 
 ## Phase 3 — ce qui a été fait (commits `8d782e6`, `86ce56c` + dernier)
 ### Règles de jeu (simulation, `src/sim/powers.ts`, `src/config/powers.ts`)
@@ -96,6 +130,7 @@ Fusion de deux profils : registre dédupliqué **par clé** (récompense : on ga
 - Les achats de Prismes réels, remboursements et le calendrier de connexion n'existent pas encore.
 
 ## Journal des étapes (le plus récent en haut)
+- **Phase 4 terminée** — calendrier, Défi quotidien mondial, drop rare, schéma v6, sauvegarde 10 (voir ci-dessus).
 - **Phase 3 terminée** — pouvoirs, classements, reprises, protocole v2, SQLite v5 (voir ci-dessus).
 - **Phase 2 terminée** — voir ci-dessus ; commits de la phase : `f5a66ea` (correctif parties en attente) → … → dernier commit de la branche (voir `git log`).
 - **E4/E5 terminés** — client : `src/account/{AccountService,providers}.ts`, `src/economy/reconcile.ts`, écran Options → Compte (`src/ui/accountScreens.ts`), câblage `src/app.ts` (invité automatique, synchronisation différée hors partie, retour en ligne, lien magique `?magic=`), 19 tests client ; docs `docs/COMPTES.md`, `CLASSEMENT.md`, `GUIDE_DEPLOIEMENT.md`, `deploy/env.example` + compose, `CLAUDE.md`, `PROGRESS.md`, `RESUME.md`. Limites connues : sur mobile, Google/Apple exigent le module natif (absent) ; la déconnexion d'un appareil oublie aussi les résultats classés en attente de l'ancien profil.

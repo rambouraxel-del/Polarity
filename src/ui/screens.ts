@@ -46,7 +46,7 @@ export interface SaveNotices {
   load: 'corrupt' | 'future' | null;
 }
 
-export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false, saveNotices: SaveNotices = { storageFailed: false, load: null }, leaderboard = true): string {
+export function homeScreen(save: SaveData, today: string, touch = false, updateAvailable = false, saveNotices: SaveNotices = { storageFailed: false, load: null }, leaderboard = true, rewards: { claimable: number } | null = null): string {
   const legacy = legacySurvivalBest(save);
   const surv =
     save.survival.bestTime > 0
@@ -111,6 +111,7 @@ export function homeScreen(save: SaveData, today: string, touch = false, updateA
       ${button({ action: 'survival', label: 'Survie', sub: surv, icon: 'play', variant: 'primary', size: 'hero' })}
       ${button({ action: 'campaign', label: 'Campagne', sub: campaignSub, icon: 'levels', variant: 'secondary', size: 'row', chevron: true })}
       ${button({ action: 'daily', label: 'Défi quotidien', sub: dailyHint, icon: 'calendar', variant: 'secondary', size: 'row', chevron: true })}
+      ${rewards ? button({ action: 'loyalty', label: 'Récompenses', sub: rewards.claimable > 0 ? `${rewards.claimable} à récupérer` : 'Calendrier de connexion', badge: rewards.claimable > 0 ? String(rewards.claimable) : undefined, icon: 'sparkle', variant: 'secondary', size: 'row', chevron: true }) : ''}
       <div class="btn-row">
         ${button({ action: 'cosmetics', label: 'Boutique', icon: 'shop', variant: 'secondary', size: 'compact' })}
         ${button({ action: 'achievements', label: 'Succès', badge: `${achCount}/${ACHIEVEMENTS.length}`, icon: 'trophy', variant: 'secondary', size: 'compact' })}
@@ -158,7 +159,7 @@ function recordList(rows: { date: string; time: number; score: number }[]): stri
     .join('')}</ul>`;
 }
 
-export function dailyScreen(save: SaveData, today: string): string {
+export function dailyScreen(save: SaveData, today: string, board = ''): string {
   const rec = save.daily[today];
   const past = Object.keys(save.daily)
     .filter((d) => d !== today)
@@ -179,7 +180,7 @@ export function dailyScreen(save: SaveData, today: string): string {
     </div>
     ${past.length ? `<h3 class="section-title">Jours précédents</h3>${recordList(past)}` : ''}
     ${old.length ? `<h3 class="section-title">Ancien équilibrage</h3>${recordList(old)}<p class="small" style="text-align:left;margin-top:6px">Obtenus avant la mise à jour : non comparables aux résultats actuels.</p>` : ''}
-    <p class="small" style="margin-top:14px">Résultats enregistrés sur cet appareil uniquement. Il n’y a pas de classement en ligne.</p>
+    ${board || '<p class="small" style="margin-top:14px">Résultats enregistrés sur cet appareil uniquement. Il n’y a pas de classement en ligne.</p>'}
   </div>`;
 }
 
@@ -697,7 +698,10 @@ export type RunLbStatus =
   | { kind: 'assisted' }
   | { kind: 'sending' }
   | { kind: 'pending'; offline: boolean }
-  | { kind: 'accepted'; rank: number; best: boolean; category?: 'plain' | 'bonus' }
+  | { kind: 'accepted'; rank: number; best: boolean; category?: 'plain' | 'bonus'; /** Drop rare : Prisme crédité par le service. */ drop?: number }
+  /** Défi quotidien : tentative non démarrée en ligne (résultat local seulement) ou acceptée par le service. */
+  | { kind: 'daily-local' }
+  | { kind: 'daily-accepted'; rank: number; eligible: boolean; late: boolean; state: 'open' | 'grace' | 'final' }
   | { kind: 'rejected'; message: string };
 
 export function runLbStatusHtml(st: RunLbStatus): string {
@@ -708,7 +712,9 @@ export function runLbStatusHtml(st: RunLbStatus): string {
     case 'assisted': return '<p class="lb-status lb-status--info">Classement mondial : partie de démonstration ou de test, non éligible.</p>';
     case 'sending': return '<p class="lb-status lb-status--wait" role="status">Classement mondial : envoi et validation en cours…</p>';
     case 'pending': return `<p class="lb-status lb-status--wait" role="status">Classement mondial : <strong>en attente</strong> — ${st.offline ? 'hors connexion, nouvel essai automatique' : 'à envoyer'} (pas encore validé).</p>`;
-    case 'accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial : <strong>validé</strong>${st.category ? ` (classement ${st.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'})` : ''} — rang ${st.rank}${st.best ? ' (nouveau meilleur résultat)' : ' (votre meilleur reste en place)'}.</p>`;
+    case 'accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial : <strong>validé</strong>${st.category ? ` (classement ${st.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'})` : ''} — rang ${st.rank}${st.best ? ' (nouveau meilleur résultat)' : ' (votre meilleur reste en place)'}.${st.drop ? ` <span class="lb-drop">✦ Prisme trouvé : <strong>+${st.drop}</strong>, crédité et confirmé par le service.</span>` : ''}</p>`;
+    case 'daily-local': return '<p class="lb-status lb-status--info">Classement mondial du défi : tentative non démarrée en ligne, résultat conservé sur cet appareil seulement (le service doit connaître l’heure de début).</p>';
+    case 'daily-accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial du défi : <strong>validé</strong>${st.late ? ' (envoi tardif accepté)' : ''} — ${st.eligible ? `rang ${st.rank}${st.state === 'final' ? ' (définitif)' : ' (provisoire jusqu’à 00 h 15 UTC)'}` : 'enregistré, mais non classé : choisissez un pseudo dans le menu Classement'}.</p>`;
     case 'rejected': return `<p class="lb-status lb-status--bad" role="alert">Classement mondial : <strong>non validé</strong> — ${escapeHtml(st.message)}</p>`;
   }
 }

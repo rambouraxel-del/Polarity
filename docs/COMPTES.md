@@ -76,3 +76,9 @@ Migration v<8 : les cosmétiques que les succès débloquaient directement (glac
 - **Réconciliation** (`applySyncResult`, option `pendingUse`) : l'inventaire local = inventaire du service − charges des parties classées encore en attente (+ écart local depuis l'envoi). Partie validée → le service fait foi ; partie refusée → les charges reviennent.
 - **`POST /api/revive`** : reprise payée en Prismes (5 puis 10), débit atomique et idempotent par `(partie, vie)`, jamais local. Le solde confirmé renvoyé met à jour `wallet.prisms` et `economy.confirmed.prisms`.
 - Schéma SQLite **v5** (voir `docs/CLASSEMENT.md`) : `bests.category`, `runs.category/acts/powers/replay_v`, `installs.used_boost/used_gel` ; copie de sauvegarde automatique avant migration.
+
+## Phase 4 : récompenses gratuites (sauvegarde v10, schéma SQLite v6)
+- **Sauvegarde format 10** : `loyalty { shownDay, localDay, snapshot }` (affichage seulement ; jamais synchronisé ni crédité). Les jours, absences et récompenses du calendrier appartiennent au service.
+- **Calendrier** : `POST /api/loyalty/checkin` (présence du jour UTC du service), `POST /api/loyalty/claim` (atomique, idempotent, clé `loy:<cycle>:<jour>`), `GET /api/loyalty`. Boost/Gel respectent le plafond de 99 (`stock_full`, la récompense reste disponible) ; les Prismes exigent un pseudo ou un compte (`account_required`).
+- **Fusion de profils** : cycles déplacés vers le profil conservé (un seul cycle courant, les autres restent récupérables), récompenses déjà réclamées jamais recréditées (clés du registre), meilleur résultat quotidien par date, résultats de classement figés dédupliqués (`daily:<date>`).
+- **Effacement du profil** : cycles, tentatives, parties, records et résultats quotidiens supprimés avec le reste.

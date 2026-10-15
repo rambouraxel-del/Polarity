@@ -8,7 +8,9 @@ import { ACHIEVEMENT_CONFIG } from '../config/achievements';
 import { LEGACY_ACHIEVEMENT_ITEMS } from '../config/catalog';
 import { MISSIONS, UPGRADES, missionKey } from '../config/campaign';
 import { BONUS, LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
+import { LOYALTY, LOYALTY_LENGTH } from '../config/rewards';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
+import type { LoyaltyState } from '../net/rewardsProtocol';
 import { BALANCE_VERSION } from '../config/version';
 
 /**
@@ -37,7 +39,7 @@ import { BALANCE_VERSION } from '../config/version';
  *      `rewarded` (anciens Éclats déjà versés) et le portefeuille d'Éclats sont inchangés (aucun second versement). Nouveaux joueurs : aucun
  *      cosmétique direct par succès.
  */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -233,6 +235,8 @@ export interface SaveData {
   rewarded: string[];
   /** Récompenses de succès à notifier à l'accueil (rattrapage de migration, nouveaux objectifs déjà atteints) ; null une fois lue. */
   rewardNotice: { shards: number; count: number } | null;
+  /** Calendrier de connexion (phase 4) : affichage seulement ; les jours, absences et récompenses appartiennent au SERVICE. */
+  loyalty: LoyaltySave;
   /** Campagne. */
   campaign: CampaignSave;
   /** Comptabilité de synchronisation (économie v3). */
@@ -259,6 +263,15 @@ export interface KeyValueStore {
   readonly failed?: boolean;
 }
 
+export interface LoyaltySave {
+  /** Dernier jour UTC (AAAA-MM-JJ) où le calendrier s'est ouvert tout seul (une fois par jour). */
+  shownDay: string;
+  /** Dernier jour (horloge de l'appareil) où le jeu a été ouvert HORS LIGNE : présence provisoire, jamais créditée sans validation du service ce même jour. */
+  localDay: string;
+  /** Dernier état connu du service (affichage hors ligne). */
+  snapshot: LoyaltyState | null;
+}
+
 export function defaultSave(): SaveData {
   return {
     version: SAVE_VERSION,
@@ -282,6 +295,7 @@ export function defaultSave(): SaveData {
     stats: { totalCycles: 0, totalRuns: 0, totalShards: 0, totalEvents: 0, bestScore: 0, bestMultiplier: 0 },
     rewarded: [],
     rewardNotice: null,
+    loyalty: { shownDay: '', localDay: '', snapshot: null },
     campaign: defaultCampaign(),
     economy: defaultEconomy(),
   };
@@ -456,6 +470,13 @@ export function sanitize(raw: unknown): SaveData {
   if (isObj(raw.inventory)) out.inventory = sanitizeCounts(raw.inventory, BONUS.maxStock);
   if (isObj(raw.campaign)) out.campaign = sanitizeCampaign(raw.campaign);
   if (isObj(raw.economy)) out.economy = sanitizeEconomy(raw.economy);
+  if (isObj(raw.loyalty)) {
+    out.loyalty = {
+      shownDay: dateText(raw.loyalty.shownDay),
+      localDay: dateText(raw.loyalty.localDay),
+      snapshot: sanitizeLoyaltySnapshot(raw.loyalty.snapshot),
+    };
+  }
   return out;
 }
 
@@ -494,6 +515,32 @@ function sanitizeEconomy(raw: Record<string, unknown>): EconomySave {
   // Une partie en cours au moment d'une fermeture brutale est abandonnée : ses charges consommées sont déclarées comme un usage non classé
   out.liveUse = { boost: 0, gel: 0 };
   return out;
+}
+
+const dateText = (v: unknown): string => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
+
+/** Dernier état du calendrier connu du service : forme et bornes vérifiées (les récompenses viennent de la configuration, jamais de la sauvegarde). */
+function sanitizeLoyaltySnapshot(raw: unknown): LoyaltyState | null {
+  if (!isObj(raw) || !Array.isArray(raw.cycles)) return null;
+  const today = dateText(raw.today);
+  if (!today) return null;
+  const cycles: LoyaltyState['cycles'] = [];
+  for (const c of raw.cycles.slice(0, 30)) {
+    if (!isObj(c) || !Array.isArray(c.days) || c.days.length !== LOYALTY_LENGTH) continue;
+    const days = c.days.map((d, i) => ({ day: i + 1, reward: LOYALTY.days[i], unlocked: isObj(d) && d.unlocked === true, claimed: isObj(d) && d.claimed === true }));
+    cycles.push({ id: Math.floor(num(c.id, 0, 0, 1e12)), days, current: c.current === true, absences: Math.floor(num(c.absences, 0, 0, 99)), complete: c.complete === true });
+  }
+  const st = isObj(raw.stock) ? raw.stock : {};
+  return {
+    today,
+    nextDayAt: Math.floor(num(raw.nextDayAt, 0, 0, 1e15)),
+    presentToday: raw.presentToday === true,
+    cycles,
+    absencesLeft: raw.absencesLeft === null ? null : Math.floor(num(raw.absencesLeft, 0, 0, 9)),
+    claimable: Math.floor(num(raw.claimable, 0, 0, 9999)),
+    canClaimPrisms: raw.canClaimPrisms === true,
+    stock: { boost: Math.floor(num(st.boost, 0, 0, 9999)), gel: Math.floor(num(st.gel, 0, 0, 9999)), max: BONUS.maxStock },
+  };
 }
 
 function sanitizeCounts(raw: Record<string, unknown>, max: number): Inventory {

@@ -51,8 +51,11 @@ import { ShipPreview } from './ui/shipPreview';
 import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 import * as C from './ui/campaignScreens';
+import * as RW from './ui/rewardsScreens';
+import { applyLoyaltyClaim } from './economy/loyalty';
+import type { DailyAttempt, DailyBoard } from './net/rewardsProtocol';
 
-type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | 'revive' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | 'revive' | 'loyalty' | 'notices' | null;
 
 /** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
 const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
@@ -63,6 +66,7 @@ const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
   levels: 'campaign',
   account: 'options',
   prep: 'home',
+  loyalty: 'home',
 };
 
 /** Scène en cours d'affichage : réplique courante, avancement du texte progressif et suite à donner. */
@@ -177,6 +181,17 @@ export class App {
   /** Paiement d'une reprise en cours de vérification par le service (boutons neutralisés). */
   private reviveBusy = false;
   private reviveMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  // Récompenses gratuites (phase 4)
+  /** Le service a répondu à la validation de présence pendant cette ouverture (sinon : dernier état connu). */
+  private loyaltyOnline = false;
+  private loyaltyBusy: string | null = null;
+  private loyaltyMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  private loyaltyJust: string[] = [];
+  private dailyBoard: { board: DailyBoard | null; loading: boolean; error: string | null } = { board: null, loading: false, error: null };
+  /** Gains à annoncer au lancement : résultats du Défi quotidien (rang, Prismes) et drops rares confirmés. */
+  private gainQueue: RW.GainNotice[] = [];
+  /** Tentative du Défi quotidien démarrée auprès du service (preuve d'horaire) pour la partie en cours. */
+  private dailyAttempt: Promise<DailyAttempt | null> | null = null;
 
   constructor() {
     const res = loadSave(this.store);
@@ -307,15 +322,23 @@ export class App {
     // Retour en ligne : envoi des résultats en attente et renouvellement des tickets
     window.addEventListener('online', () => {
       void this.lb.flush();
+      void this.lb.flushDaily();
+      void this.refreshLoyalty();
       void this.lb.ensureTickets();
       void this.account.syncNow(true);
     });
     void this.lb.flush();
     void this.lb.ensureTickets();
-    void this.account.start().then(() => this.cleanMagicLink());
+    void this.lb.flushDaily();
+    void this.account.start().then(() => {
+      this.cleanMagicLink();
+      return this.initRewards();
+    });
     void this.checkForUpdate();
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) void this.checkForUpdate();
+      // Application restée ouverte au-delà de minuit UTC : la présence du nouveau jour est validée au retour
+      if (!document.hidden && !this.session) void this.refreshLoyalty();
       if (document.hidden) {
         this.pause();
         this.sfx.suspend();
@@ -524,6 +547,12 @@ export class App {
     this.runTicket = cfg.mode === 'survival' ? this.nextTicket : null;
     this.nextTicket = null;
     this.runLb = { kind: 'hidden' };
+    // Récompenses gratuites : le départ est enregistré par le SERVICE (preuve d'horaire du Défi quotidien ; condition du drop rare en Survie)
+    this.dailyAttempt = null;
+    if (cfg.mode === 'daily' && cfg.date && this.lb.configured && !this.devMode && this.lb.identity()) {
+      this.dailyAttempt = this.lb.dailyStart(cfg.date).then((r) => (r.ok ? r.data.attempt : null), () => null);
+    }
+    if (cfg.mode === 'survival' && this.runTicket && !this.devMode) void this.lb.startTicket(this.runTicket.id);
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.showScreen(null);
     this.renderer?.clearEffects();
@@ -807,6 +836,7 @@ export class App {
     } else {
       report = applyRun(this.save, summary);
       this.persist();
+      if (summary.mode === 'daily') this.afterDailyRun(summary, s);
     }
     this.hud.show(false);
     this.setPowersVisible(false);
@@ -823,6 +853,159 @@ export class App {
     this.firstReport = applyRun(this.save, summary);
     this.persist();
     this.afterSurvivalRun(summary, s);
+  }
+
+  // ————————————————————————————————————————————— récompenses gratuites (phase 4)
+
+  private loyaltyView(): RW.LoyaltyView {
+    return {
+      state: this.save.loyalty.snapshot,
+      online: this.loyaltyOnline,
+      provisional: !this.loyaltyOnline && this.save.loyalty.localDay === utcDateString(),
+      busy: this.loyaltyBusy,
+      message: this.loyaltyMessage,
+      justClaimed: this.loyaltyJust,
+      now: Date.now(),
+    };
+  }
+
+  private dailyBoardView(): RW.DailyBoardView {
+    return { ...this.dailyBoard, configured: this.lb.configured, pending: this.lb.pendingDaily(), now: Date.now() };
+  }
+
+  /** Valide la présence du jour auprès du service (heure du SERVICE) et met à jour le calendrier. Hors ligne : présence PROVISOIRE seulement (jamais créditée). */
+  private async refreshLoyalty(): Promise<void> {
+    if (!this.lb.configured) return;
+    const res = await this.lb.loyaltyCheckin();
+    if (res.ok) {
+      this.loyaltyOnline = true;
+      this.save.loyalty.snapshot = res.data;
+      this.save.loyalty.localDay = '';
+    } else {
+      this.loyaltyOnline = false;
+      this.save.loyalty.localDay = utcDateString();
+    }
+    this.persist(false);
+    if (this.session) return;
+    if (this.screen === 'loyalty' && this.loyaltyBusy === null) this.showScreen('loyalty', false);
+    else if (this.screen === 'home') this.showScreen('home', false);
+  }
+
+  /** Au lancement : présence, résultats du Défi quotidien et drops en attente d'annonce ; jamais pendant une partie ni par-dessus un autre écran. */
+  private async initRewards(): Promise<void> {
+    if (!this.lb.configured) return;
+    await this.refreshLoyalty();
+    if (this.lb.identity()) {
+      await this.lb.flush();
+      const n = await this.lb.dailyNotices();
+      if (n.ok) for (const x of n.data.notices) if (!this.gainQueue.some((g) => g.kind === 'daily' && g.date === x.date)) this.gainQueue.push({ kind: 'daily', ...x });
+    }
+    this.gainQueue = this.gainQueue.filter((g) => g.kind !== 'drop');
+    for (const p of this.lb.unseenDrops()) if (p.result?.drop) this.gainQueue.push({ kind: 'drop', prisms: p.result.drop.prisms });
+    if (this.session || this.screen !== 'home') return;
+    if (this.gainQueue.length > 0) this.showScreen('notices');
+    else this.maybeShowCalendar();
+  }
+
+  /** Le calendrier s'ouvre tout seul à la première ouverture de chaque jour UTC (jour du service si connu). */
+  private maybeShowCalendar(): void {
+    const today = this.loyaltyOnline && this.save.loyalty.snapshot ? this.save.loyalty.snapshot.today : utcDateString();
+    if (this.save.loyalty.shownDay === today) return;
+    this.save.loyalty.shownDay = today;
+    this.persist(false);
+    this.loyaltyMessage = null;
+    this.loyaltyJust = [];
+    this.showScreen('loyalty');
+  }
+
+  private async finishNotices(): Promise<void> {
+    const dates = this.gainQueue.filter((g): g is Extract<RW.GainNotice, { kind: 'daily' }> => g.kind === 'daily').map((g) => g.date);
+    this.gainQueue = [];
+    if (dates.length > 0) void this.lb.dailyAck(dates);
+    for (const p of this.lb.unseenDrops()) this.lb.markDropSeen(p.id);
+    this.showScreen('home');
+    this.maybeShowCalendar();
+    // Les Prismes crédités par le service apparaissent au solde confirmé après la synchronisation
+    void this.account.syncNow(true);
+  }
+
+  /** Réclamation MANUELLE d'une récompense du calendrier : le service décide (atomique, une seule fois) ; l'appareil reflète sa réponse. */
+  private async claimLoyalty(cycle: number, day: number): Promise<void> {
+    if (this.loyaltyBusy !== null || !Number.isInteger(cycle) || !Number.isInteger(day)) return;
+    this.loyaltyBusy = `${cycle}:${day}`;
+    this.loyaltyMessage = null;
+    this.rerenderLoyalty();
+    const res = await this.lb.loyaltyClaim(cycle, day);
+    this.loyaltyBusy = null;
+    if (res.ok) {
+      applyLoyaltyClaim(this.save, res.data);
+      this.persist(false);
+      this.loyaltyOnline = true;
+      if (res.data.credited) {
+        this.loyaltyJust = [`${cycle}:${day}`];
+        this.sfx.play(res.data.reward.kind === 'prisms' ? 'record' : 'success');
+        this.loyaltyMessage = { kind: 'ok', text: `Récupéré : ${RW.rewardLabel(res.data.reward)}.` };
+        void this.account.syncNow(true);
+      } else {
+        this.loyaltyMessage = { kind: 'ok', text: 'Cette récompense avait déjà été récupérée : rien n’a été ajouté.' };
+      }
+    } else {
+      this.loyaltyMessage = { kind: 'error', text: res.kind === 'offline' ? 'Connexion requise pour récupérer une récompense : elle reste disponible.' : res.message };
+    }
+    this.rerenderLoyalty();
+  }
+
+  private rerenderLoyalty(): void {
+    if (this.screen === 'loyalty') this.showScreen('loyalty', false);
+  }
+
+  /** Classement mondial du jour : consultation (le service reste l'autorité sur les rangs, les ex æquo et les Prismes). */
+  private async refreshDailyBoard(): Promise<void> {
+    if (!this.lb.configured) return;
+    this.dailyBoard = { ...this.dailyBoard, loading: true, error: null };
+    if (this.screen === 'daily') this.showScreen('daily', false);
+    void this.lb.flushDaily().then(() => {
+      if (this.screen === 'daily') this.showScreen('daily', false);
+    });
+    const res = await this.lb.dailyBoard();
+    this.dailyBoard = res.ok ? { board: res.data, loading: false, error: null } : { board: this.dailyBoard.board, loading: false, error: res.message };
+    if (this.screen === 'daily') this.showScreen('daily', false);
+  }
+
+  private dailyStatusOf(p: import('./net/leaderboard').PendingDaily | undefined): S.RunLbStatus {
+    if (!p) return { kind: 'hidden' };
+    if (p.status === 'accepted' && p.result) return { kind: 'daily-accepted', rank: p.result.rank, eligible: p.result.eligible, late: p.result.late, state: p.result.state };
+    if (p.status === 'rejected') return { kind: 'rejected', message: p.message ?? 'refusé par le service' };
+    return { kind: 'pending', offline: !!p.lastError };
+  }
+
+  /**
+   * Fin d'une partie du Défi quotidien : si la tentative a été DÉMARRÉE en ligne (le service connaît l'heure de début), son journal est conservé « en attente »
+   * puis envoyé ; le service rejoue et décide. Sinon : résultat local seulement, expliqué.
+   */
+  private afterDailyRun(summary: RunSummary, s: GameSession): void {
+    this.runLb = { kind: 'hidden' };
+    const attempt = this.dailyAttempt;
+    this.dailyAttempt = null;
+    if (!this.lb.configured || this.devMode || s.sim.assisted) return;
+    if (!attempt) {
+      this.runLb = { kind: 'daily-local' };
+      return;
+    }
+    this.runLb = { kind: 'sending' };
+    const flips = [...s.sim.flipLog];
+    void attempt.then(async (att) => {
+      if (!att) {
+        this.runLb = { kind: 'daily-local' };
+        this.refreshRunLbStatus();
+        return;
+      }
+      this.lb.recordDaily(att, flips, { time: summary.time, score: summary.score });
+      const list = await this.lb.flushDaily();
+      this.runLb = this.dailyStatusOf(list.find((x) => x.id === att.id));
+      this.refreshRunLbStatus();
+      if (this.screen === 'daily') void this.refreshDailyBoard();
+    });
   }
 
   // ————————————————————————————————————————————— reprise (deuxième / troisième chance)
@@ -1178,13 +1361,15 @@ export class App {
     const today = utcDateString();
     let html = '';
     switch (id) {
-      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable, this.saveNotices(), this.lb.configured); break;
+      case 'home': html = S.homeScreen(this.save, today, isTouchPrimary(), this.updateAvailable, this.saveNotices(), this.lb.configured, this.lb.configured ? { claimable: this.save.loyalty.snapshot?.claimable ?? 0 } : null); break;
       case 'campaign': html = C.campaignScreen(this.save); break;
       case 'chapter': html = C.chapterScreen(this.save); break;
       case 'mission': html = C.missionScreen(this.save, this.selectedMission); break;
       case 'journal': html = C.journalScreen(this.save); break;
       case 'levels': html = S.levelsScreen(this.save); break;
-      case 'daily': html = S.dailyScreen(this.save, today); break;
+      case 'daily': html = S.dailyScreen(this.save, today, RW.dailyBoardHtml(this.dailyBoardView())); break;
+      case 'loyalty': html = RW.loyaltyScreen(this.loyaltyView()); break;
+      case 'notices': html = RW.noticesScreen(this.gainQueue); break;
       case 'cosmetics':
         html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage);
         break;
@@ -1330,7 +1515,11 @@ export class App {
       case 'story-advance': this.advanceStory(); break;
       case 'story-skip': this.finishStory(); break;
       case 'levels': this.showScreen('levels'); break;
-      case 'daily': this.showScreen('daily'); break;
+      case 'daily': this.showScreen('daily'); void this.refreshDailyBoard(); break;
+      case 'daily-refresh': void this.refreshDailyBoard(); break;
+      case 'loyalty': this.loyaltyMessage = null; this.loyaltyJust = []; this.showScreen('loyalty'); void this.refreshLoyalty(); break;
+      case 'loyalty-claim': void this.claimLoyalty(Number(target.dataset.cycle), Number(target.dataset.day)); break;
+      case 'notices-continue': void this.finishNotices(); break;
       case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); void this.account.syncNow(); break;
       case 'back-cosmetics': this.pendingPurchase = null; this.showScreen('cosmetics'); break;
       case 'achievements': this.showScreen('achievements'); void this.account.syncNow(); break;
@@ -1637,6 +1826,12 @@ export class App {
       void this.lb.flush().then((list) => {
         const p = list.find((x) => x.id === ticket.id);
         this.runLb = this.statusOf(p);
+        if (p?.result?.drop) {
+          // Drop rare confirmé par le service : animation + solde confirmé à la prochaine synchronisation
+          this.sfx.play('record');
+          if (this.screen === 'result') this.lb.markDropSeen(p.id);
+          void this.account.syncNow(true);
+        }
         this.refreshRunLbStatus();
         if (p?.needsSync) void this.account.syncNow(true).then(() => this.lb.flush()).then(() => this.refreshRunLbFromPending());
         if (this.screen === 'leaderboard') void this.refreshLeaderboard();
@@ -1660,7 +1855,7 @@ export class App {
 
   private statusOf(p: PendingRun | undefined): S.RunLbStatus {
     if (!p) return { kind: 'hidden' };
-    if (p.status === 'accepted' && p.result) return { kind: 'accepted', rank: p.result.rank, best: p.result.personalBest, category: p.result.category };
+    if (p.status === 'accepted' && p.result) return { kind: 'accepted', rank: p.result.rank, best: p.result.personalBest, category: p.result.category, drop: p.result.drop?.prisms };
     if (p.status === 'rejected') return { kind: 'rejected', message: p.message ?? 'refusé par le serveur' };
     return { kind: 'pending', offline: !!p.lastError };
   }
