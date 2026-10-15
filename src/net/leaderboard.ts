@@ -1,3 +1,4 @@
+import { setServiceIncompatible } from './serviceState';
 import { REPLAY_FORMAT_POWERS, validNickname, normalizeNickname, type BalancesResponse, type Category, type LeaderboardResponse, type MeResponse, type RegisterResponse, type RejectReason, type Replay, type RunResponse, type RunSubmission, type Ticket, type TicketsResponse } from './protocol';
 import { sha256Hex } from '../core/sha256';
 import { dailyDigestInput, type DailyAttempt, type DailyBoard, type DailyNoticesResponse, type DailyRunResponse, type DailyRunSubmission, type DailyRejectReason, type LoyaltyClaimResponse, type LoyaltyState } from './rewardsProtocol';
@@ -76,7 +77,15 @@ export interface PendingDaily {
   result?: { time: number; score: number; rank: number; personalBest: boolean; late: boolean; state: 'open' | 'grace' | 'final'; eligible: boolean };
 }
 
-export type NetResult<T> = { ok: true; data: T } | { ok: false; kind: 'offline' | 'unauthorized' | 'http'; status: number; message: string; reason?: RejectReason; /** Corps de l'erreur renvoyé par le service (ex. conflit de compte à confirmer). */ body?: unknown };
+export type NetResult<T> = { ok: true; data: T } | { ok: false; kind: 'offline' | 'unauthorized' | 'http' | 'incompatible'; status: number; message: string; reason?: RejectReason; /** Corps de l'erreur renvoyé par le service (ex. conflit de compte à confirmer). */ body?: unknown };
+
+/** Message affiché quand le service répond mais ne connaît pas les fonctions de cette version du jeu (serveur pas encore mis à jour) : ce n'est PAS une absence de connexion. */
+export const INCOMPATIBLE_MESSAGE =
+  'Le service en ligne n’est pas encore à jour pour cette version du jeu : Médailles, calendrier de connexion et Défi quotidien seront disponibles dès sa mise à jour. Votre progression est conservée sur cet appareil, rien n’est perdu.';
+
+/** Routes déjà présentes dans les anciens services (classement) : elles continuent de fonctionner même si le service n'est pas à jour. */
+const LEGACY_PATHS = new Set(['/api/health', '/api/leaderboard', '/api/me', '/api/balances', '/api/tickets', '/api/runs', '/api/report']);
+const INCOMPATIBLE_RETRY_MS = 5 * 60_000;
 
 export interface ClientOptions {
   baseUrl: string;
@@ -201,8 +210,23 @@ export class LeaderboardClient {
 
   // ————————————————————————— réseau
 
+  /** Heure (ms) à laquelle le service a répondu « route inconnue » à une route récente : on cesse alors de l'interroger (5 min) au lieu de répéter des requêtes vouées à l'échec. */
+  private incompatibleAt = 0;
+
+  /** Vrai si le service a montré qu'il n'est pas à jour pour cette version du jeu (réponse « route inconnue » ou inscription invité refusée). */
+  isServiceIncompatible(): boolean {
+    return this.incompatibleAt > 0 && this.now() - this.incompatibleAt < INCOMPATIBLE_RETRY_MS;
+  }
+
+  private incompatible<T>(): NetResult<T> {
+    setServiceIncompatible(true);
+    return { ok: false, kind: 'incompatible', status: 0, message: INCOMPATIBLE_MESSAGE };
+  }
+
   private async request<T>(method: string, path: string, opts: { body?: unknown; auth?: boolean; query?: string } = {}): Promise<NetResult<T>> {
     if (!this.configured) return { ok: false, kind: 'offline', status: 0, message: 'Service de classement non configuré.' };
+    const legacyRoute = LEGACY_PATHS.has(path) || (path === '/api/register' && typeof (opts.body as { nickname?: unknown } | undefined)?.nickname === 'string');
+    if (!legacyRoute && this.isServiceIncompatible()) return this.incompatible();
     const headers: Record<string, string> = {};
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
     if (opts.auth) {
@@ -226,8 +250,19 @@ export class LeaderboardClient {
       } catch {
         data = null;
       }
-      if (res.ok) return { ok: true, data: data as T };
-      const body = data as { message?: string; reason?: RejectReason } | null;
+      if (res.ok) {
+        if (!legacyRoute) {
+          this.incompatibleAt = 0;
+          setServiceIncompatible(false);
+        }
+        return { ok: true, data: data as T };
+      }
+      const body = data as { message?: string; reason?: RejectReason; error?: string } | null;
+      // Un service d'avant l'économie v3 répond « route inconnue » (404) aux routes récentes : serveur à mettre à jour, pas une absence de connexion
+      if (!legacyRoute && res.status === 404 && body?.error === 'not_found') {
+        this.incompatibleAt = this.now();
+        return this.incompatible();
+      }
       return { ok: false, kind: res.status === 401 ? 'unauthorized' : 'http', status: res.status, message: body?.message ?? `Erreur ${res.status}`, reason: body?.reason, body: data };
     } catch {
       return { ok: false, kind: 'offline', status: 0, message: 'Service injoignable (hors ligne ?).' };
@@ -268,7 +303,14 @@ export class LeaderboardClient {
     const existing = this.identity();
     if (existing) return { ok: true, data: existing };
     const res = await this.request<RegisterResponse & { guest?: boolean }>('POST', '/api/register', { body: {} });
+    // Un ancien service exige un pseudo à l'inscription (le profil invité n'existe pas encore chez lui)
+    if (!res.ok && res.kind === 'http' && res.status === 400 && (res.body as { error?: string } | undefined)?.error === 'bad_nickname') {
+      this.incompatibleAt = this.now();
+      return this.incompatible();
+    }
     if (!res.ok) return res;
+    this.incompatibleAt = 0;
+    setServiceIncompatible(false);
     const id: Identity = { playerId: res.data.playerId, token: res.data.token, nickname: res.data.nickname, guest: res.data.guest !== false };
     this.adoptIdentity(id);
     return { ok: true, data: id };

@@ -890,6 +890,7 @@ export class App {
       state: this.save.loyalty.snapshot,
       online: this.loyaltyOnline,
       provisional: !this.loyaltyOnline && this.save.loyalty.localDay === utcDateString(),
+      incompatible: this.lb.isServiceIncompatible(),
       busy: this.loyaltyBusy,
       message: this.loyaltyMessage,
       justClaimed: this.loyaltyJust,
@@ -937,6 +938,8 @@ export class App {
 
   /** Le calendrier s'ouvre tout seul à la première ouverture de chaque jour UTC (jour du service si connu). */
   private maybeShowCalendar(): void {
+    // Service pas à jour : le calendrier n'a rien à montrer, on n'ouvre pas d'écran inutile (aucune présence n'est perdue : elle sera validée dès la mise à jour)
+    if (this.lb.isServiceIncompatible()) return;
     const today = this.loyaltyOnline && this.save.loyalty.snapshot ? this.save.loyalty.snapshot.today : utcDateString();
     if (this.save.loyalty.shownDay === today) return;
     this.save.loyalty.shownDay = today;

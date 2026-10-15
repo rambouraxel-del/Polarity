@@ -1,3 +1,4 @@
+import { isServiceIncompatible } from '../net/serviceState';
 import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
 import { ACHIEVEMENT_CATEGORIES, type MetricKey } from '../config/achievements';
@@ -307,7 +308,9 @@ export function cosmeticItems(save: SaveData, tab: CosmeticsTab, filter: Cosmeti
 function waitingNote(save: SaveData): string {
   if (!save.economy.managed) return '';
   const bits = (['shards', 'medals'] as const).filter((c) => provisional(save, c) > 0).map((c) => `${formatScore(provisional(save, c))} ${CURRENCY_NAME[c]}`);
-  return bits.length > 0 ? `<p class="small shop-pending" role="status">En attente de confirmation par le service : ${bits.join(' et ')}. Ces montants seront dépensables après la prochaine synchronisation.</p>` : '';
+  if (bits.length === 0) return '';
+  const why = isServiceIncompatible() ? 'le service en ligne n’est pas encore à jour pour cette version du jeu (rien n’est perdu : dépensables dès sa mise à jour)' : 'dépensables après la prochaine synchronisation';
+  return `<p class="small shop-pending" role="status">En attente de confirmation par le service : ${bits.join(' et ')} — ${why}.</p>`;
 }
 
 const BONUS_ICON: Record<BonusKind, IconName> = { boost: 'bolt', gel: 'snow' };

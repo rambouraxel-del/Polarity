@@ -12,6 +12,13 @@
  * (Boost, Gel, Bouclier) en pas de simulation. Le journal d'une partie ne couvre que la PREMIÈRE vie (la tentative classée).
  */
 export const REPLAY_FORMAT = 1;
+/**
+ * Niveau d'API du service (annoncé par GET /api/health). 1 (ou champ absent) = service d'avant l'économie v3 : classement seulement (inscription avec pseudo,
+ * tickets, parties, classement). 2 = comptes, synchronisation, boutique, calendrier, Défi quotidien mondial, achats. Le jeu ne l'exige PAS pour jouer : il
+ * s'en sert pour expliquer qu'un service n'est pas à jour (au lieu d'afficher « Route inconnue »).
+ */
+export const API_LEVEL = 2;
+
 export const REPLAY_FORMAT_POWERS = 2;
 export type ReplayFormat = typeof REPLAY_FORMAT | typeof REPLAY_FORMAT_POWERS;
 

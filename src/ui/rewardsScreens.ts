@@ -1,5 +1,5 @@
 import { DAILY_RANKING, LOYALTY, LOYALTY_LENGTH, dailyPrizeForRank, type LoyaltyReward } from '../config/rewards';
-import type { PendingDaily } from '../net/leaderboard';
+import { INCOMPATIBLE_MESSAGE, type PendingDaily } from '../net/leaderboard';
 import type { DailyBoard, DailyNotice, LoyaltyCycleView, LoyaltyState } from '../net/rewardsProtocol';
 import { button, coin, notice, screenHead } from './components';
 import { escapeHtml, formatScore, formatTime } from './format';
@@ -22,6 +22,8 @@ export interface LoyaltyView {
   online: boolean;
   /** Ouvert hors ligne aujourd'hui : présence provisoire, à valider par le service ce même jour UTC. */
   provisional: boolean;
+  /** Le service répond mais n'est pas à jour pour cette version du jeu (≠ hors ligne). */
+  incompatible?: boolean;
   /** Réclamation en cours (`cycle:jour`). */
   busy: string | null;
   message: { kind: 'ok' | 'error'; text: string } | null;
@@ -73,6 +75,12 @@ function cell(st: LoyaltyState, c: LoyaltyCycleView, d: LoyaltyCycleView['days']
 export function loyaltyScreen(v: LoyaltyView): string {
   const st = v.state;
   const msg = v.message ? `<div role="${v.message.kind === 'error' ? 'alert' : 'status'}" class="notice${v.message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(v.message.text)}</div>` : '';
+  if (!st && v.incompatible) {
+    return `<div class="panel panel--wide loy">${screenHead('Récompenses de connexion')}
+      ${notice(INCOMPATIBLE_MESSAGE, 'cyan')}
+      <p class="small">Rien n’est perdu : la présence sera validée dès que le service sera à jour.</p>
+    </div>`;
+  }
   if (!st) {
     return `<div class="panel panel--wide loy">${screenHead('Récompenses de connexion')}
       ${msg}
@@ -142,7 +150,7 @@ export function dailyBoardHtml(v: DailyBoardView): string {
   if (!v.configured) return '<p class="small" style="margin-top:14px">Résultats enregistrés sur cet appareil uniquement : le classement mondial n’est pas disponible dans cette version.</p>';
   const head = '<h3 class="section-title">Classement mondial du jour</h3>';
   if (v.loading && !v.board) return `${head}<p class="sub" role="status">Chargement du classement…</p>`;
-  if (!v.board) return `${head}<div role="alert" class="notice">Classement indisponible${v.error ? ` : ${escapeHtml(v.error)}` : ''} ${button({ action: 'daily-refresh', label: 'Réessayer', variant: 'secondary', size: 'sm' })}</div>`;
+  if (!v.board) return `${head}<div role="alert" class="notice">${v.error === INCOMPATIBLE_MESSAGE ? escapeHtml(INCOMPATIBLE_MESSAGE) : `Classement indisponible${v.error ? ` : ${escapeHtml(v.error)}` : ''}`} ${button({ action: 'daily-refresh', label: 'Réessayer', variant: 'secondary', size: 'sm' })}</div>`;
   const b = v.board;
   const status =
     b.status === 'open'

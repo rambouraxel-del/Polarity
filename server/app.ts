@@ -1,5 +1,6 @@
 import { BALANCE_VERSION } from '../src/config/version';
 import {
+  API_LEVEL,
   LIMITS,
   REPLAY_FORMAT,
   REPLAY_FORMAT_POWERS,
@@ -477,7 +478,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
       switch (route) {
         case 'GET /api/health': {
           q.ping.get(); // la base répond-elle ? (sinon 500 : le contrôle de santé échoue)
-          return json(200, { ok: true, balance });
+          return json(200, { ok: true, balance, api: API_LEVEL });
         }
         case 'GET /api/leaderboard': return leaderboard(req);
         case 'GET /api/balances': return balances();

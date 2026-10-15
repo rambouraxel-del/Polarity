@@ -16,7 +16,7 @@ const MIN_SYNC_INTERVAL_MS = 10_000;
 const SYNC_DELAY_MS = 45_000;
 
 export interface SyncStatus {
-  status: 'idle' | 'syncing' | 'ok' | 'offline' | 'error' | 'disabled';
+  status: 'idle' | 'syncing' | 'ok' | 'offline' | 'incompatible' | 'error' | 'disabled';
   lastAt: number | null;
   message: string | null;
 }
@@ -380,6 +380,7 @@ export class AccountService {
 
   private fail(res: Extract<NetResult<unknown>, { ok: false }>): void {
     if (res.kind === 'offline') return this.setSync('offline', 'Hors connexion : vos gains et achats restent enregistrés sur cet appareil et seront envoyés plus tard.');
+    if (res.kind === 'incompatible') return this.setSync('incompatible', res.message);
     if (res.kind === 'unauthorized') return this.setSync('error', 'Le service ne reconnaît plus ce profil. Vos données locales sont intactes.');
     this.setSync('error', res.message);
   }
