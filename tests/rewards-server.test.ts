@@ -820,7 +820,7 @@ describe('Migration SQLite v6 : additive, sans toucher aux données existantes',
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
-    expect(SCHEMA_VERSION).toBe(7);
+    expect(SCHEMA_VERSION).toBe(8);
     const dir = mkdtempSync(join(tmpdir(), 'polar-rift-v6-'));
     try {
       const path = join(dir, 'c.sqlite');
@@ -833,7 +833,7 @@ describe('Migration SQLite v6 : additive, sans toucher aux données existantes',
       old.prepare("INSERT INTO bests (player_id, balance, category, steps, score, run_id, achieved_at) VALUES ('p1', 3, 'plain', 4000, 900, 1, 10)").run();
       old.close();
       const db = openDb(path);
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 7 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 8 });
       expect(db.prepare('SELECT steps, score FROM bests').all()).toEqual([{ steps: 4000, score: 900 }]);
       expect(db.prepare('SELECT id, started_at FROM tickets').all()).toEqual([{ id: 't1', started_at: null }]);
       expect(db.prepare('SELECT drop_prisms FROM runs').all()).toEqual([{ drop_prisms: 0 }]);
