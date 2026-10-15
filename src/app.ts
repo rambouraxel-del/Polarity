@@ -1122,7 +1122,7 @@ export class App {
       case 'lb-delete-ask': this.lbConfirmDelete = true; this.rerenderLeaderboard(); break;
       case 'lb-delete-cancel': this.lbConfirmDelete = false; this.rerenderLeaderboard(); break;
       case 'lb-delete-confirm': void this.deleteLeaderboardProfile(); break;
-      case 'lb-forget': this.lb.forgetProfile(); this.lbProfileLost = false; this.lbMe = null; this.lbNickMessage = null; this.rerenderLeaderboard(); break;
+      case 'lb-forget': this.lb.forgetProfile('drop'); this.lbProfileLost = false; this.lbMe = null; this.lbNickMessage = null; this.rerenderLeaderboard(); break;
       case 'options': this.showScreen('options'); break;
       case 'account': this.showScreen('account'); break;
       case 'acct-sync': void this.account.syncNow(true); break;
@@ -1342,7 +1342,8 @@ export class App {
       me: this.lbMe,
       balances: this.lbBalances,
       balance: this.lbBalance,
-      pending: this.lb.pending(),
+      pending: this.lb.pendingOwn(),
+      foreignPending: this.lb.pendingForeign().filter((p) => p.status === 'pending').length,
       nickMessage: this.lbNickMessage,
       localBest: this.save.survival.bestTime > 0 ? { time: this.save.survival.bestTime, score: this.save.survival.bestScore } : null,
       profileLost: this.lbProfileLost,

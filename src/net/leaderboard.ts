@@ -24,6 +24,8 @@ export interface Identity {
   nickname: string;
   /** Profil invité : pseudo non choisi (absent du classement public tant qu'un pseudo n'est pas choisi). */
   guest?: boolean;
+  /** Anciens profils invités fusionnés dans celui-ci (fusion confirmée par le service) : leurs résultats en attente restent envoyables. */
+  aliases?: string[];
 }
 
 export type PendingStatus = 'pending' | 'accepted' | 'rejected';
@@ -32,6 +34,11 @@ export type PendingStatus = 'pending' | 'accepted' | 'rejected';
 export interface PendingRun {
   /** Identifiant du ticket (unique par partie). */
   id: string;
+  /**
+   * Profil qui a reçu le ticket et joué la partie : le résultat n'est JAMAIS envoyé avec l'identité d'un autre profil (le ticket est signé pour ce
+   * profil). Conservé après déconnexion ; envoyé quand ce profil se reconnecte. Absent : ancienne entrée, rattachée au profil de l'appareil à la lecture.
+   */
+  owner?: string;
   submission: RunSubmission;
   createdAt: number;
   status: PendingStatus;
@@ -56,6 +63,7 @@ export interface ClientOptions {
   timeoutMs?: number;
 }
 
+/** Résultats en attente conservés PAR profil (le plus récent remplace le plus ancien au-delà). */
 const MAX_PENDING = 20;
 const MIN_TICKETS = 2;
 
@@ -98,13 +106,49 @@ export class LeaderboardClient {
     return id && typeof id.playerId === 'string' && typeof id.token === 'string' && typeof id.nickname === 'string' ? (id as Identity) : null;
   }
 
+  /** Tous les résultats en attente de cet appareil (tous profils confondus). Les anciennes entrées sans propriétaire sont rattachées au profil actuel. */
   pending(): PendingRun[] {
-    const list = this.read<PendingRun[]>(PENDING_KEY, []);
-    return Array.isArray(list) ? list : [];
+    const raw = this.read<PendingRun[]>(PENDING_KEY, []);
+    const list = Array.isArray(raw) ? raw.filter((p) => p && typeof p.id === 'string') : [];
+    const id = this.identity();
+    if (id && list.some((p) => !p.owner)) {
+      for (const p of list) if (!p.owner) p.owner = id.playerId;
+      this.write(PENDING_KEY, list);
+    }
+    return list;
   }
 
+  /** Identifiants que le profil actuel représente : lui-même et les profils invités fusionnés dans lui. */
+  private ownerIds(): Set<string> {
+    const id = this.identity();
+    return new Set(id ? [id.playerId, ...(id.aliases ?? [])] : []);
+  }
+
+  /** Résultats du profil actuel (affichés et envoyés). */
+  pendingOwn(): PendingRun[] {
+    const mine = this.ownerIds();
+    return this.pending().filter((p) => !!p.owner && mine.has(p.owner));
+  }
+
+  /** Résultats d'un AUTRE profil de cet appareil : conservés, envoyés quand ce profil se reconnecte. */
+  pendingForeign(): PendingRun[] {
+    const mine = this.ownerIds();
+    return this.pending().filter((p) => !p.owner || !mine.has(p.owner));
+  }
+
+  /** Enregistre la liste en gardant au plus `MAX_PENDING` entrées par propriétaire. */
   private savePending(list: PendingRun[]): void {
-    this.write(PENDING_KEY, list.slice(-MAX_PENDING));
+    const kept: PendingRun[] = [];
+    const count = new Map<string, number>();
+    for (const p of [...list].reverse()) {
+      const k = p.owner ?? '';
+      const n = count.get(k) ?? 0;
+      if (n >= MAX_PENDING) continue;
+      count.set(k, n + 1);
+      kept.unshift(p);
+    }
+    if (kept.length === 0) this.o.store.remove(PENDING_KEY);
+    else this.write(PENDING_KEY, kept);
   }
 
   private tickets(): Ticket[] {
@@ -169,10 +213,26 @@ export class LeaderboardClient {
     return this.request<T>(method, path, opts);
   }
 
-  /** Remplace l'identité de cet appareil (connexion, fusion). Les tickets de l'ancien profil ne valent plus : ils sont écartés. */
-  adoptIdentity(id: Identity): void {
+  /**
+   * Remplace l'identité de cet appareil (connexion, fusion). Les tickets de l'ancien profil ne valent plus : ils sont écartés.
+   * `mergedFrom` : profil invité que le service vient de fusionner dans celui-ci — ses résultats en attente deviennent envoyables.
+   * Les résultats en attente ne sont jamais supprimés ni réattribués.
+   */
+  adoptIdentity(id: Identity, opts: { mergedFrom?: string } = {}): void {
+    const prev = this.identity();
+    const aliases = new Set<string>(id.aliases ?? (prev && prev.playerId === id.playerId ? prev.aliases ?? [] : []));
+    if (opts.mergedFrom && opts.mergedFrom !== id.playerId) {
+      aliases.add(opts.mergedFrom);
+      for (const a of this.aliasesOf(opts.mergedFrom)) aliases.add(a);
+    }
+    this.pending(); // rattache d'abord les anciennes entrées sans propriétaire à l'ancien profil
     this.write(TICKETS_KEY, []);
-    this.write(IDENTITY_KEY, id);
+    this.write(IDENTITY_KEY, { ...id, aliases: aliases.size > 0 ? [...aliases] : undefined });
+  }
+
+  private aliasesOf(playerId: string): string[] {
+    const prev = this.identity();
+    return prev && prev.playerId === playerId ? prev.aliases ?? [] : [];
   }
 
   /** Profil invité créé automatiquement, sans saisie : disponible tout de suite pour la synchronisation. Sans effet si un profil existe déjà. */
@@ -193,8 +253,7 @@ export class LeaderboardClient {
     if (!res.ok) return res;
     const id: Identity = { playerId: res.data.playerId, token: res.data.token, nickname: res.data.nickname };
     // Les tickets sont liés au profil qui les a reçus : ceux d'un ancien profil seraient refusés par le serveur
-    this.write(TICKETS_KEY, []);
-    this.write(IDENTITY_KEY, id);
+    this.adoptIdentity(id);
     return { ok: true, data: id };
   }
 
@@ -210,11 +269,20 @@ export class LeaderboardClient {
     return { ok: true, data: next };
   }
 
-  /** Oublie le profil local (identité, tickets, résultats en attente) : à utiliser après suppression, ou si le service ne le reconnaît plus. */
-  forgetProfile(): void {
+  /**
+   * Oublie l'identité de cet appareil (secret, tickets). Par défaut (`keep`, déconnexion) les résultats classés en attente sont CONSERVÉS, rattachés
+   * à leur profil, et envoyés quand ce profil se reconnecte. `drop` : le profil n'existe plus (supprimé, inconnu du service) — ses résultats
+   * en attente, qui ne pourront jamais être validés, sont retirés ; ceux des autres profils restent.
+   */
+  forgetProfile(mode: 'keep' | 'drop' = 'keep'): void {
+    if (mode === 'drop') {
+      const mine = this.ownerIds();
+      this.savePending(this.pending().filter((p) => !p.owner || !mine.has(p.owner)));
+    } else {
+      this.pending(); // rattache les anciennes entrées sans propriétaire avant d'oublier l'identité
+    }
     this.o.store.remove(IDENTITY_KEY);
     this.o.store.remove(TICKETS_KEY);
-    this.o.store.remove(PENDING_KEY);
   }
 
   /**
@@ -224,7 +292,7 @@ export class LeaderboardClient {
   async deleteProfile(): Promise<NetResult<{ deleted: boolean }>> {
     const res = await this.request<{ deleted: boolean }>('DELETE', '/api/me', { auth: true });
     if (res.ok || (!res.ok && res.kind === 'unauthorized')) {
-      this.forgetProfile();
+      this.forgetProfile('drop');
       return { ok: true, data: { deleted: true } };
     }
     return res;
@@ -259,10 +327,14 @@ export class LeaderboardClient {
   // ————————————————————————— parties
 
   /** Enregistre une partie de Survie éligible : conservée localement jusqu'à validation par le serveur. */
-  recordRun(ticket: Ticket, flips: readonly number[], claimed: { time: number; score: number }): PendingRun {
+  recordRun(ticket: Ticket, flips: readonly number[], claimed: { time: number; score: number }): PendingRun | null {
+    // Le ticket est signé pour le profil qui l'a reçu : le résultat lui est rattaché définitivement
+    const owner = this.identity()?.playerId;
+    if (!owner) return null;
     const replay: Replay = { v: REPLAY_FORMAT, flips: [...flips] };
     const run: PendingRun = {
       id: ticket.id,
+      owner,
       submission: { ticket, replay, claimed, client: { balance: this.o.balance, build: this.o.build } },
       createdAt: this.now(),
       status: 'pending',
@@ -282,8 +354,9 @@ export class LeaderboardClient {
   }
 
   private async doFlush(): Promise<PendingRun[]> {
-    if (!this.configured || !this.identity()) return this.pending();
-    for (const run of this.pending().filter((p) => p.status === 'pending')) {
+    if (!this.configured || !this.identity()) return this.pendingOwn();
+    // Seuls les résultats du profil connecté sont envoyés (jamais ceux d'un autre profil de l'appareil)
+    for (const run of this.pendingOwn().filter((p) => p.status === 'pending')) {
       const res = await this.request<RunResponse>('POST', '/api/runs', { body: run.submission, auth: true });
       const list = this.pending();
       const cur = list.find((p) => p.id === run.id);
@@ -311,11 +384,12 @@ export class LeaderboardClient {
       }
       this.savePending(list);
     }
-    return this.pending();
+    return this.pendingOwn();
   }
 
-  /** Supprime les résultats déjà traités (validés ou refusés) de la liste locale. */
+  /** Supprime les résultats déjà traités (validés ou refusés) du profil actuel ; ceux des autres profils ne sont pas touchés. */
   clearDone(): void {
-    this.savePending(this.pending().filter((p) => p.status === 'pending'));
+    const mine = this.ownerIds();
+    this.savePending(this.pending().filter((p) => p.status === 'pending' || !p.owner || !mine.has(p.owner)));
   }
 }

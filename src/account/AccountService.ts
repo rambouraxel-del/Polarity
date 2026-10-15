@@ -174,8 +174,10 @@ export class AccountService {
       this.proof = null;
       const a = res.data;
       if (a.token) {
+        const previous = this.h.lb.identity();
         const id: Identity = { playerId: a.playerId, token: a.token, nickname: a.nickname, guest: a.guest };
-        this.h.lb.adoptIdentity(id);
+        // Fusion confirmée par le service : le profil invité de cet appareil devient un alias du compte (ses résultats classés en attente restent envoyables)
+        this.h.lb.adoptIdentity(id, a.merged && previous ? { mergedFrom: previous.playerId } : {});
       } else {
         const cur = this.h.lb.identity();
         if (cur) this.h.lb.adoptIdentity({ ...cur, nickname: a.nickname, guest: a.guest });

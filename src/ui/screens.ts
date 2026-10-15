@@ -442,6 +442,8 @@ export interface LeaderboardView {
   /** Version d'équilibrage affichée. */
   balance: number;
   pending: PendingRun[];
+  /** Résultats en attente appartenant à un autre profil de cet appareil (conservés, envoyés à sa reconnexion). */
+  foreignPending?: number;
   /** Message sur le dernier pseudo saisi (erreur ou confirmation). */
   nickMessage: string | null;
   /** Résultat de Survie local (record actuel). */
@@ -538,8 +540,9 @@ export function leaderboardScreen(v: LeaderboardView): string {
         v.pending.some((p) => p.status === 'pending') ? button({ action: 'lb-flush', label: 'Envoyer maintenant', icon: 'replay', variant: 'secondary', size: 'sm' }) : button({ action: 'lb-clear', label: 'Effacer la liste', variant: 'ghost', size: 'sm' })
       }`
     : '';
+  const foreign = v.foreignPending ? `<p class="small">${v.foreignPending} résultat${v.foreignPending > 1 ? 's' : ''} en attente d’un autre profil de cet appareil : conservé${v.foreignPending > 1 ? 's' : ''}, envoyé${v.foreignPending > 1 ? 's' : ''} quand ce profil se reconnecte.</p>` : '';
   return `<div class="panel panel--wide">${head}
-    ${lost}${identity}${msg}${me}${versions}${table}${pending}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
+    ${lost}${identity}${msg}${me}${versions}${table}${pending}${foreign}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
   </div>`;
 }
 

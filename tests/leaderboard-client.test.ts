@@ -87,7 +87,7 @@ describe('classement : client', () => {
     const ticket = client.takeTicket()!;
     const run = playRun(ticket.seed);
     const rec = client.recordRun(ticket, run.flips, { time: run.time, score: run.score });
-    expect(rec.status).toBe('pending');
+    expect(rec?.status).toBe('pending');
     expect(client.pending()).toHaveLength(1);
     const list = await client.flush();
     expect(list[0]).toMatchObject({ status: 'accepted', result: { time: run.time, score: run.score, rank: 1, personalBest: true } });

@@ -96,7 +96,7 @@ export function accountScreen(v: AccountView): string {
   const connect = `<h3 class="section-title">${isAccount ? 'Méthodes de connexion' : 'Se connecter (facultatif)'}</h3>
     <p class="small">Un compte permet de retrouver votre progression sur un autre appareil et sera nécessaire pour de futurs achats. <strong>Rien ne change si vous n’en créez pas</strong> : le jeu reste jouable sans compte et sans Internet.</p>
     ${methodRows}`;
-  const logout = s.identity ? `<h3 class="section-title">Cet appareil</h3>${button({ action: 'acct-logout', label: 'Se déconnecter de cet appareil', variant: 'ghost', size: 'sm' })}<p class="small">Votre progression locale est conservée.</p>` : '';
+  const logout = s.identity && isAccount ? `<h3 class="section-title">Cet appareil</h3>${button({ action: 'acct-logout', label: 'Se déconnecter de cet appareil', variant: 'ghost', size: 'sm' })}<p class="small">Votre progression locale est conservée, ainsi que vos résultats classés en attente : ils seront envoyés à votre prochaine connexion.</p>` : '';
   return `<div class="panel">${head}${who}${msg}${conflict}${sync}${connect}${logout}
     <p class="small" style="margin-top:14px">Hors connexion, les Éclats gagnés et les achats sont enregistrés provisoirement sur cet appareil ; le service les confirme à la synchronisation suivante. Les données locales ne suffisent jamais à créer de nouvelles récompenses payantes.</p>
   </div>`;
