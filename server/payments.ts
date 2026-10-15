@@ -3,6 +3,7 @@ import { PRISM_PACKS, PURCHASE_LIMITS, packByProductId, type StoreId } from '../
 import type { HttpRequest, HttpResponse, PlayerRow } from './app';
 import { transaction, type Db } from './db';
 import { balancesOf } from './profile';
+import { GOOGLE_ISSUERS, GOOGLE_JWKS, JwksCache, defaultJwksFetcher, verifyIdToken, type JwksFetcher } from './oidc';
 
 /**
  * Achats réels de Prismes (phase 5).
@@ -62,8 +63,13 @@ export interface PaymentsConfig {
   apple?: AppleConfig;
   google?: GoogleConfig;
   web?: WebProvider;
-  /** Jeton secret de l'adresse de notification Google Play (Pub/Sub push) : `…/notify/google?token=…`. */
+  /** Jeton secret de l'adresse de notification Google Play (Pub/Sub push) : `…/notify/google?token=…` (apparaît dans les journaux du proxy : préférer l'authentification OIDC ci-dessous). */
   playNotifyToken?: string;
+  /**
+   * Authentification OFFICIELLE du push Pub/Sub : jeton OIDC signé par Google (en-tête Authorization), audience et compte de service configurés sur
+   * l'abonnement. L'adresse e-mail du compte de service est OBLIGATOIRE (sans elle, n'importe quel compte Google pourrait signer un jeton avec la même audience).
+   */
+  playNotifyOidc?: { audience: string; email: string; jwksFetcher?: JwksFetcher };
   fetch?: typeof fetch;
   ads?: AdsConfig;
 }
@@ -385,6 +391,7 @@ export function createPayments(deps: PaymentsDeps): Payments {
   const apple = cfg.apple ? new AppleVerifier(cfg.apple, f, now) : null;
   const google = cfg.google ? new GoogleVerifier(cfg.google, f, now) : null;
   const web = cfg.web ?? null;
+  const pubsubJwks = cfg.playNotifyOidc ? new JwksCache(cfg.playNotifyOidc.jwksFetcher ?? defaultJwksFetcher, now) : null;
   const providers = (): Record<StoreId, boolean> => ({ apple: !!apple, google: !!google, web: !!web });
 
   const q = {
@@ -631,10 +638,26 @@ export function createPayments(deps: PaymentsDeps): Payments {
   /** Notification Google Play (Pub/Sub push, adresse secrète) : remboursements (voided) et achats en attente devenus valides. */
   async function notifyGoogle(req: HttpRequest): Promise<HttpResponse> {
     if (!allow('notify:google', 120, 60_000)) return err(429, 'rate_limited', RATE);
-    if (!google || !cfg.playNotifyToken) return json(200, { ignored: 'unconfigured' });
-    const given = Buffer.from(req.query.get('token') ?? '');
-    const want = Buffer.from(cfg.playNotifyToken);
-    if (given.length !== want.length || !timingSafeEqual(given, want)) return err(401, 'unauthorized', 'Jeton de notification invalide.');
+    if (!google || (!cfg.playNotifyToken && !cfg.playNotifyOidc)) return json(200, { ignored: 'unconfigured' });
+    // Authentification : jeton OIDC de Pub/Sub (recommandé) ou, à défaut, jeton secret dans l'adresse ; l'un des deux, jamais aucun
+    let authorized = false;
+    if (cfg.playNotifyToken) {
+      const given = Buffer.from(req.query.get('token') ?? '');
+      const want = Buffer.from(cfg.playNotifyToken);
+      authorized = given.length === want.length && timingSafeEqual(given, want);
+    }
+    if (!authorized && cfg.playNotifyOidc) {
+      const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '');
+      if (m) {
+        try {
+          const v = await verifyIdToken(m[1], { name: 'google', issuers: GOOGLE_ISSUERS, jwksUri: GOOGLE_JWKS, audiences: [cfg.playNotifyOidc.audience] }, { now, jwks: pubsubJwks! });
+          authorized = v.emailVerified === true && v.email === cfg.playNotifyOidc.email.toLowerCase();
+        } catch {
+          authorized = false;
+        }
+      }
+    }
+    if (!authorized) return err(401, 'unauthorized', 'Notification non authentifiée.');
     let msg: Record<string, unknown> | null = null;
     try {
       const data = (req.body as { message?: { data?: unknown } } | undefined)?.message?.data;

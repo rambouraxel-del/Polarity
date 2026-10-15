@@ -34,7 +34,8 @@
     "mobile:android:debug": "npm run mobile:sync && cd android && ./gradlew assembleDebug",
     "mobile:android:aab": "npm run mobile:check -- --release && npm run mobile:sync && cd android && ./gradlew bundleRelease",
     "mobile:open:android": "cap open android",
-    "mobile:open:ios": "cap open ios"
+    "mobile:open:ios": "cap open ios",
+    "server:migrate-check": "tsx server/migrate-check.ts"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

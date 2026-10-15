@@ -69,7 +69,7 @@ try {
 }
 const adUnits = list(process.env.ADMOB_AD_UNIT_IDS);
 const app = createApp(db, {
-  payments: { apple: applePay, google: googlePay, playNotifyToken: env('PLAY_NOTIFY_TOKEN') || undefined, ads: adUnits.length > 0 ? { adUnits } : undefined },
+  payments: { apple: applePay, google: googlePay, playNotifyToken: env('PLAY_NOTIFY_TOKEN') || undefined, playNotifyOidc: env('PLAY_NOTIFY_AUDIENCE') && env('PLAY_NOTIFY_SERVICE_ACCOUNT_EMAIL') ? { audience: env('PLAY_NOTIFY_AUDIENCE'), email: env('PLAY_NOTIFY_SERVICE_ACCOUNT_EMAIL') } : undefined, ads: adUnits.length > 0 ? { adUnits } : undefined },
   ticketSecret: secret,
   blockedWords: blocked,
   limits: { replaysPerMinute: Number.isFinite(maxReplays) && maxReplays > 0 ? maxReplays : 30 },

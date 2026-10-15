@@ -24,6 +24,17 @@ const AD_UNIT = 'ca-app-pub-0000000000000000/1111111111';
 const appleKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 const googleKey = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const admobKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+const pubsubKey = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const PUBSUB_AUDIENCE = 'https://service.example/api/payments/notify/google';
+const PUBSUB_EMAIL = 'pubsub-push@projet.iam.gserviceaccount.com';
+const pubsubJwk = { ...(pubsubKey.publicKey.export({ format: 'jwk' }) as Record<string, string>), kid: 'pubsub-1', alg: 'RS256', use: 'sig' };
+/** Jeton OIDC de Pub/Sub tel que Google le signe (RS256, émetteur, audience, compte de service). */
+function pubsubJwt(over: Record<string, unknown> = {}, key = pubsubKey.privateKey, kid = 'pubsub-1'): string {
+  const head = Buffer.from(JSON.stringify({ alg: 'RS256', kid, typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', aud: PUBSUB_AUDIENCE, sub: '1234', email: PUBSUB_EMAIL, email_verified: true, iat: Math.floor(NOW0 / 1000), exp: Math.floor(NOW0 / 1000) + 3600, ...over })).toString('base64url');
+  const sig = createSign('RSA-SHA256').update(`${head}.${body}`).sign(key);
+  return `${head}.${body}.${sig.toString('base64url')}`;
+}
 const admobPem = admobKey.publicKey.export({ type: 'spki', format: 'pem' }) as string;
 
 const b64u = (o: unknown): string => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');
@@ -157,6 +168,8 @@ interface Opts {
   web?: boolean;
   ads?: boolean;
   notifyToken?: string;
+  /** Authentification OIDC du push Pub/Sub (en plus ou à la place du jeton dans l'adresse). */
+  oidc?: boolean;
 }
 
 function ctx(o: Opts = {}, db: Db = openDb(':memory:')) {
@@ -170,7 +183,8 @@ function ctx(o: Opts = {}, db: Db = openDb(':memory:')) {
       apple: o.apple === false ? undefined : { issuerId: 'ISSUER', keyId: 'KEYID', privateKey: appleKey.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string, bundleId: BUNDLE, ...o.apple },
       google: o.google === false ? undefined : { packageName: PACKAGE, clientEmail: 'play@test.iam', privateKey: googleKey.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string, ...o.google },
       web: o.web ? new FakeWeb() : undefined,
-      playNotifyToken: o.notifyToken ?? 'jeton-notif-google',
+      playNotifyToken: o.notifyToken === '' ? undefined : (o.notifyToken ?? 'jeton-notif-google'),
+      playNotifyOidc: o.oidc ? { audience: PUBSUB_AUDIENCE, email: PUBSUB_EMAIL, jwksFetcher: async () => ({ keys: [pubsubJwk as never] }) } : undefined,
       fetch: pv.fetchFn,
       ads: o.ads === false ? undefined : { adUnits: [AD_UNIT], keys: async () => ({ '1': admobPem }) },
     },
@@ -951,3 +965,46 @@ describe('Réconciliation avec les fournisseurs (phase 6) : remboursements, annu
 });
 
 const apple_product = (c: Ctx, id: string): string => c.pv.state.apple.get(id)!.productId;
+
+describe('Notifications Google Play : authentification OIDC officielle de Pub/Sub', () => {
+  const note = (data: unknown): { body: unknown } => ({ body: { message: { data: Buffer.from(JSON.stringify(data)).toString('base64') } } });
+  const voided = (order: string, token: string): { body: unknown } => note({ packageName: PACKAGE, voidedPurchaseNotification: { purchaseToken: token, orderId: order } });
+  const withBearer = (n: { body: unknown }, jwt: string): { body: unknown; headers: Record<string, string> } => ({ ...n, headers: { authorization: `Bearer ${jwt}` } });
+
+  it('jeton OIDC valide (émetteur Google, audience et compte de service attendus) : accepté ; sinon 401', async () => {
+    const c = ctx({ notifyToken: '', oidc: true });
+    const p = c.account('Axel');
+    google(c, p, TOKEN(200), 'polar_rift_prisms_100');
+    await verifyGoogle(c, p, TOKEN(200), 'polar_rift_prisms_100');
+    const order = c.pv.state.google.get(TOKEN(200))!.orderId;
+    c.pv.state.voided.push({ orderId: order, purchaseToken: TOKEN(200), voidedTimeMillis: NOW0 - 1 });
+    const n = voided(order, TOKEN(200));
+    expect((await c.call('POST', '/api/payments/notify/google', n)).status).toBe(401);
+    expect((await c.call('POST', '/api/payments/notify/google', { ...n, query: 'token=n-importe-quoi' })).status).toBe(401);
+    // Mauvaise audience, mauvais compte de service, e-mail non vérifié, expiré, clé inconnue/falsifiée : refusés
+    const bad = [
+      pubsubJwt({ aud: 'https://autre.example' }),
+      pubsubJwt({ email: 'attaquant@projet.iam.gserviceaccount.com' }),
+      pubsubJwt({ email_verified: false }),
+      pubsubJwt({ exp: Math.floor(NOW0 / 1000) - 7200 }),
+      pubsubJwt({}, generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey),
+      pubsubJwt({}, pubsubKey.privateKey, 'autre-kid'),
+      pubsubJwt({ iss: 'https://evil.example' }),
+    ];
+    for (const j of bad) expect((await c.call('POST', '/api/payments/notify/google', withBearer(n, j))).status).toBe(401);
+    expect(prisms(c, p.id)).toBe(100);
+    const ok = await c.call('POST', '/api/payments/notify/google', withBearer(n, pubsubJwt()));
+    expect(ok.status).toBe(200);
+    expect(prisms(c, p.id)).toBe(0);
+  });
+
+  it('jeton dans l’adresse toujours accepté si configuré ; les deux méthodes coexistent ; aucune méthode configurée : ignoré', async () => {
+    const both = ctx({ oidc: true });
+    const n = voided('GPA.none', TOKEN(201));
+    expect((await both.call('POST', '/api/payments/notify/google', { ...n, query: 'token=jeton-notif-google' })).status).toBe(200);
+    expect((await both.call('POST', '/api/payments/notify/google', withBearer(n, pubsubJwt()))).status).toBe(200);
+    expect((await both.call('POST', '/api/payments/notify/google', n)).status).toBe(401);
+    const none = ctx({ notifyToken: '' });
+    expect((await none.call('POST', '/api/payments/notify/google', n)).body).toMatchObject({ ignored: 'unconfigured' });
+  });
+});
