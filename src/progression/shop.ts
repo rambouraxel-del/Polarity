@@ -1,24 +1,23 @@
 import { catalogItem, type CatalogItem, type Currency } from '../config/catalog';
 import { trailById } from '../config/trails';
 import { noteEarned, notePurchase } from '../economy/local';
-import { premiumAvailable } from '../monetization/payments';
+import { spendable } from '../economy/funds';
 import type { SaveData } from '../save/save';
 
 /**
- * Boutique : propriété, état des articles, achats en Éclats, équipement.
+ * Boutique : propriété, état des articles, achats en Médailles, équipement.
  * Un achat débite le solde et enregistre les articles obtenus dans la même modification de la sauvegarde
  * (un seul appel d'écriture ensuite) ; l'état « possédé » empêche tout second débit.
- * Les Prismes ne sont jamais débités ni crédités ici : aucun paiement n'est actif dans cette version.
+ * Cosmétiques non premium : Médailles uniquement (jamais d'Éclats). Les Éclats servent aux bonus (economy/bonus.ts).
+ * Les Prismes ne sont JAMAIS débités ni crédités ici : l'achat d'un article premium est une requête au service (account/AccountService.ts).
  */
-export type Ownership = Pick<SaveData, 'achievements' | 'owned'>;
+export type Ownership = Pick<SaveData, 'owned'>;
 
 export function isOwned(own: Ownership, id: string): boolean {
   const item = catalogItem(id);
   if (!item) return false;
   if (item.kind === 'pack') return (item.contents ?? []).every((c) => isOwned(own, c));
-  const a = item.acquire;
-  if (a.type === 'default') return true;
-  if (a.type === 'achievement' && own.achievements[a.id] !== undefined) return true;
+  if (item.acquire.type === 'default') return true;
   return own.owned.includes(id);
 }
 
@@ -49,10 +48,10 @@ export const balanceOf = (save: Pick<SaveData, 'wallet'>, currency: Currency): n
 /**
  * Situation d'un article :
  * - owned : possédé, non équipé ; equipped : possédé et équipé ;
- * - buy : achetable avec le solde actuel ; insufficient : solde insuffisant ;
- * - achievement : exclusivité d'un succès non obtenu ; soon : article premium (Prismes), « Bientôt disponible ».
+ * - buy : achetable maintenant (fonds dépensables suffisants) ; insufficient : fonds insuffisants ;
+ * - soon : article premium alors qu'aucun service de comptes n'est configuré (« Bientôt disponible »).
  */
-export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'achievement' | 'soon';
+export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'soon';
 
 export function itemState(save: SaveData, item: CatalogItem): ItemState {
   if (isOwned(save, item.id)) {
@@ -61,39 +60,40 @@ export function itemState(save: SaveData, item: CatalogItem): ItemState {
     return 'owned';
   }
   const a = item.acquire;
-  if (a.type === 'achievement') return 'achievement';
   if (a.type === 'price') {
-    if (a.currency === 'prisms' && !premiumAvailable()) return 'soon';
+    if (a.currency === 'prisms' && !save.economy.managed) return 'soon';
     const due = effectivePrice(save, item) ?? { currency: a.currency, amount: a.amount };
-    return balanceOf(save, due.currency) >= due.amount ? 'buy' : 'insufficient';
+    return spendable(save, due.currency) >= due.amount ? 'buy' : 'insufficient';
   }
   return 'owned';
 }
 
-export type PurchaseFailure = 'unknown' | 'owned' | 'achievement' | 'unavailable' | 'insufficient';
+export type PurchaseFailure = 'unknown' | 'owned' | 'unavailable' | 'premium' | 'insufficient';
 
 export type PurchaseResult =
-  | { ok: true; item: CatalogItem; spent: number; granted: string[]; balance: number }
+  | { ok: true; item: CatalogItem; currency: Currency; spent: number; granted: string[]; balance: number }
   | { ok: false; reason: PurchaseFailure };
 
-/** Achète un article en Éclats : vérifie le solde, débite et enregistre l'obtention ensemble. Un article possédé n'est jamais débité. */
+/**
+ * Achète un cosmétique non premium (Médailles) : vérifie les fonds DÉPENSABLES (solde confirmé, hors gains provisoires quand un service est
+ * configuré), débite et enregistre l'obtention ensemble. Un article possédé n'est jamais débité.
+ * Article premium (Prismes) : refusé ici (`premium`) — le débit est fait par le service, en ligne.
+ */
 export function purchase(save: SaveData, id: string): PurchaseResult {
   const item = catalogItem(id);
   if (!item) return { ok: false, reason: 'unknown' };
   if (isOwned(save, id)) return { ok: false, reason: 'owned' };
   const a = item.acquire;
-  if (a.type === 'achievement') return { ok: false, reason: 'achievement' };
   if (a.type !== 'price') return { ok: false, reason: 'owned' };
-  // Prismes : aucun paiement actif, jamais de débit local
-  if (a.currency !== 'shards') return { ok: false, reason: 'unavailable' };
+  if (a.currency === 'prisms') return { ok: false, reason: save.economy.managed ? 'premium' : 'unavailable' };
   const due = effectivePrice(save, item)?.amount ?? a.amount;
-  if (!Number.isFinite(save.wallet.shards) || save.wallet.shards < due) return { ok: false, reason: 'insufficient' };
+  if (!Number.isFinite(save.wallet[a.currency]) || spendable(save, a.currency) < due) return { ok: false, reason: 'insufficient' };
   const granted = item.kind === 'pack' ? (item.contents ?? []).filter((c) => !isOwned(save, c)) : [id];
   // Débit et obtention : même modification, sans étape intermédiaire
-  save.wallet.shards -= due;
+  save.wallet[a.currency] -= due;
   for (const g of granted) if (!save.owned.includes(g)) save.owned.push(g);
   notePurchase(save, item, due);
-  return { ok: true, item, spent: due, granted, balance: save.wallet.shards };
+  return { ok: true, item, currency: a.currency, spent: due, granted, balance: save.wallet[a.currency] };
 }
 
 /** Équipe un vaisseau ou une traînée possédé. Renvoie faux si l'article est inconnu, d'un autre type ou non possédé. */

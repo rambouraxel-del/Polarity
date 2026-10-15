@@ -1,5 +1,6 @@
 import { catalogItem } from '../config/catalog';
-import type { MigrateBody, SyncBody, SyncResponse } from '../net/accountProtocol';
+import { BONUS } from '../config/economy';
+import type { MigrateBody, PremiumPurchaseResponse, SyncBody, SyncResponse } from '../net/accountProtocol';
 import type { SaveData } from '../save/save';
 import { mergeSaves } from './merge';
 import { grantedBy } from './rules';
@@ -24,7 +25,14 @@ export function unconfirmedPurchases(save: SaveData): Record<string, number> {
 }
 
 export function buildSyncBody(save: SaveData): SyncBody {
-  return { installId: save.economy.installId, earned: save.economy.earned, purchases: unconfirmedPurchases(save), save: payload(save) };
+  return {
+    installId: save.economy.installId,
+    earned: save.economy.earned,
+    purchases: unconfirmedPurchases(save),
+    claims: [...save.medals.claimed],
+    bonusBought: { ...save.economy.bonusBought },
+    save: payload(save),
+  };
 }
 
 export function buildMigrateBody(save: SaveData): MigrateBody {
@@ -32,11 +40,14 @@ export function buildMigrateBody(save: SaveData): MigrateBody {
 }
 
 /** Ce qui attend encore une synchronisation (affiché dans l'écran Compte). */
-export function pendingSummary(save: SaveData): { earned: number; purchases: number; legacy: boolean } {
+export function pendingSummary(save: SaveData): { earned: number; purchases: number; legacy: boolean; claims: number; charges: number } {
+  const confirmed = new Set(save.economy.confirmedClaims);
   return {
     earned: Math.max(0, save.economy.earned - save.economy.confirmedEarned),
     purchases: Object.keys(unconfirmedPurchases(save)).length,
     legacy: !!save.economy.legacy && !save.economy.legacy.imported,
+    claims: save.medals.claimed.filter((id) => !confirmed.has(id)).length,
+    charges: Math.max(0, save.economy.bonusBought.boost - save.economy.bonusProcessed.boost) + Math.max(0, save.economy.bonusBought.gel - save.economy.bonusProcessed.gel),
   };
 }
 
@@ -44,13 +55,15 @@ export function pendingSummary(save: SaveData): { earned: number; purchases: num
 const CONTENT_KEYS = ['levels', 'survival', 'daily', 'archive', 'achievements', 'rewarded', 'owned', 'paid', 'seenIntros', 'stats', 'campaign', 'balanceNoticeSeen', 'skin', 'trail'] as const;
 
 /**
- * Aligne la sauvegarde LOCALE (modifiée sur place) sur la réponse du serveur :
- * - achats refusés : article retiré (sauf si le serveur le possède), aucun débit conservé ;
- * - achats reconnus : marqués confirmés ; filigrane des gains mis à jour ;
- * - progression : fusion (union / meilleur / maximum) avec la sauvegarde du serveur ;
- * - portefeuille : solde du serveur + ce qui a changé localement PENDANT la requête (`sentWallet` = solde au moment de l'envoi) ; Prismes = solde du serveur.
+ * Aligne la sauvegarde LOCALE (modifiée sur place) sur la réponse du serveur. `sent` = INSTANTANÉ de la sauvegarde au moment de l'envoi (pas la
+ * sauvegarde vivante) : ce qui a changé localement PENDANT la requête est conservé.
+ * - achats refusés : article retiré (sauf si le serveur le possède), aucun débit conservé ; achats reconnus : marqués confirmés ;
+ * - Médailles : registre = celui du serveur + réclamations faites pendant la requête ; une réclamation refusée est retirée ;
+ * - bonus : inventaire = celui du serveur + achats faits pendant la requête (les charges refusées disparaissent) ; compteurs traités = ceux du serveur ;
+ * - progression : fusion (union / meilleur / maximum) ; soldes confirmés mémorisés ;
+ * - portefeuille : solde du serveur + écart local depuis l'envoi ; Prismes = solde du serveur (jamais créés localement).
  */
-export function applySyncResult(local: SaveData, res: SyncResponse, sentWallet: number, opts: { wallet?: boolean } = {}): void {
+export function applySyncResult(local: SaveData, res: SyncResponse, sent: SaveData, opts: { wallet?: boolean } = {}): void {
   const serverOwned = new Set(res.save.owned);
   for (const r of res.rejected) {
     const item = catalogItem(r.item);
@@ -70,9 +83,32 @@ export function applySyncResult(local: SaveData, res: SyncResponse, sentWallet: 
   const source = merged as unknown as Record<string, unknown>;
   for (const k of CONTENT_KEYS) target[k] = source[k];
 
+  // Médailles : le service fait foi pour ce qui a été envoyé ; les réclamations faites depuis l'envoi sont conservées
+  const sentClaims = new Set(sent.medals.claimed);
+  const sinceSent = local.medals.claimed.filter((id) => !sentClaims.has(id));
+  local.medals.claimed = [...new Set([...res.claimed, ...sinceSent])];
+  local.economy.confirmedClaims = [...res.claimed];
+
   // Migration héritée : le portefeuille est aligné par la synchronisation qui suit (jamais de solde provisoirement plus bas)
+  local.economy.confirmed = { shards: res.balance.shards, medals: res.balance.medals, prisms: res.balance.prisms };
   if (opts.wallet === false) return;
-  const delta = local.wallet.shards - sentWallet;
-  local.wallet.shards = Math.max(0, res.balance.shards + delta);
+  local.economy.bonusProcessed = { boost: Math.min(res.bonus.boost, local.economy.bonusBought.boost), gel: Math.min(res.bonus.gel, local.economy.bonusBought.gel) };
+  local.inventory = {
+    boost: clamp(res.inventory.boost + (local.inventory.boost - sent.inventory.boost)),
+    gel: clamp(res.inventory.gel + (local.inventory.gel - sent.inventory.gel)),
+  };
+  local.wallet.shards = Math.max(0, res.balance.shards + (local.wallet.shards - sent.wallet.shards));
+  local.wallet.medals = Math.max(0, res.balance.medals + (local.wallet.medals - sent.wallet.medals));
   local.wallet.prisms = res.balance.prisms;
+}
+
+const clamp = (n: number): number => Math.max(0, Math.min(BONUS.maxStock, Math.floor(n)));
+
+/**
+ * Achat premium confirmé par le service : possession et soldes du service ; jamais de débit calculé localement.
+ */
+export function applyPremiumPurchase(local: SaveData, res: PremiumPurchaseResponse): void {
+  for (const id of res.owned) if (!local.owned.includes(id)) local.owned.push(id);
+  local.wallet.prisms = res.balance.prisms;
+  if (local.economy.confirmed) local.economy.confirmed.prisms = res.balance.prisms;
 }

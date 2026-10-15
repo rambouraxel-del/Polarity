@@ -80,7 +80,7 @@ export interface ProfileResponse {
   identities: IdentityInfo[];
   /** Vrai si le profil est un COMPTE (au moins une méthode de connexion) : exigé pour les futurs achats de Prismes en argent réel. */
   canBuyPremium: boolean;
-  balance: { shards: number; prisms: number };
+  balance: { shards: number; medals: number; prisms: number };
 }
 
 export interface MigrateBody {
@@ -96,17 +96,47 @@ export interface SyncBody {
   installId: string;
   /** Compteur monotone des gains répétables de cette installation. */
   earned: number;
+  /** Achats de cosmétiques à confirmer : article → prix payé (Médailles ; le service débite le prix du catalogue). */
   purchases: PurchasesBody;
+  /** Médailles de succès RÉCLAMÉES (identifiants historiques) : le service crédite chacune une seule fois, si le succès figure dans la progression. */
+  claims: string[];
+  /** Compteurs monotones des charges de bonus achetées par cette installation (idempotence : seul l'écart avec le traité compte). */
+  bonusBought: { boost: number; gel: number };
   save: unknown;
 }
 
 export type PurchaseRejection = 'unknown' | 'not_purchasable' | 'premium' | 'bad_price' | 'insufficient';
 
+/** Achat d'un article PREMIUM (Prismes) : requête directe, en ligne ; le service vérifie le solde et débite de façon atomique et idempotente. */
+export interface PremiumPurchaseBody {
+  item: string;
+}
+
+export interface PremiumPurchaseResponse {
+  item: string;
+  /** Faux : article déjà possédé, aucun Prisme débité. */
+  charged: boolean;
+  /** Prismes débités (prorata pour un pack dont une partie était déjà possédée). */
+  price: number;
+  balance: { shards: number; medals: number; prisms: number };
+  /** Cosmétiques possédés selon le service (après l'achat). */
+  owned: string[];
+}
+
 /** Résultat d'une migration ou d'une synchronisation. Le serveur est la source de vérité : le client s'aligne dessus (src/economy/reconcile.ts). */
 export interface SyncResponse {
   /** Révision de la sauvegarde conservée par le serveur. */
   rev: number;
-  balance: { shards: number; prisms: number };
+  balance: { shards: number; medals: number; prisms: number };
+  /** Charges de bonus possédées selon le registre du service. */
+  inventory: { boost: number; gel: number };
+  /** Compteurs de charges traitées (acceptées + refusées) pour cette installation. */
+  bonus: { boost: number; gel: number };
+  /** Charges demandées mais refusées (fonds insuffisants ou inventaire plein) : retirées de l'inventaire local. */
+  bonusRejected: { boost: number; gel: number };
+  /** Succès dont les Médailles sont créditées (source de vérité) et réclamations refusées (succès absent de la progression). */
+  claimed: string[];
+  rejectedClaims: string[];
   /** Filigrane des gains répétables acceptés pour cette installation. */
   watermark: number;
   /** Une partie des gains annoncés a dépassé le plafond : le reste sera accepté aux synchronisations suivantes. */

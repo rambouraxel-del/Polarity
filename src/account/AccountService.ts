@@ -1,6 +1,6 @@
-import { applySyncResult, buildMigrateBody, buildSyncBody, pendingSummary } from '../economy/reconcile';
+import { applyPremiumPurchase, applySyncResult, buildMigrateBody, buildSyncBody, pendingSummary } from '../economy/reconcile';
 import { ensureInstallId } from '../economy/ids';
-import type { AuthResponse, ConflictResponse, EmailRequestResponse, NonceResponse, ProfileResponse, ProviderId, ProvidersResponse, SyncResponse } from '../net/accountProtocol';
+import type { AuthResponse, ConflictResponse, EmailRequestResponse, NonceResponse, PremiumPurchaseResponse, ProfileResponse, ProviderId, ProvidersResponse, SyncResponse } from '../net/accountProtocol';
 import type { Identity, LeaderboardClient, NetResult } from '../net/leaderboard';
 import type { KeyValueStore, SaveData } from '../save/save';
 import { availability, type Availability } from './providers';
@@ -34,7 +34,7 @@ export interface AccountState {
   conflict: ConflictResponse | null;
   message: { kind: 'ok' | 'error'; text: string } | null;
   sync: SyncStatus;
-  pending: { earned: number; purchases: number; legacy: boolean };
+  pending: { earned: number; purchases: number; legacy: boolean; claims: number; charges: number };
   busy: boolean;
 }
 
@@ -56,6 +56,7 @@ export class AccountService {
   private running: Promise<void> | null = null;
   private timer: unknown = null;
   private lastRunAt = 0;
+  private rerun = false;
   readonly state: AccountState;
 
   constructor(private readonly h: AccountHost) {
@@ -276,8 +277,15 @@ export class AccountService {
     }, SYNC_DELAY_MS);
   }
 
+  /**
+   * Lance une synchronisation. Si une requête est déjà en cours, une nouvelle synchronisation suivra aussitôt (ce qui a changé depuis l'envoi —
+   * Médailles réclamées, achats — n'attend donc pas la prochaine échéance). `force` ignore l'intervalle minimal.
+   */
   syncNow(force = false): Promise<void> {
-    if (this.running) return this.running;
+    if (this.running) {
+      if (force) this.rerun = true;
+      return this.running;
+    }
     if (!this.h.lb.configured) return Promise.resolve();
     if (!force && this.now() - this.lastRunAt < MIN_SYNC_INTERVAL_MS) return Promise.resolve();
     if (this.h.isPlaying()) {
@@ -287,6 +295,10 @@ export class AccountService {
     this.running = this.doSync().finally(() => {
       this.running = null;
       this.lastRunAt = this.now();
+      if (this.rerun) {
+        this.rerun = false;
+        void this.syncNow(true);
+      }
     });
     return this.running;
   }
@@ -309,21 +321,42 @@ export class AccountService {
     // 1. Migration exceptionnelle de l'ancienne sauvegarde (une seule fois ; idempotente côté serveur)
     const legacy = this.h.getSave().economy.legacy;
     if (legacy && !legacy.imported) {
-      const sent = this.h.getSave();
+      // INSTANTANÉ au moment de l'envoi : la sauvegarde vivante continue d'évoluer pendant la requête
+      const sent = structuredClone(this.h.getSave());
       const res = await lb.api<SyncResponse>('POST', '/api/migrate', { auth: true, body: buildMigrateBody(sent) });
       if (!res.ok) return this.fail(res);
       this.h.commit((s) => {
         if (s.economy.legacy) s.economy.legacy.imported = true;
-        applySyncResult(s, res.data, sent.wallet.shards, { wallet: false });
+        applySyncResult(s, res.data, sent, { wallet: false });
       });
     }
-    // 2. Synchronisation : gains, achats, progression
-    const sent = this.h.getSave();
+    // 2. Synchronisation : Médailles réclamées, gains, achats, bonus, progression
+    const sent = structuredClone(this.h.getSave());
     const res = await lb.api<SyncResponse>('POST', '/api/sync', { auth: true, body: buildSyncBody(sent) });
     if (!res.ok) return this.fail(res);
-    this.h.commit((s) => applySyncResult(s, res.data, sent.wallet.shards));
-    const refused = res.data.rejected.length;
-    this.setSync('ok', refused > 0 ? `${refused} achat${refused > 1 ? 's' : ''} non confirmé${refused > 1 ? 's' : ''} par le service (solde ou prix) : annulé${refused > 1 ? 's' : ''}, aucun Éclat perdu.` : res.data.capped ? 'Une partie de vos gains sera confirmée aux prochaines synchronisations.' : null);
+    this.h.commit((s) => applySyncResult(s, res.data, sent));
+    const refused = res.data.rejected.length + res.data.bonusRejected.boost + res.data.bonusRejected.gel;
+    this.setSync('ok', refused > 0 ? `${refused} achat${refused > 1 ? 's' : ''} non confirmé${refused > 1 ? 's' : ''} par le service (fonds insuffisants ou stock plein) : annulé${refused > 1 ? 's' : ''}, rien n’a été débité.` : res.data.capped ? 'Une partie de vos gains sera confirmée aux prochaines synchronisations.' : null);
+  }
+
+  /**
+   * Achat d'un article PREMIUM (Prismes) : requête directe EN LIGNE ; le débit est fait et vérifié par le service. Rien n'est débité ni accordé localement
+   * avant sa réponse. Hors ligne ou sans profil : refusé avec un message clair.
+   */
+  async buyPremium(item: string): Promise<{ ok: true; charged: boolean; price: number } | { ok: false; message: string }> {
+    if (!this.h.lb.configured) return { ok: false, message: 'Service indisponible dans cette version.' };
+    if (!this.h.lb.identity()) {
+      const g = await this.h.lb.registerGuest();
+      if (!g.ok) return { ok: false, message: g.kind === 'offline' ? 'Connexion requise pour acheter avec des Prismes.' : g.message };
+    }
+    const res = await this.h.lb.api<PremiumPurchaseResponse>('POST', '/api/shop/prisms', { auth: true, body: { item } });
+    if (!res.ok) {
+      if (res.kind === 'offline') return { ok: false, message: 'Connexion requise pour acheter avec des Prismes : le solde est contrôlé par le service.' };
+      return { ok: false, message: res.status === 409 ? 'Prismes insuffisants.' : res.message };
+    }
+    this.h.commit((s) => applyPremiumPurchase(s, res.data));
+    this.notify();
+    return { ok: true, charged: res.data.charged, price: res.data.price };
   }
 
   private fail(res: Extract<NetResult<unknown>, { ok: false }>): void {

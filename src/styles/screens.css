@@ -966,7 +966,7 @@
 
 .ach__reward .price strong {
   font-size: 13px;
-  color: var(--c-shard);
+  color: var(--c-gold);
 }
 
 .ach__reward .price .coin {
@@ -1144,4 +1144,167 @@
 
 .acct-google {
   min-height: 44px;
+}
+
+/* ———————————————————————————— Succès : réclamation des Médailles */
+.ach--claimable {
+  border-radius: var(--r-md);
+  background: rgb(var(--c-gold-rgb) / 0.06);
+}
+
+.ach--claimable .ach__medal {
+  border-color: var(--c-gold);
+  color: var(--c-gold);
+  animation: medal-ready 1.8s ease-in-out infinite;
+}
+
+.ach--just-claimed .ach__medal {
+  animation: medal-claimed 700ms cubic-bezier(0.2, 0.9, 0.3, 1.2) 1;
+}
+
+.ach--just-claimed {
+  animation: row-claimed 900ms ease-out 1;
+}
+
+.ach__all {
+  margin: 12px 0 4px;
+}
+
+.ach__reward .btn {
+  margin-left: auto;
+}
+
+@keyframes medal-ready {
+  0%,
+  100% {
+    box-shadow: 0 0 6px rgb(var(--c-gold-rgb) / 0.25);
+  }
+
+  50% {
+    box-shadow: 0 0 16px rgb(var(--c-gold-rgb) / 0.6);
+  }
+}
+
+@keyframes medal-claimed {
+  0% {
+    transform: scale(0.8) rotate(-20deg);
+  }
+
+  60% {
+    transform: scale(1.25) rotate(8deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes row-claimed {
+  0% {
+    background: rgb(var(--c-gold-rgb) / 0.35);
+  }
+
+  100% {
+    background: transparent;
+  }
+}
+
+/* ———————————————————————————— Bonus (boutique et préparation de la Survie) */
+.bonus-list {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.bonus {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--line);
+  background: rgb(var(--c-panel-rgb) / 0.55);
+}
+
+.bonus__icon {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  color: var(--c-cyan);
+  background: rgb(var(--c-cyan-rgb) / 0.08);
+}
+
+.bonus--gel .bonus__icon {
+  color: var(--c-shield);
+}
+
+.bonus__icon .icon {
+  width: 26px;
+  height: 26px;
+}
+
+.bonus__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bonus__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 17px;
+}
+
+.bonus__blurb {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-muted);
+}
+
+.bonus__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 14px;
+}
+
+.bonus__stock {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--c-white);
+}
+
+.bonus__buy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prep__intro {
+  margin: 10px 0 6px;
+}
+
+.prep__go {
+  margin-top: 16px;
+}
+
+.shop-pending {
+  margin: 6px 0;
+  color: var(--c-gold);
+}
+
+.confirm__thumb--bonus {
+  color: var(--c-cyan);
+}
+
+.confirm__thumb--bonus .icon {
+  width: 56px;
+  height: 56px;
 }

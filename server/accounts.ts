@@ -1,14 +1,17 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
-import { checkPurchase, entitledRewards, grantedBy, importRef, earnRef, PREMIUM_ITEMS, refillBucket, spendRef, SYNC_RULES } from '../src/economy/rules';
+import { bonusRef, checkPurchase, entitledRewards, grantedBy, importRef, earnRef, medalRef, PREMIUM_ITEMS, refillBucket, spendRef, SYNC_RULES } from '../src/economy/rules';
 import { mergeSaves } from '../src/economy/merge';
-import { CATALOG } from '../src/config/catalog';
-import { WALLET_MAX } from '../src/config/economy';
+import { ACHIEVEMENT_CONFIG } from '../src/config/achievements';
+import { CATALOG, catalogItem } from '../src/config/catalog';
+import { BONUS, BONUS_LIST, WALLET_MAX, type BonusKind } from '../src/config/economy';
+import { effectivePrice } from '../src/progression/shop';
 import type {
   AuthResponse,
   ConflictResponse,
   EmailRequestResponse,
   IdentityInfo,
   NonceResponse,
+  PremiumPurchaseResponse,
   ProfileResponse,
   ProvidersResponse,
   ProviderId,
@@ -22,7 +25,7 @@ import { hashToken, newPlayerId, newToken, parseBearer } from './auth';
 import { transaction, type Db } from './db';
 import type { Mailer } from './mailer';
 import { APPLE_ISSUERS, APPLE_JWKS, GOOGLE_ISSUERS, GOOGLE_JWKS, JwksCache, OidcError, defaultJwksFetcher, nonceMatches, verifyIdToken, type JwksFetcher, type OidcProvider } from './oidc';
-import { balancesOf, guestNickname } from './profile';
+import { balancesOf, claimedMedals, guestNickname, inventoryOf } from './profile';
 
 /**
  * Comptes, connexions facultatives, migration des anciennes sauvegardes, synchronisation et fusion de profils (économie v3).
@@ -116,9 +119,9 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     save: db.prepare('SELECT rev, data FROM saves WHERE player_id = ?'),
     upsertSave: db.prepare('INSERT INTO saves (player_id, rev, data, updated_at, device) VALUES (?, ?, ?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET rev = excluded.rev, data = excluded.data, updated_at = excluded.updated_at, device = excluded.device'),
     delSave: db.prepare('DELETE FROM saves WHERE player_id = ?'),
-    install: db.prepare('SELECT install_id, player_id, earned, bucket, legacy_imported, last_sync FROM installs WHERE install_id = ?'),
+    install: db.prepare('SELECT install_id, player_id, earned, bucket, legacy_imported, last_sync, bonus_boost, bonus_gel FROM installs WHERE install_id = ?'),
     insertInstall: db.prepare('INSERT INTO installs (install_id, player_id, earned, bucket, legacy_imported, first_seen, last_sync) VALUES (?, ?, 0, ?, 0, ?, ?)'),
-    updateInstall: db.prepare('UPDATE installs SET earned = ?, bucket = ?, legacy_imported = ?, last_sync = ? WHERE install_id = ?'),
+    updateInstall: db.prepare('UPDATE installs SET earned = ?, bucket = ?, legacy_imported = ?, last_sync = ?, bonus_boost = ?, bonus_gel = ? WHERE install_id = ?'),
     legacyCount: db.prepare('SELECT COUNT(*) AS n FROM installs WHERE player_id = ? AND legacy_imported = 1'),
     ledgerInsert: db.prepare('INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     ledgerHas: db.prepare('SELECT amount FROM ledger WHERE player_id = ? AND ref = ?'),
@@ -246,9 +249,12 @@ export function createAccounts(deps: AccountsDeps): Accounts {
   }
 
   function writeSnapshot(playerId: string, save: SaveData, rev: number, device: string): void {
-    // Le serveur ne conserve ni les options (propres à l'appareil), ni le portefeuille (le registre fait foi) ni le bloc de comptabilité locale
+    // Le serveur ne conserve ni les options (propres à l'appareil), ni le portefeuille, les Médailles réclamées et l'inventaire (le registre fait foi),
+    // ni le bloc de comptabilité locale
     const stored = structuredClone(save);
-    stored.wallet = { shards: 0, prisms: 0 };
+    stored.wallet = { shards: 0, medals: 0, prisms: 0 };
+    stored.medals = { claimed: [] };
+    stored.inventory = { boost: 0, gel: 0 };
     stored.rewardNotice = null;
     stored.economy = sanitize({}).economy;
     q.upsertSave.run(playerId, rev, JSON.stringify(stored), now(), device.slice(0, 40));
@@ -420,30 +426,62 @@ export function createAccounts(deps: AccountsDeps): Accounts {
 
   // ————————————————————————— migration et synchronisation
 
-  const ledger = (playerId: string, kind: string, amount: number, ref: string, meta?: Record<string, unknown>): boolean =>
-    Number(q.ledgerInsert.run(playerId, 'shards', kind, amount, ref, now(), meta ? JSON.stringify(meta) : null).changes) === 1;
+  const ledger = (playerId: string, kind: string, amount: number, ref: string, meta?: Record<string, unknown>, currency = 'shards'): boolean =>
+    Number(q.ledgerInsert.run(playerId, currency, kind, amount, ref, now(), meta ? JSON.stringify(meta) : null).changes) === 1;
+
+  type Counters = { boost: number; gel: number };
+  interface InstallState {
+    earned: number;
+    bucket: number;
+    legacyImported: boolean;
+    lastSync: number;
+    bonus: Counters;
+  }
 
   /** Installation connue : créée au premier contact ; appartient à UN profil (jamais partagée). */
-  function installOf(installId: string, playerId: string): { earned: number; bucket: number; legacyImported: boolean; lastSync: number } | null {
-    const r = q.install.get(installId) as unknown as { player_id: string; earned: number; bucket: number; legacy_imported: number; last_sync: number } | undefined;
+  function installOf(installId: string, playerId: string): InstallState | null {
+    const r = q.install.get(installId) as unknown as { player_id: string; earned: number; bucket: number; legacy_imported: number; last_sync: number; bonus_boost: number; bonus_gel: number } | undefined;
     if (!r) {
       // Première rencontre : seau plein (rafale acceptée une fois)
       q.insertInstall.run(installId, playerId, SYNC_RULES.earnBucketCap, now(), now());
-      return { earned: 0, bucket: SYNC_RULES.earnBucketCap, legacyImported: false, lastSync: now() };
+      return { earned: 0, bucket: SYNC_RULES.earnBucketCap, legacyImported: false, lastSync: now(), bonus: { boost: 0, gel: 0 } };
     }
     if (r.player_id !== playerId) return null;
-    return { earned: r.earned, bucket: r.bucket, legacyImported: r.legacy_imported === 1, lastSync: r.last_sync };
+    return { earned: r.earned, bucket: r.bucket, legacyImported: r.legacy_imported === 1, lastSync: r.last_sync, bonus: { boost: r.bonus_boost, gel: r.bonus_gel } };
   }
 
+  const saveInstall = (installId: string, i: InstallState, watermark: number, bucket: number): void => {
+    q.updateInstall.run(watermark, bucket, i.legacyImported ? 1 : 0, now(), i.bonus.boost, i.bonus.gel, installId);
+  };
+
+  /** Réponse commune : le serveur répond avec SA vérité (soldes, inventaire et Médailles réclamées issus du registre). */
   function respond(playerId: string, rev: number, save: SaveData, extra: Partial<SyncResponse> & { watermark: number }): HttpResponse {
     const bal = balancesOf(db, playerId);
+    const inv = inventoryOf(db, playerId);
+    const claimed = claimedMedals(db, playerId);
     const out = structuredClone(save);
-    out.wallet = { shards: bal.shards, prisms: bal.prisms };
+    out.wallet = { shards: bal.shards, medals: bal.medals, prisms: bal.prisms };
+    out.inventory = inv;
+    out.medals = { claimed };
     out.economy = sanitize({}).economy;
-    return json(200, { rev, balance: bal, capped: false, acknowledged: [], rejected: [], save: out, at: now(), ...extra } satisfies SyncResponse);
+    return json(200, {
+      rev,
+      balance: bal,
+      inventory: inv,
+      bonus: { boost: 0, gel: 0 },
+      bonusRejected: { boost: 0, gel: 0 },
+      claimed,
+      rejectedClaims: [],
+      capped: false,
+      acknowledged: [],
+      rejected: [],
+      save: out,
+      at: now(),
+      ...extra,
+    } satisfies SyncResponse);
   }
 
-  /** Récompenses uniques auxquelles la sauvegarde donne droit : une seule ligne par clé et par profil. Renvoie le total nouvellement crédité. */
+  /** Récompenses uniques HISTORIQUES (anciens Éclats de succès et de niveaux) auxquelles la sauvegarde donne droit : une seule ligne par clé et par profil. */
   function creditEntitled(playerId: string, save: SaveData): number {
     let total = 0;
     for (const r of entitledRewards(save)) if (ledger(playerId, 'reward', r.amount, r.ref)) total += r.amount;
@@ -453,6 +491,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
   /**
    * MIGRATION EXCEPTIONNELLE d'une ancienne sauvegarde (formats ≤ 6) : acceptée INTÉGRALEMENT (Éclats, succès, cosmétiques, statistiques, records locaux),
    * une seule fois par installation (idempotent), au plus `maxLegacyImports` installations par profil. Prismes JAMAIS importés ; articles premium refusés.
+   * Les Médailles ne sont PAS importées : elles se réclament ensuite, succès par succès (rétroactivement), via la synchronisation.
    * Risque documenté : la sauvegarde locale peut avoir été modifiée à la main ; cette politique ne s'applique PAS aux nouvelles transactions.
    */
   function migrate(req: HttpRequest, me: PlayerRow): HttpResponse {
@@ -468,10 +507,11 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       const inst = installOf(installId, me.id);
       if (!inst) return err(409, 'install_conflict', 'Cette installation appartient à un autre profil.');
       const cur = readSnapshot(me.id);
-      if (inst.legacyImported) return respond(me.id, cur.rev, cur.save, { watermark: inst.earned, legacy: 'already' });
+      const reply = (legacy: SyncResponse['legacy'], rev: number, save: SaveData): HttpResponse => respond(me.id, rev, save, { watermark: inst.earned, legacy, bonus: inst.bonus });
+      if (inst.legacyImported) return reply('already', cur.rev, cur.save);
       const legacy = incoming.economy.legacy;
-      if (!legacy || legacy.imported) return respond(me.id, cur.rev, cur.save, { watermark: inst.earned, legacy: 'none' });
-      if (Number((q.legacyCount.get(me.id) as unknown as { n: number }).n) >= SYNC_RULES.maxLegacyImports) return respond(me.id, cur.rev, cur.save, { watermark: inst.earned, legacy: 'limit' });
+      if (!legacy || legacy.imported) return reply('none', cur.rev, cur.save);
+      if (Number((q.legacyCount.get(me.id) as unknown as { n: number }).n) >= SYNC_RULES.maxLegacyImports) return reply('limit', cur.rev, cur.save);
       const shards = Math.min(legacy.shards, LEGACY_SHARDS_CAP, WALLET_MAX);
       ledger(me.id, 'import', shards, importRef(installId), { claimed: legacy.shards, capped: shards < legacy.shards, version: incoming.version });
       // Les récompenses uniques que l'import couvre déjà sont marquées à 0 : elles ne seront jamais re-créditées (aucun double crédit)
@@ -482,24 +522,35 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       const merged = mergeSaves(cur.save, incoming);
       const rev = cur.rev + 1;
       writeSnapshot(me.id, merged, rev, 'migration');
-      q.updateInstall.run(inst.earned, refillBucket(inst.bucket, now() - inst.lastSync), 1, now(), installId);
-      return respond(me.id, rev, merged, { watermark: inst.earned, legacy: 'imported' });
+      saveInstall(installId, { ...inst, legacyImported: true }, inst.earned, refillBucket(inst.bucket, now() - inst.lastSync));
+      return reply('imported', rev, merged);
     });
   }
 
+  const intIn = (v: unknown, max: number): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max ? v : null);
+
   /**
-   * SYNCHRONISATION : gains répétables (écart du compteur monotone, borné par un plafond horaire), récompenses uniques (clés fixes), achats vérifiés
-   * (catalogue, prix, solde), puis fusion de la progression. Idempotente : rejouer la même requête ne change rien. Le serveur répond avec sa vérité.
+   * SYNCHRONISATION, dans l'ordre de réception de la requête :
+   *  1. Médailles de succès RÉCLAMÉES : un crédit unique par succès (clé `medal:<id>`), si le succès figure dans la progression ;
+   *  2. gains répétables d'Éclats (écart du compteur monotone, borné par le plafond horaire) ;
+   *  3. récompenses historiques uniques (anciens Éclats), clés fixes ;
+   *  4. achats de cosmétiques (catalogue, prix du catalogue, solde réel) : refusés si le financement est insuffisant, jamais de solde négatif ;
+   *  5. achats de bonus (compteur monotone, prix de la configuration, solde réel, stock maximal) ;
+   *  6. fusion de la progression.
+   * Idempotente : rejouer la même requête ne change rien. Le serveur répond avec sa vérité.
    */
   function sync(req: HttpRequest, me: PlayerRow): HttpResponse {
     if (!allow(`sync:${me.id}`, 120, HOUR)) return err(429, 'rate_limited', 'Trop de requêtes : réessayez plus tard.');
-    const body = req.body as { installId?: unknown; earned?: unknown; purchases?: unknown; save?: unknown } | undefined;
+    const body = req.body as { installId?: unknown; earned?: unknown; purchases?: unknown; claims?: unknown; bonusBought?: unknown; save?: unknown } | undefined;
     if (!isInstallId(body?.installId) || !isRecord(body?.save) || typeof body.earned !== 'number' || !Number.isInteger(body.earned) || body.earned < 0 || body.earned > 1e12) return err(400, 'bad_request', 'Requête invalide.');
     const text = JSON.stringify(body.save);
     if (text.length > SYNC_RULES.maxSaveBytes) return err(413, 'too_large', 'Sauvegarde trop volumineuse.');
     const incoming = parseSave(text);
     if (!incoming) return err(400, 'bad_save', 'Sauvegarde illisible ou d’une version plus récente.');
     const purchases: [string, number][] = isRecord(body.purchases) ? Object.entries(body.purchases).filter((e): e is [string, number] => typeof e[1] === 'number').slice(0, SYNC_RULES.maxPurchasesPerSync) : [];
+    const claims: string[] = Array.isArray(body.claims) ? body.claims.filter((c): c is string => typeof c === 'string').slice(0, ACHIEVEMENT_CONFIG.length * 2) : [];
+    const bb = isRecord(body.bonusBought) ? body.bonusBought : {};
+    const bought: Counters = { boost: intIn(bb.boost, 1e9) ?? 0, gel: intIn(bb.gel, 1e9) ?? 0 };
     const installId = body.installId;
     const earned = body.earned;
 
@@ -508,7 +559,19 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       if (!inst) return err(409, 'install_conflict', 'Cette installation appartient à un autre profil.');
       const cur = readSnapshot(me.id);
 
-      // 1. Gains répétables : écart borné par le plafond horaire ; clé = filigrane atteint (idempotent)
+      // 1. Médailles réclamées : montants de la configuration, une seule ligne par succès et par profil (même si le succès a été importé d'une ancienne sauvegarde)
+      const achieved = { ...cur.save.achievements, ...incoming.achievements };
+      const rejectedClaims: string[] = [];
+      for (const id of [...new Set(claims)]) {
+        const def = ACHIEVEMENT_CONFIG.find((a) => a.id === id);
+        if (!def || achieved[id] === undefined) {
+          rejectedClaims.push(id);
+          continue;
+        }
+        ledger(me.id, 'medal', def.medals, medalRef(id), undefined, 'medals');
+      }
+
+      // 2. Gains répétables : écart borné par le plafond horaire ; clé = filigrane atteint (idempotent)
       let watermark = inst.earned;
       let capped = false;
       let bucket = refillBucket(inst.bucket, now() - inst.lastSync);
@@ -521,10 +584,10 @@ export function createAccounts(deps: AccountsDeps): Accounts {
           ledger(me.id, 'earn', delta, earnRef(installId, watermark), { claimed: earned });
         }
       }
-      // 2. Récompenses uniques (succès, niveaux) : montants de la configuration, une fois par profil
+      // 3. Récompenses uniques historiques (anciens Éclats), montants de la configuration, une fois par profil
       creditEntitled(me.id, incoming);
 
-      // 3. Achats : article du catalogue, prix valable, solde suffisant ; déjà possédé = jamais débité
+      // 4. Achats de cosmétiques : article du catalogue, prix du catalogue, financement réel ; déjà possédé = jamais débité
       const owned = new Set(cur.save.owned);
       const acknowledged: SyncResponse['acknowledged'] = [];
       const rejected: SyncResponse['rejected'] = [];
@@ -541,24 +604,77 @@ export function createAccounts(deps: AccountsDeps): Accounts {
           for (const g of granted) owned.add(g);
           continue;
         }
-        if (balancesOf(db, me.id).shards < paid) {
+        if (balancesOf(db, me.id)[check.currency] < check.price) {
           rejected.push({ item: itemId, reason: 'insufficient' });
           continue;
         }
-        ledger(me.id, 'spend', -paid, spendRef(itemId), { granted });
+        ledger(me.id, 'spend', -check.price, spendRef(itemId), { granted }, check.currency);
         for (const g of granted) owned.add(g);
         acknowledged.push({ item: itemId, charged: true });
       }
 
-      // 4. Progression : jamais d'article possédé que le serveur n'a pas vérifié (importé, déjà possédé ou acheté ci-dessus)
+      // 5. Bonus : seul l'écart avec le compteur déjà traité compte ; financé par le solde réel d'Éclats, dans la limite du stock
+      const bonus: Counters = { ...inst.bonus };
+      const bonusRejected: Counters = { boost: 0, gel: 0 };
+      for (const def of BONUS_LIST) {
+        const kind: BonusKind = def.id;
+        if (bought[kind] <= bonus[kind]) continue;
+        const wanted = bought[kind] - bonus[kind];
+        const room = Math.max(0, BONUS.maxStock - inventoryOf(db, me.id)[kind]);
+        const afford = Math.floor(balancesOf(db, me.id).shards / def.price);
+        const k = Math.max(0, Math.min(wanted, room, afford));
+        if (k > 0) {
+          ledger(me.id, 'spend', -k * def.price, bonusRef(kind, installId, bought[kind], 'pay'), { kind, quantity: k });
+          ledger(me.id, 'bonus', k, bonusRef(kind, installId, bought[kind], 'grant'), { kind, installId }, kind);
+        }
+        bonusRejected[kind] = wanted - k;
+        bonus[kind] = bought[kind];
+      }
+
+      // 6. Progression : jamais d'article possédé que le serveur n'a pas vérifié (importé, déjà possédé ou acheté ci-dessus)
       incoming.owned = incoming.owned.filter((id) => owned.has(id));
       const merged = mergeSaves(cur.save, incoming);
       merged.owned = [...new Set([...merged.owned, ...owned])];
       const changed = JSON.stringify(merged) !== JSON.stringify(cur.save);
       const rev = changed ? cur.rev + 1 : cur.rev;
       if (changed || cur.rev === 0) writeSnapshot(me.id, merged, rev === 0 ? 1 : rev, 'sync');
-      q.updateInstall.run(watermark, bucket, inst.legacyImported ? 1 : 0, now(), installId);
-      return respond(me.id, rev === 0 ? 1 : rev, merged, { watermark, capped, acknowledged, rejected });
+      saveInstall(installId, { ...inst, bonus }, watermark, bucket);
+      return respond(me.id, rev === 0 ? 1 : rev, merged, { watermark, capped, acknowledged, rejected, bonus, bonusRejected, rejectedClaims });
+    });
+  }
+
+  /**
+   * ACHAT D'UN ARTICLE PREMIUM (Prismes) : requête directe et EN LIGNE — jamais différée, jamais décidée par le client. Le solde de Prismes vient
+   * uniquement du registre. Débit atomique (une transaction), idempotent (clé `spend:<article>` unique par profil : aucun double achat), jamais de
+   * solde négatif. Un pack dont une partie est déjà possédée est facturé au prorata ; rien n'est perdu ni racheté inutilement.
+   */
+  function buyPremium(req: HttpRequest, me: PlayerRow): HttpResponse {
+    if (!allow(`premium:${me.id}`, 60, HOUR)) return err(429, 'rate_limited', 'Trop de requêtes : réessayez plus tard.');
+    const itemId = (req.body as { item?: unknown } | undefined)?.item;
+    if (typeof itemId !== 'string') return err(400, 'bad_request', 'Requête invalide.');
+    const item = catalogItem(itemId);
+    if (!item) return err(404, 'unknown_item', 'Article inconnu.');
+    if (item.acquire.type !== 'price' || item.acquire.currency !== 'prisms') return err(400, 'not_premium', 'Cet article ne s’achète pas avec des Prismes.');
+    const catalogPrice = item.acquire.amount;
+    return transaction(db, () => {
+      const cur = readSnapshot(me.id);
+      const owned = new Set(cur.save.owned);
+      const granted = grantedBy(item);
+      const reply = (charged: boolean, price: number): HttpResponse =>
+        json(200, { item: itemId, charged, price, balance: balancesOf(db, me.id), owned: [...owned] } satisfies PremiumPurchaseResponse);
+      if (granted.every((g) => owned.has(g))) return reply(false, 0);
+      // Prix facturé : celui du catalogue, ou le prorata de ce qui reste à obtenir (calculé sur la possession VÉRIFIÉE par le service)
+      const price = effectivePrice({ owned: [...owned] }, item)?.amount ?? catalogPrice;
+      const prior = q.ledgerHas.get(me.id, spendRef(itemId)) as unknown as { amount: number } | undefined;
+      if (!prior) {
+        if (balancesOf(db, me.id).prisms < price) return err(409, 'insufficient', 'Prismes insuffisants.');
+        ledger(me.id, 'spend', -price, spendRef(itemId), { granted, premium: true }, 'prisms');
+      }
+      for (const g of granted) owned.add(g);
+      const merged = structuredClone(cur.save);
+      merged.owned = [...owned];
+      writeSnapshot(me.id, merged, cur.rev + 1, 'premium');
+      return reply(!prior, prior ? Math.abs(prior.amount) : price);
     });
   }
 
@@ -580,6 +696,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
         case 'GET /api/profile': return withAuth(req, profileRoute);
         case 'POST /api/migrate': return withAuth(req, (me) => migrate(req, me));
         case 'POST /api/sync': return withAuth(req, (me) => sync(req, me));
+        case 'POST /api/shop/prisms': return withAuth(req, (me) => buyPremium(req, me));
         default: return null;
       }
     },

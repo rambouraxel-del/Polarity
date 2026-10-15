@@ -151,8 +151,19 @@ function playRun(seed: number): { flips: number[]; time: number; score: number }
   return { flips: [...session.sim.flipLog], time: session.sim.time, score: session.sim.scoring.score };
 }
 
-const sync = (c: Ctx, who: { auth: string }, body: { installId: string; earned?: number; purchases?: Record<string, number>; save?: unknown }): HttpResponse =>
-  c.call('POST', '/api/sync', { auth: who.auth, body: { earned: 0, purchases: {}, save: defaultSave(), ...body } });
+const sync = (c: Ctx, who: { auth: string }, body: { installId: string; earned?: number; purchases?: Record<string, number>; claims?: string[]; bonusBought?: { boost: number; gel: number }; save?: unknown }): HttpResponse =>
+  c.call('POST', '/api/sync', { auth: who.auth, body: { earned: 0, purchases: {}, claims: [], bonusBought: { boost: 0, gel: 0 }, save: defaultSave(), ...body } });
+
+/** Sauvegarde dont ces succès sont accomplis (progression déclarée par le client). */
+function achieved(...ids: string[]): ReturnType<typeof defaultSave> {
+  const save = defaultSave();
+  ids.forEach((id, i) => (save.achievements[id] = 1000 + i));
+  save.medals.claimed = [...ids];
+  return save;
+}
+
+/** 140 Médailles : de quoi acheter « aurore » (survive_300 = 100, first_cycle = 20, first_level = 20). */
+const MEDAL_140 = ['survive_300', 'first_cycle', 'first_level'];
 
 const ledgerRows = (c: Ctx, id: string): { kind: string; amount: number; ref: string }[] => c.db.prepare('SELECT kind, amount, ref FROM ledger WHERE player_id = ? ORDER BY id').all(id) as never;
 
@@ -399,14 +410,14 @@ describe('migration exceptionnelle des anciennes sauvegardes', () => {
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     const b = r.body as SyncResponse;
     expect(b.legacy).toBe('imported');
-    expect(b.balance).toEqual({ shards: 340, prisms: 0 });
+    expect(b.balance).toEqual({ shards: 340, medals: 0, prisms: 0 });
     expect(b.save.achievements).toMatchObject({ first_cycle: 1000, first_level: 2000 });
     expect(b.save.owned).toEqual(['aurore']);
     expect(b.save.stats).toMatchObject({ totalCycles: 40, bestScore: 5000 });
     expect(b.save.survival).toMatchObject({ bestTime: 123.4, bestScore: 5000 });
     expect(b.save.campaign.reserve).toBe(40);
     expect(b.save.levels['1']).toMatchObject({ completed: true, stars: 2 });
-    expect(balancesOf(c.db, g.id)).toEqual({ shards: 340, prisms: 0 });
+    expect(balancesOf(c.db, g.id)).toEqual({ shards: 340, medals: 0, prisms: 0 });
   });
 
   it('idempotente : un second import de la même installation ne change rien (aucun double import)', () => {
@@ -505,7 +516,7 @@ describe('synchronisation : gains, récompenses uniques, achats', () => {
     save.achievements[ach.id] = 5;
     save.rewarded.push(ach.id);
     save.paid['1'] = { first: true, stars: 3 };
-    const total = ach.shards + LEVEL_REWARDS.firstClear + 3 * LEVEL_REWARDS.perStar;
+    const total = ach.legacyShards + LEVEL_REWARDS.firstClear + 3 * LEVEL_REWARDS.perStar;
     expect((sync(c, g, { installId: 'install-dev-aaaa1', save }).body as SyncResponse).balance.shards).toBe(total);
     // Un second appareil avec la même progression : aucun nouveau crédit
     expect((sync(c, g, { installId: 'install-dev-bbbb2', save }).body as SyncResponse).balance.shards).toBe(total);
@@ -516,30 +527,42 @@ describe('synchronisation : gains, récompenses uniques, achats', () => {
     expect((sync(c, g2, { installId: 'install-dev-cccc3', save: forged }).body as SyncResponse).balance.shards).toBe(0);
   });
 
-  it('achat : prix du catalogue vérifié, débit unique, article accordé ; jamais deux fois', () => {
+  it('achat en Médailles : prix du catalogue vérifié, débit unique, article accordé ; jamais deux fois', () => {
     const c = ctx();
     const g = guest(c);
-    sync(c, g, { installId: install, earned: 500 });
-    const save = defaultSave();
+    const save = achieved(...MEDAL_140);
+    expect((sync(c, g, { installId: install, claims: MEDAL_140, save }).body as SyncResponse).balance.medals).toBe(140);
     save.owned = ['aurore'];
-    const r = sync(c, g, { installId: install, earned: 500, purchases: { aurore: 100 }, save }).body as SyncResponse;
+    const r = sync(c, g, { installId: install, claims: MEDAL_140, purchases: { aurore: 140 }, save }).body as SyncResponse;
     expect(r.acknowledged).toEqual([{ item: 'aurore', charged: true }]);
-    expect(r.balance.shards).toBe(400);
+    expect(r.balance).toEqual({ shards: 0, medals: 0, prisms: 0 });
     expect(r.save.owned).toContain('aurore');
-    for (let i = 0; i < 3; i++) expect((sync(c, g, { installId: install, earned: 500, purchases: { aurore: 100 }, save }).body as SyncResponse).balance.shards).toBe(400);
+    for (let i = 0; i < 3; i++) expect((sync(c, g, { installId: install, claims: MEDAL_140, purchases: { aurore: 140 }, save }).body as SyncResponse).balance.medals).toBe(0);
+    expect(ledgerRows(c, g.id).filter((e) => e.ref === 'spend:aurore')).toHaveLength(1);
   });
 
-  it('achat refusé : solde insuffisant, prix falsifié, article inconnu ou PREMIUM (Prismes) ; l’article n’est pas accordé', () => {
+  it('achat refusé : financement insuffisant, prix falsifié, article inconnu ou PREMIUM (Prismes) ; l’article n’est pas accordé, aucun solde négatif', () => {
     const c = ctx();
     const g = guest(c);
-    sync(c, g, { installId: install, earned: 150 });
-    const save = defaultSave();
+    const save = achieved('first_cycle', 'first_level', 'first_survival'); // 60 Médailles
     save.owned = ['spectre', 'aurore', 'neon', 'menthe'];
-    const r = sync(c, g, { installId: install, earned: 150, purchases: { spectre: 600, aurore: 1, neon: 150, menthe: 200, inconnu: 5 }, save }).body as SyncResponse;
+    const r = sync(c, g, { installId: install, earned: 150, claims: ['first_cycle', 'first_level', 'first_survival'], purchases: { spectre: 170, aurore: 1, neon: 150, menthe: 150, inconnu: 5 }, save }).body as SyncResponse;
     const reasons = Object.fromEntries(r.rejected.map((x) => [x.item, x.reason]));
     expect(reasons).toEqual({ spectre: 'insufficient', aurore: 'bad_price', neon: 'premium', menthe: 'insufficient', inconnu: 'unknown' });
     expect(r.save.owned).toEqual([]);
-    expect(r.balance.shards).toBe(150);
+    expect(r.balance).toEqual({ shards: 150, medals: 60, prisms: 0 });
+  });
+
+  it('les Éclats ne financent pas un cosmétique ; les anciens prix en Éclats et les anciens packs n’existent plus', () => {
+    const c = ctx();
+    const g = guest(c);
+    sync(c, g, { installId: install, earned: 2000 });
+    const save = defaultSave();
+    save.owned = ['aurore', 'emeraude'];
+    const r = sync(c, g, { installId: install, earned: 2000, purchases: { aurore: 140, emeraude: 70, 'pack-aurore': 120, 'pack-spectre': 900 }, save }).body as SyncResponse;
+    expect(r.rejected.map((x) => x.reason).sort()).toEqual(['insufficient', 'insufficient', 'unknown', 'unknown']);
+    expect(r.save.owned).toEqual([]);
+    expect(r.balance.shards).toBe(2000);
   });
 
   it('cosmétiques non vérifiés retirés de la progression synchronisée (liste « possédés » falsifiée sans achat)', () => {
@@ -547,29 +570,26 @@ describe('synchronisation : gains, récompenses uniques, achats', () => {
     const g = guest(c);
     const save = defaultSave();
     save.owned = ['spectre', 'ultraviolet', 'neon'];
-    save.wallet = { shards: 99999, prisms: 99999 };
+    save.wallet = { shards: 99999, medals: 99999, prisms: 99999 };
     const r = sync(c, g, { installId: install, save }).body as SyncResponse;
     expect(r.save.owned).toEqual([]);
-    expect(r.balance).toEqual({ shards: 0, prisms: 0 });
+    expect(r.balance).toEqual({ shards: 0, medals: 0, prisms: 0 });
   });
 
-  it('pack : prorata accepté (entre 1 et le prix du pack), contenus accordés ; article déjà possédé jamais débité', () => {
+  it('article déjà possédé (importé) : jamais débité, même « acheté » à nouveau ; un pack se refuse en différé (premium)', () => {
     const c = ctx();
     const g = guest(c);
-    sync(c, g, { installId: install, earned: 1000 });
-    const save = defaultSave();
-    save.owned = ['aurore', 'emeraude'];
-    const r = sync(c, g, { installId: install, earned: 1000, purchases: { 'pack-aurore': 120 }, save }).body as SyncResponse;
-    expect(r.acknowledged).toEqual([{ item: 'pack-aurore', charged: true }]);
-    expect(r.balance.shards).toBe(880);
-    // Importé puis « acheté » : l'article déjà possédé n'est pas débité
+    const save = achieved(...MEDAL_140);
+    sync(c, g, { installId: install, claims: MEDAL_140, save });
+    const r = sync(c, g, { installId: install, claims: MEDAL_140, purchases: { 'pack-neon': 200 }, save }).body as SyncResponse;
+    expect(r.rejected).toEqual([{ item: 'pack-neon', reason: 'premium' }]);
     const g2 = guest(c, '10.0.0.2');
     c.call('POST', '/api/migrate', { auth: g2.auth, body: migrateBody('install-mig-0001', legacySave({ owned: ['menthe'], wallet: { shards: 500, prisms: 0 } })) });
     const s2 = defaultSave();
     s2.owned = ['menthe'];
-    const r2 = sync(c, g2, { installId: 'install-mig-0002', purchases: { menthe: 200 }, save: s2 }).body as SyncResponse;
+    const r2 = sync(c, g2, { installId: 'install-mig-0002', purchases: { menthe: 150 }, save: s2 }).body as SyncResponse;
     expect(r2.acknowledged).toEqual([{ item: 'menthe', charged: false }]);
-    expect(r2.balance.shards).toBe(500);
+    expect(r2.balance).toEqual({ shards: 500, medals: 0, prisms: 0 });
   });
 
   it('aucun chemin ne crée de Prismes à partir du client (portefeuille falsifié, achats, import)', () => {
@@ -580,6 +600,7 @@ describe('synchronisation : gains, récompenses uniques, achats', () => {
     evil.economy.legacy = { shards: 10, imported: false };
     c.call('POST', '/api/migrate', { auth: g.auth, body: migrateBody('install-prm-0001', { ...legacySave(), wallet: { shards: 5, prisms: 777777 } }) });
     sync(c, g, { installId: 'install-prm-0001', earned: 50, purchases: { neon: 150, 'pack-neon': 200 }, save: evil });
+    c.call('POST', '/api/shop/prisms', { auth: g.auth, body: { item: 'neon' } });
     expect(balancesOf(c.db, g.id).prisms).toBe(0);
     expect(c.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE currency = 'prisms'").get()).toEqual({ n: 0 });
   });
@@ -606,33 +627,29 @@ describe('fusion de deux profils : monnaies et récompenses sans double crédit'
     const saveA = defaultSave();
     saveA.achievements[ach.id] = 10;
     saveA.rewarded.push(ach.id);
-    saveA.owned = ['aurore'];
-    sync(c, acc, { installId: 'install-A-dev0001', earned: 300, save: saveA, purchases: { aurore: 100 } }); // 300 + ach − 100
+    sync(c, acc, { installId: 'install-A-dev0001', earned: 300, save: saveA }); // 300 + ach
     const b = guest(c, '10.0.0.2');
     const saveB = defaultSave();
     saveB.achievements[ach.id] = 20;
     saveB.rewarded.push(ach.id);
-    saveB.owned = ['aurore'];
-    sync(c, b, { installId: 'install-B-dev0002', earned: 500, save: saveB, purchases: { aurore: 100 } }); // 500 + ach − 100
+    sync(c, b, { installId: 'install-B-dev0002', earned: 500, save: saveB }); // 500 + ach
     const balA = balancesOf(c.db, account.playerId).shards;
     const balB = balancesOf(c.db, b.id).shards;
-    expect(balA).toBe(300 + ach.shards - 100);
-    expect(balB).toBe(500 + ach.shards - 100);
+    expect(balA).toBe(300 + ach.legacyShards);
+    expect(balB).toBe(500 + ach.legacyShards);
 
     const merged = await googleLogin(c, 'sub-A', { auth: b.auth, merge: true });
     expect(merged.status).toBe(200);
-    // Gains des deux installations additionnés ; récompense et achat communs comptés UNE fois
-    expect(balancesOf(c.db, account.playerId).shards).toBe(300 + 500 + ach.shards - 100);
+    // Gains des deux installations additionnés ; récompense commune comptée UNE fois
+    expect(balancesOf(c.db, account.playerId).shards).toBe(300 + 500 + ach.legacyShards);
     const refs = ledgerRows(c, account.playerId).map((e) => e.ref);
     expect(new Set(refs).size).toBe(refs.length);
     expect(refs.filter((r) => r.startsWith('ach:'))).toHaveLength(1);
-    expect(refs.filter((r) => r.startsWith('spend:'))).toHaveLength(1);
     // Les installations ont changé de propriétaire : leur filigrane est conservé (aucun re-crédit des gains)
     const again = sync(c, acc, { installId: 'install-B-dev0002', earned: 500, save: saveB }).body as SyncResponse;
-    expect(again.balance.shards).toBe(300 + 500 + ach.shards - 100);
-    // Progression fusionnée : union des succès, cosmétiques possédés une fois
+    expect(again.balance.shards).toBe(300 + 500 + ach.legacyShards);
+    // Progression fusionnée : union des succès (la plus ancienne date)
     expect(again.save.achievements[ach.id]).toBe(10);
-    expect(again.save.owned).toEqual(['aurore']);
   });
 
   it('un import couvrant une récompense l’emporte sur un crédit de l’autre profil (jamais deux fois la même récompense)', async () => {
@@ -645,7 +662,7 @@ describe('fusion de deux profils : monnaies et récompenses sans double crédit'
     saveB.achievements[ach.id] = 1;
     saveB.rewarded.push(ach.id);
     sync(c, b, { installId: 'install-B-dev0003', save: saveB });
-    expect(balancesOf(c.db, b.id).shards).toBe(ach.shards);
+    expect(balancesOf(c.db, b.id).shards).toBe(ach.legacyShards);
     // Compte A : même succès DÉJÀ inclus dans le solde hérité (marqueur à 0)
     const legacy = legacySave({ achievements: { [ach.id]: 1 }, rewarded: [ach.id], paid: {}, wallet: { shards: 1000, prisms: 0 }, owned: [] });
     c.call('POST', '/api/migrate', { auth: auth(account), body: migrateBody('install-A-dev0004', legacy) });
@@ -689,5 +706,211 @@ describe('suppression et autorisations', () => {
     expect(c.call('GET', '/api/me', { auth: a.auth }).status).toBe(200);
     expect(c.call('POST', '/api/tickets', { auth: a.auth }).status).toBe(200);
     expect(c.call('GET', '/api/health').body).toEqual({ ok: true, balance: BALANCE_VERSION });
+  });
+});
+
+// ————————————————————————————————————————————————————————————————————————————————
+// Phase 2 : Médailles, bonus, articles premium
+
+import { ACHIEVEMENT_CONFIG as ACH, totalMedals } from '../src/config/achievements';
+import { BONUS } from '../src/config/economy';
+import type { PremiumPurchaseResponse } from '../src/net/accountProtocol';
+import { inventoryOf } from '../server/profile';
+
+describe('Médailles de succès : attribution unique, contrôlée par le service', () => {
+  const inst = 'install-med-0001';
+  const ALL = ACH.map((a) => a.id);
+
+  it('réclamation : montants de la configuration, une seule ligne par succès, jamais de double crédit (répétitions, autre appareil)', () => {
+    const c = ctx();
+    const g = guest(c);
+    const save = achieved('first_cycle', 'survive_600');
+    const r = sync(c, g, { installId: inst, claims: ['first_cycle', 'survive_600'], save }).body as SyncResponse;
+    expect(r.balance.medals).toBe(20 + 200);
+    expect(r.claimed.sort()).toEqual(['first_cycle', 'survive_600']);
+    for (let i = 0; i < 4; i++) expect((sync(c, g, { installId: inst, claims: ['first_cycle', 'survive_600'], save }).body as SyncResponse).balance.medals).toBe(220);
+    expect((sync(c, g, { installId: 'install-med-0002', claims: ['first_cycle'], save }).body as SyncResponse).balance.medals).toBe(220);
+    expect(ledgerRows(c, g.id).filter((e) => e.ref.startsWith('medal:'))).toHaveLength(2);
+  });
+
+  it('aucun crédit arbitraire : succès absent de la progression, identifiant inconnu ; les montants ne viennent jamais du client', () => {
+    const c = ctx();
+    const g = guest(c);
+    const r = sync(c, g, { installId: inst, claims: ['survive_600', 'inconnu', 'first_cycle'], save: achieved('first_cycle') }).body as SyncResponse;
+    expect(r.rejectedClaims.sort()).toEqual(['inconnu', 'survive_600']);
+    expect(r.balance.medals).toBe(20);
+    // Portefeuille falsifié : ignoré
+    const evil = achieved();
+    evil.wallet.medals = 999999;
+    expect((sync(c, g, { installId: inst, save: evil }).body as SyncResponse).balance.medals).toBe(20);
+  });
+
+  it('total exact : les 27 succès rapportent 1 650 Médailles, sans dépense réelle', () => {
+    const c = ctx();
+    const g = guest(c);
+    const r = sync(c, g, { installId: inst, claims: ALL, save: achieved(...ALL) }).body as SyncResponse;
+    expect(r.balance.medals).toBe(1650);
+    expect(totalMedals()).toBe(1650);
+  });
+
+  it('rétroactif : un succès importé d’une ancienne sauvegarde reste réclamable, sans toucher aux Éclats ; réclamable une seule fois', () => {
+    const c = ctx();
+    const g = guest(c);
+    c.call('POST', '/api/migrate', { auth: g.auth, body: migrateBody('install-ret-0001', legacySave()) });
+    const before = balancesOf(c.db, g.id);
+    expect(before).toEqual({ shards: 340, medals: 0, prisms: 0 });
+    const save = defaultSave();
+    save.achievements = { first_cycle: 1000, first_level: 2000 };
+    const r = sync(c, g, { installId: 'install-ret-0001', claims: ['first_cycle', 'first_level'], save }).body as SyncResponse;
+    expect(r.balance).toEqual({ shards: 340, medals: 40, prisms: 0 });
+    // Une seconde réclamation, d'un autre appareil comme du même : aucun crédit
+    expect((sync(c, g, { installId: 'install-ret-0002', claims: ['first_cycle', 'first_level'], save }).body as SyncResponse).balance).toEqual({ shards: 340, medals: 40, prisms: 0 });
+  });
+
+  it('fusion de deux profils : un succès réclamé par les deux n’est crédité qu’une fois', async () => {
+    const c = ctx({ google: true });
+    const account = (await googleLogin(c, 'sub-M')).body as AuthResponse;
+    sync(c, { auth: auth(account) }, { installId: 'install-fm-0001', claims: ['first_cycle', 'first_level'], save: achieved('first_cycle', 'first_level') });
+    const b = guest(c, '10.0.0.2');
+    sync(c, b, { installId: 'install-fm-0002', claims: ['first_cycle', 'survive_60'], save: achieved('first_cycle', 'survive_60') });
+    expect(balancesOf(c.db, b.id).medals).toBe(40);
+    expect((await googleLogin(c, 'sub-M', { auth: b.auth, merge: true })).status).toBe(200);
+    expect(balancesOf(c.db, account.playerId).medals).toBe(20 + 20 + 20); // first_cycle une fois, first_level, survive_60
+    const refs = ledgerRows(c, account.playerId).map((e) => e.ref).filter((r) => r.startsWith('medal:'));
+    expect(refs.sort()).toEqual(['medal:first_cycle', 'medal:first_level', 'medal:survive_60']);
+  });
+});
+
+describe('bonus : inventaire persistant, achats en Éclats idempotents et vérifiés', () => {
+  const inst = 'install-bon-0001';
+
+  it('achat : débit au prix de la configuration, crédit d’inventaire, rejouer la requête ne change rien', () => {
+    const c = ctx();
+    const g = guest(c);
+    sync(c, g, { installId: inst, earned: 1000 });
+    const r = sync(c, g, { installId: inst, earned: 1000, bonusBought: { boost: 2, gel: 1 } }).body as SyncResponse;
+    expect(r.balance.shards).toBe(1000 - 2 * 50 - 100);
+    expect(r.inventory).toEqual({ boost: 2, gel: 1 });
+    expect(r.bonus).toEqual({ boost: 2, gel: 1 });
+    for (let i = 0; i < 4; i++) {
+      const again = sync(c, g, { installId: inst, earned: 1000, bonusBought: { boost: 2, gel: 1 } }).body as SyncResponse;
+      expect(again.balance.shards).toBe(800);
+      expect(again.inventory).toEqual({ boost: 2, gel: 1 });
+    }
+    // Achat suivant : seul l'écart compte
+    const next = sync(c, g, { installId: inst, earned: 1000, bonusBought: { boost: 3, gel: 1 } }).body as SyncResponse;
+    expect(next.inventory.boost).toBe(3);
+    expect(next.balance.shards).toBe(750);
+  });
+
+  it('financement insuffisant : refusé (jamais de solde négatif), ordre de réception respecté, le compteur est consommé (pas de réessai)', () => {
+    const c = ctx();
+    const g = guest(c);
+    sync(c, g, { installId: inst, earned: 120 });
+    const r = sync(c, g, { installId: inst, earned: 120, bonusBought: { boost: 5, gel: 0 } }).body as SyncResponse;
+    expect(r.inventory.boost).toBe(2); // 120 / 50
+    expect(r.bonusRejected).toEqual({ boost: 3, gel: 0 });
+    expect(r.balance.shards).toBe(20);
+    const again = sync(c, g, { installId: inst, earned: 120, bonusBought: { boost: 5, gel: 0 } }).body as SyncResponse;
+    expect(again.inventory.boost).toBe(2);
+    expect(again.balance.shards).toBe(20);
+    // Deux appareils : la première requête reçue est servie la première
+    const g2 = guest(c, '10.0.0.2');
+    sync(c, g2, { installId: 'install-bon-0002', earned: 100 });
+    const first = sync(c, g2, { installId: 'install-bon-0002', earned: 100, bonusBought: { boost: 0, gel: 1 } }).body as SyncResponse;
+    expect(first.inventory.gel).toBe(1);
+    const second = sync(c, g2, { installId: 'install-bon-0003', bonusBought: { boost: 0, gel: 1 } }).body as SyncResponse;
+    expect(second.bonusRejected.gel).toBe(1);
+    expect(second.inventory.gel).toBe(1);
+  });
+
+  it('stock maximal respecté ; les charges ne sont jamais supprimées ; un compteur falsifié ne crée rien sans Éclats', () => {
+    const c = ctx();
+    const g = guest(c);
+    sync(c, g, { installId: inst, earned: 3000 });
+    const r = sync(c, g, { installId: inst, earned: 3000, bonusBought: { boost: 60, gel: 0 } }).body as SyncResponse;
+    expect(r.inventory.boost).toBe(60);
+    const full = sync(c, g, { installId: inst, earned: 3000, bonusBought: { boost: 200, gel: 0 } }).body as SyncResponse;
+    expect(full.inventory.boost).toBeLessThanOrEqual(BONUS.maxStock);
+    expect(full.balance.shards).toBeGreaterThanOrEqual(0);
+    const g2 = guest(c, '10.0.0.2');
+    const evil = sync(c, g2, { installId: 'install-bon-0009', bonusBought: { boost: 1e9, gel: 1e9 } }).body as SyncResponse;
+    expect(evil.inventory).toEqual({ boost: 0, gel: 0 });
+    expect(inventoryOf(c.db, g2.id)).toEqual({ boost: 0, gel: 0 });
+  });
+
+  it('fusion de profils : l’inventaire suit le registre ; les compteurs des installations sont conservés (aucun rachat gratuit)', async () => {
+    const c = ctx({ google: true });
+    const account = (await googleLogin(c, 'sub-B')).body as AuthResponse;
+    const b = guest(c, '10.0.0.2');
+    sync(c, b, { installId: 'install-bon-0010', earned: 500, bonusBought: { boost: 4, gel: 0 } });
+    expect(inventoryOf(c.db, b.id).boost).toBe(4);
+    await googleLogin(c, 'sub-B', { auth: b.auth, merge: true });
+    expect(inventoryOf(c.db, account.playerId).boost).toBe(4);
+    const again = sync(c, { auth: auth(account) }, { installId: 'install-bon-0010', earned: 500, bonusBought: { boost: 4, gel: 0 } }).body as SyncResponse;
+    expect(again.inventory.boost).toBe(4);
+    expect(again.balance.shards).toBe(300);
+  });
+});
+
+describe('articles premium : débit de Prismes sécurisé par le service', () => {
+  /** Prismes obtenus « légitimement » : écrits par le SERVICE (jamais une valeur du client). Réservé aux tests. */
+  const credit = (c: Ctx, id: string, amount: number, ref = `test:${amount}:${Math.random()}`): void => {
+    c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, 'prisms', 'test', ?, ?, 0)").run(id, amount, ref);
+  };
+  const buy = (c: Ctx, who: { auth: string }, item: string): HttpResponse => c.call('POST', '/api/shop/prisms', { auth: who.auth, body: { item } });
+
+  it('sans Prismes : refusé (409), rien n’est accordé ni débité ; sans authentification : 401', () => {
+    const c = ctx();
+    const g = guest(c);
+    expect(buy(c, g, 'neon').status).toBe(409);
+    expect(balancesOf(c.db, g.id).prisms).toBe(0);
+    expect(c.call('POST', '/api/shop/prisms', { body: { item: 'neon' } }).status).toBe(401);
+  });
+
+  it('achat : débit atomique du prix du catalogue, article accordé ; rejouer = aucun second débit', () => {
+    const c = ctx();
+    const g = guest(c);
+    credit(c, g.id, 400);
+    const r = buy(c, g, 'neon');
+    expect(r.status).toBe(200);
+    const b = r.body as PremiumPurchaseResponse;
+    expect(b).toMatchObject({ item: 'neon', charged: true, price: 150 });
+    expect(b.balance.prisms).toBe(250);
+    expect(b.owned).toContain('neon');
+    for (let i = 0; i < 3; i++) expect((buy(c, g, 'neon').body as PremiumPurchaseResponse)).toMatchObject({ charged: false, price: 0, balance: { prisms: 250 } });
+    expect(ledgerRows(c, g.id).filter((e) => e.ref === 'spend:neon')).toHaveLength(1);
+  });
+
+  it('pack : 200 Prismes (25 d’économie) ; si un élément est déjà possédé, prorata sans rien perdre ni racheter', () => {
+    const c = ctx();
+    const g = guest(c);
+    credit(c, g.id, 1000);
+    const full = buy(c, g, 'pack-neon').body as PremiumPurchaseResponse;
+    expect(full).toMatchObject({ charged: true, price: 200 });
+    expect(full.owned.sort()).toEqual(['nebuleuse', 'neon']);
+    const g2 = guest(c, '10.0.0.2');
+    credit(c, g2.id, 1000);
+    buy(c, g2, 'neon'); // 150
+    const part = buy(c, g2, 'pack-neon').body as PremiumPurchaseResponse;
+    expect(part.charged).toBe(true);
+    expect(part.price).toBe(Math.round((200 * 75) / 225)); // reste à obtenir : la traînée
+    expect(part.price).toBeLessThan(75);
+    expect(part.owned.sort()).toEqual(['nebuleuse', 'neon']);
+    expect(part.balance.prisms).toBe(1000 - 150 - part.price);
+    expect((buy(c, g2, 'pack-neon').body as PremiumPurchaseResponse).charged).toBe(false);
+  });
+
+  it('articles non premium refusés (400), articles inconnus (404) ; le client ne peut pas créer de Prismes', () => {
+    const c = ctx();
+    const g = guest(c);
+    credit(c, g.id, 1000);
+    expect(buy(c, g, 'aurore').status).toBe(400);
+    expect(buy(c, g, 'inconnu').status).toBe(404);
+    expect(c.call('POST', '/api/shop/prisms', { auth: g.auth, body: {} }).status).toBe(400);
+    const evil = defaultSave();
+    evil.wallet.prisms = 5e8;
+    sync(c, g, { installId: 'install-prm-0099', save: evil });
+    expect(balancesOf(c.db, g.id).prisms).toBe(1000);
   });
 });

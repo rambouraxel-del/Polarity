@@ -53,10 +53,10 @@ export interface RunReport {
   newRecord: boolean;
   /** Meilleur temps sous un ancien équilibrage (0 si aucun) : affiché à titre indicatif, jamais comparé. */
   legacyBestTime: number;
-  /** Nouveaux succès (chacun rapporte des Éclats, versés une seule fois à ce moment-là). */
+  /** Nouveaux succès obtenus pendant cette partie (récupérables : bouton « Récupérer »). */
   achievements: AchievementDef[];
-  /** Total des Éclats versés par ces succès. */
-  achievementShards: number;
+  /** Médailles que les succès obtenus pendant la partie permettent de récupérer (non créditées : réclamation par le joueur). */
+  achievementMedals: number;
   /** Éclats collectés sur l'orbite (Survie) : déjà crédités pendant la partie. */
   orbitShards: number;
   /** Récompenses de niveau créditées à la fin de cette partie, ou null. */
@@ -140,7 +140,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     newRecord: false,
     legacyBestTime: 0,
     achievements: [],
-    achievementShards: 0,
+    achievementMedals: 0,
     orbitShards: Math.max(0, Math.floor(run.shards ?? 0)),
     levelReward: null,
     shardsBalance: 0,
@@ -198,9 +198,9 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     pruneDaily(save.daily);
   }
 
-  // Succès : déblocage et récompense en Éclats, une seule fois chacun
+  // Succès : déblocage (les Médailles se réclament ensuite, une seule fois chacune)
   report.achievements = unlockAchievements(save, run, now);
-  report.achievementShards = report.achievements.reduce((t, a) => t + a.shards, 0);
+  report.achievementMedals = report.achievements.reduce((t, a) => t + a.medals, 0);
   report.shardsBalance = save.wallet.shards;
   return report;
 }

@@ -168,7 +168,19 @@ CREATE TABLE merges (
 );
 `;
 
-export const MIGRATIONS: readonly string[] = [V1, V2, V3];
+/**
+ * v4 : économie v3, phase 2 (Médailles, bonus). Additif : aucune donnée existante n'est modifiée.
+ * - `installs.bonus_boost` / `installs.bonus_gel` : compteur monotone des charges de bonus déjà TRAITÉES (acceptées ou refusées) pour cette installation
+ *   (même principe que le filigrane des gains : rejouer une requête ne crée rien).
+ * - Le registre `ledger` accueille de nouvelles monnaies/articles dans sa colonne `currency` : « medals » (Médailles de succès, clé `medal:<succès>`),
+ *   « boost » et « gel » (charges d'inventaire, clés `bonus:…`). Aucune colonne ni table à ajouter pour cela.
+ */
+const V4 = `
+ALTER TABLE installs ADD COLUMN bonus_boost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE installs ADD COLUMN bonus_gel INTEGER NOT NULL DEFAULT 0;
+`;
+
+export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 const userVersion = (db: Db): number => (db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }).user_version;

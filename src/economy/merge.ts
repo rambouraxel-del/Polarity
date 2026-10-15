@@ -13,6 +13,7 @@ import { defaultCampaign, type ArchivedRecords, type CampaignSave, type LevelRec
  * - records et niveaux : le MEILLEUR (temps d'abord, score en départage) ; étoiles : maximum ; « terminé » : OU logique ;
  * - compteurs cumulés (statistiques) : MAXIMUM — additionner compterait deux fois une partie commune à deux appareils ;
  * - campagne : missions par union (étoiles = OU), réserve d'Éclats de campagne = MAXIMUM, SÉPARÉE de tout le reste ;
+ * - Médailles réclamées : UNION (un succès ne rapporte qu'une fois) ; inventaire de bonus et soldes : NON fusionnés ici
  * - monnaies : NON fusionnées ici (le registre du serveur s'en charge, clé par clé, sans double crédit).
  * Les records de la sauvegarde sont des déclarations locales : seuls les records du CLASSEMENT (rejeu serveur) sont « vérifiés ».
  */
@@ -77,6 +78,8 @@ export function mergeSaves(a: SaveData, b: SaveData): SaveData {
     out.achievements[k] = Math.min(...ts);
   }
   out.rewarded = union(a.rewarded, b.rewarded);
+  // Médailles réclamées : union (la réclamation d'un succès n'est comptée qu'une fois ; le service fait foi pour les soldes)
+  out.medals = { claimed: union(a.medals.claimed, b.medals.claimed) };
   out.owned = union(a.owned, b.owned);
   out.paid = {};
   for (const k of new Set([...Object.keys(a.paid), ...Object.keys(b.paid)])) {

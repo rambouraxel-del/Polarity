@@ -19,8 +19,12 @@ import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
 import { reconcileAchievements } from './progression/achievements';
-import { catalogItem } from './config/catalog';
+import { catalogItem, type CatalogItem } from './config/catalog';
 import { creditShards, equip, isOwned, itemState, purchase } from './progression/shop';
+import { buyBonus } from './economy/bonus';
+import { bonusDef } from './config/economy';
+import { claimAllMedals, claimMedals } from './progression/achievements';
+import { isPremium } from './config/catalog';
 import { resolveEquipped, skinById, type Skin } from './progression/skins';
 import { CAMPAIGN_SKIN } from './config/skins';
 import { DEFAULT_TRAIL_ID } from './config/trails';
@@ -36,7 +40,8 @@ import { accountScreen } from './ui/accountScreens';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
 import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
 import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
-import { escapeHtml, formatScore } from './ui/format';
+import { CURRENCY_NAME } from './ui/components';
+import { escapeHtml, formatScore, formatTime } from './ui/format';
 import { Hud } from './ui/hud';
 import { bannerHelp, isTouchPrimary } from './ui/controls';
 import { ShipPreview } from './ui/shipPreview';
@@ -44,7 +49,7 @@ import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 import * as C from './ui/campaignScreens';
 
-type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | null;
 
 /** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
 const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
@@ -54,6 +59,7 @@ const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
   journal: 'campaign',
   levels: 'campaign',
   account: 'options',
+  prep: 'home',
 };
 
 /** Scène en cours d'affichage : réplique courante, avancement du texte progressif et suite à donner. */
@@ -87,7 +93,10 @@ export class App {
     },
     isPlaying: () => this.session !== null && this.session.phase !== 'over',
     onChange: () => {
-      if (this.screen === 'account' && !this.session) this.rerenderAccount();
+      if (this.session) return;
+      if (this.screen === 'account') this.rerenderAccount();
+      // Soldes confirmés par le service : les écrans de boutique, succès et préparation se mettent à jour (jamais pendant un achat à confirmer)
+      else if (this.screen === 'cosmetics' || this.screen === 'achievements' || this.screen === 'prep' || this.screen === 'home') this.showScreen(this.screen, false);
     },
   });
   /** ?demo (joueur automatique) ou ?debug : jamais éligible au classement. */
@@ -112,6 +121,14 @@ export class App {
   private storageFailed = false;
   private saveNoticeDismissed = false;
   private shopMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  /** Achat de bonus en attente de confirmation et écran d'où il vient. */
+  private bonusOrder: { kind: string; qty: number; back: 'cosmetics' | 'prep' } | null = null;
+  private prepMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  private achMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  /** Succès réclamés à l'instant (animation courte, affichée une fois). */
+  private justClaimed: string[] = [];
+  /** Achat premium en cours auprès du service (le bouton de confirmation est neutralisé). */
+  private purchaseBusy = false;
   private readonly sfx = new Sfx();
   /** Musique de partie : partage le contexte audio, le volume et la sourdine de `sfx`. */
   readonly music = new Music({ context: () => this.sfx.context, output: () => this.sfx.output });
@@ -180,6 +197,8 @@ export class App {
    */
   private normalizeSave(): boolean {
     // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
+    // Un service de comptes est-il configuré ? Alors seuls les soldes confirmés financent un achat hors ligne (economy/funds.ts)
+    this.save.economy.managed = this.lb.configured;
     this.save.skin = resolveEquipped(this.save.skin, this.save).id;
     if (!isOwned(this.save, this.save.trail)) this.save.trail = DEFAULT_TRAIL_ID;
     // Nouveaux objectifs déjà atteints grâce à la progression existante : succès débloqués et récompensés une seule fois
@@ -971,9 +990,18 @@ export class App {
         html = S.cosmeticsScreen(this.save, this.cosmeticsTab, this.cosmeticsFilter, this.selectedItem ?? undefined, this.shopMessage);
         this.shopMessage = null; // affiché une seule fois
         break;
-      case 'achievements': html = S.achievementsScreen(this.save); break;
+      case 'achievements':
+        html = S.achievementsScreen(this.save, this.achMessage, this.justClaimed);
+        this.achMessage = null;
+        this.justClaimed = [];
+        break;
       case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
-      case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? ''); break;
+      case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? '', this.purchaseBusy); break;
+      case 'confirm-bonus': html = S.confirmBonusScreen(this.save, this.bonusOrder?.kind ?? '', this.bonusOrder?.qty ?? 0, this.bonusOrder?.back ?? 'cosmetics'); break;
+      case 'prep':
+        html = S.prepScreen(this.save, this.prepMessage, this.save.survival.bestTime > 0 ? `Record : ${formatTime(this.save.survival.bestTime)}` : '');
+        this.prepMessage = null;
+        break;
       case 'options': html = S.optionsScreen(this.save, this.lb.configured); break;
       case 'account': html = accountScreen({ state: this.account.state, methods: this.account.availability() }); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
@@ -1103,9 +1131,64 @@ export class App {
       case 'story-skip': this.finishStory(); break;
       case 'levels': this.showScreen('levels'); break;
       case 'daily': this.showScreen('daily'); break;
-      case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); break;
+      case 'cosmetics': this.selectedItem = null; this.pendingPurchase = null; this.showScreen('cosmetics'); void this.account.syncNow(); break;
       case 'back-cosmetics': this.pendingPurchase = null; this.showScreen('cosmetics'); break;
-      case 'achievements': this.showScreen('achievements'); break;
+      case 'achievements': this.showScreen('achievements'); void this.account.syncNow(); break;
+      case 'claim-medal': {
+        const res = claimMedals(this.save, target.dataset.ach ?? '');
+        if (res.ok) {
+          this.persist();
+          this.sfx.play('success');
+          this.justClaimed = [res.achievement.id];
+          this.achMessage = { kind: 'ok', text: `+${formatScore(res.medals)} Médailles : ${res.achievement.name}. Solde : ${formatScore(res.balance)} Médailles.` };
+          void this.account.syncNow(true);
+        } else {
+          this.achMessage = { kind: 'error', text: res.reason === 'already' ? 'Ces Médailles ont déjà été récupérées.' : 'Succès non accompli : rien à récupérer.' };
+        }
+        this.showScreen('achievements', false);
+        break;
+      }
+      case 'claim-all': {
+        const res = claimAllMedals(this.save);
+        if (res.claimed.length > 0) {
+          this.persist();
+          this.sfx.play('success');
+          this.justClaimed = res.claimed.map((a) => a.id);
+          this.achMessage = { kind: 'ok', text: `+${formatScore(res.medals)} Médailles récupérées (${res.claimed.length} succès). Solde : ${formatScore(this.save.wallet.medals)} Médailles.` };
+          void this.account.syncNow(true);
+        }
+        this.showScreen('achievements', false);
+        break;
+      }
+      case 'bonus-ask': {
+        this.bonusOrder = { kind: target.dataset.bonus ?? '', qty: Number(target.dataset.qty) || 0, back: this.screen === 'prep' ? 'prep' : 'cosmetics' };
+        this.showScreen('confirm-bonus');
+        break;
+      }
+      case 'bonus-back': {
+        const back = this.bonusOrder?.back ?? 'cosmetics';
+        this.bonusOrder = null;
+        this.showScreen(back);
+        break;
+      }
+      case 'bonus-confirm': {
+        // Vérification des fonds, débit et crédit d'inventaire dans la même modification, puis une seule écriture (aucune charge consommée)
+        const back = this.bonusOrder?.back ?? 'cosmetics';
+        const res = buyBonus(this.save, target.dataset.bonus ?? '', Number(target.dataset.qty) || 0);
+        const msg = res.ok
+          ? { kind: 'ok' as const, text: `${bonusDef(res.kind)?.name ?? ''} × ${res.quantity} ajouté à votre inventaire (−${formatScore(res.spent)} Éclats). Éclats restants : ${formatScore(res.balance)} · stock : ${formatScore(res.stock)}.` }
+          : { kind: 'error' as const, text: res.reason === 'stock_full' ? 'Inventaire plein pour ce bonus : rien n’a été débité.' : 'Éclats insuffisants : rien n’a été débité.' };
+        if (res.ok) {
+          this.persist();
+          this.sfx.play('success');
+          void this.account.syncNow(true);
+        }
+        this.bonusOrder = null;
+        if (back === 'prep') this.prepMessage = msg;
+        else this.shopMessage = msg;
+        this.showScreen(back, false);
+        break;
+      }
       case 'leaderboard': this.openLeaderboard(); break;
       case 'lb-refresh': void this.refreshLeaderboard(); break;
       case 'lb-flush': void this.refreshLeaderboard(); break;
@@ -1136,7 +1219,13 @@ export class App {
       case 'acct-email-send':
       case 'acct-code':
         break;
-      case 'survival': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
+      case 'survival':
+        // Préparation facultative (bonus) avant une partie de Survie ; on peut toujours lancer sans aucun bonus
+        this.prepMessage = null;
+        this.showScreen('prep');
+        void this.account.syncNow();
+        break;
+      case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
       case 'play-daily': {
         const date = utcDateString();
         this.startRun({ mode: 'daily', seed: 0, date });
@@ -1162,6 +1251,7 @@ export class App {
       case 'cat-ships':
       case 'cat-trails':
       case 'cat-packs':
+      case 'cat-bonus':
         this.cosmeticsTab = action.slice('cat-'.length) as S.CosmeticsTab;
         this.selectedItem = null;
         this.showScreen('cosmetics', false);
@@ -1202,6 +1292,11 @@ export class App {
         break;
       }
       case 'confirm-buy': {
+        const wanted = catalogItem(target.dataset.item ?? '');
+        if (wanted && isPremium(wanted)) {
+          void this.confirmPremium(wanted);
+          break;
+        }
         // Vérification du solde, débit et déblocage dans la même modification, puis une seule écriture. Un article déjà possédé n'est jamais débité
         // (un double clic sur « Confirmer » ne peut donc pas payer deux fois : le second est refusé avec le motif « déjà possédé »).
         const res = purchase(this.save, target.dataset.item ?? '');
@@ -1209,7 +1304,8 @@ export class App {
           this.persist();
           this.sfx.play('success');
           this.selectedItem = res.item.id;
-          this.shopMessage = { kind: 'ok', text: `Achat effectué : ${res.item.name} (−${formatScore(res.spent)} Éclats). Solde : ${formatScore(res.balance)} Éclats.` };
+          this.shopMessage = { kind: 'ok', text: `Achat effectué : ${res.item.name} (−${formatScore(res.spent)} ${CURRENCY_NAME[res.currency]}). Solde : ${formatScore(res.balance)} ${CURRENCY_NAME[res.currency]}.` };
+          void this.account.syncNow(true);
         } else {
           const item = catalogItem(target.dataset.item ?? '');
           this.shopMessage = { kind: 'error', text: item ? S.purchaseRefusal(this.save, item) : 'Article inconnu : rien n’a été débité.' };
@@ -1451,6 +1547,25 @@ export class App {
     this.bannerTimer = 0;
     this.bannerKind = null;
     this.bannerEl.classList.add('hidden');
+  }
+
+  /** Achat d'un article premium : requête au service (débit atomique côté service) ; rien n'est débité ni accordé localement avant sa réponse. */
+  private async confirmPremium(item: CatalogItem): Promise<void> {
+    if (this.purchaseBusy) return;
+    this.purchaseBusy = true;
+    this.showScreen('confirm-purchase', false);
+    const res = await this.account.buyPremium(item.id);
+    this.purchaseBusy = false;
+    if (res.ok) {
+      this.persist();
+      this.sfx.play('success');
+      this.selectedItem = item.id;
+      this.shopMessage = { kind: 'ok', text: res.charged ? `Achat effectué : ${item.name} (−${formatScore(res.price)} Prismes).` : `${item.name} est déjà possédé : aucun Prisme n’a été débité.` };
+    } else {
+      this.shopMessage = { kind: 'error', text: `${res.message} Rien n’a été débité.` };
+    }
+    this.pendingPurchase = null;
+    if (this.screen === 'confirm-purchase') this.showScreen('cosmetics');
   }
 
   private persist(schedule = true): void {

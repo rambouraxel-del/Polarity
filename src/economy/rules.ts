@@ -38,6 +38,10 @@ export const levelStarRef = (level: string, k: number): string => `lvl:${level}:
 export const importRef = (installId: string): string => `import:${installId}`;
 export const earnRef = (installId: string, watermark: number): string => `earn:${installId}:${watermark}`;
 export const spendRef = (item: string): string => `spend:${item}`;
+/** Médaille d'un succès : une seule ligne par profil et par succès (identifiant historique immuable). */
+export const medalRef = (achievementId: string): string => `medal:${achievementId}`;
+/** Charges de bonus acquises par une installation jusqu'au compteur `watermark` : `:pay` (débit d'Éclats) et `:grant` (crédit d'inventaire). */
+export const bonusRef = (kind: string, installId: string, watermark: number, part: 'pay' | 'grant'): string => `bonus:${kind}:${installId}:${watermark}:${part}`;
 
 /**
  * Récompenses uniques auxquelles une sauvegarde DONNE DROIT : succès versés (`rewarded` ET débloqués) et paliers de niveaux (`paid`).
@@ -46,7 +50,7 @@ export const spendRef = (item: string): string => `spend:${item}`;
 export function entitledRewards(save: Pick<SaveData, 'rewarded' | 'achievements' | 'paid'>): OneTimeReward[] {
   const out: OneTimeReward[] = [];
   for (const a of ACHIEVEMENT_CONFIG) {
-    if (save.rewarded.includes(a.id) && save.achievements[a.id] !== undefined) out.push({ ref: achievementRef(a.id), amount: a.shards });
+    if (save.rewarded.includes(a.id) && save.achievements[a.id] !== undefined) out.push({ ref: achievementRef(a.id), amount: a.legacyShards });
   }
   for (const [level, p] of Object.entries(save.paid)) {
     if (!/^\d{1,3}$/.test(level)) continue;
@@ -62,20 +66,20 @@ export function refillBucket(bucket: number, elapsedMs: number): number {
   return Math.min(SYNC_RULES.earnBucketCap, Math.max(0, bucket) + Math.floor(refill));
 }
 
-export type PurchaseCheck = { ok: true; item: CatalogItem } | { ok: false; reason: 'unknown' | 'not_purchasable' | 'premium' | 'bad_price' };
+export type PurchaseCheck = { ok: true; item: CatalogItem; currency: 'shards' | 'medals'; price: number } | { ok: false; reason: 'unknown' | 'not_purchasable' | 'premium' | 'bad_price' };
 
 /**
- * Vérifie un achat annoncé par le client : article du catalogue, payable en Éclats (jamais en Prismes : premium = serveur seulement),
- * prix payé = prix du catalogue ; pour un pack, entre 1 et le prix du pack (prorata de ce qui restait à obtenir).
+ * Vérifie un achat DIFFÉRÉ annoncé par le client (hors ligne ou en attente) : article du catalogue, payable en Éclats ou en Médailles (jamais en
+ * Prismes : un article premium n'est débité qu'en ligne, par le service, sur demande directe), prix annoncé = prix du catalogue.
+ * Le service débite TOUJOURS le prix du catalogue, jamais le montant annoncé.
  */
 export function checkPurchase(itemId: string, paid: number): PurchaseCheck {
   const item = catalogItem(itemId);
   if (!item) return { ok: false, reason: 'unknown' };
   if (item.acquire.type !== 'price') return { ok: false, reason: 'not_purchasable' };
-  if (item.acquire.currency !== 'shards') return { ok: false, reason: 'premium' };
-  if (!Number.isInteger(paid) || paid < 1 || paid > item.acquire.amount) return { ok: false, reason: 'bad_price' };
-  if (item.kind !== 'pack' && paid !== item.acquire.amount) return { ok: false, reason: 'bad_price' };
-  return { ok: true, item };
+  if (item.acquire.currency === 'prisms') return { ok: false, reason: 'premium' };
+  if (!Number.isInteger(paid) || paid !== item.acquire.amount) return { ok: false, reason: 'bad_price' };
+  return { ok: true, item, currency: item.acquire.currency, price: item.acquire.amount };
 }
 
 /** Articles réellement accordés par un achat : le pack accorde ses contenus ; un article seul, lui-même. */

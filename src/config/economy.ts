@@ -1,10 +1,11 @@
 /**
- * Économie à deux monnaies — tous les réglages sont ici (aucune valeur en dur ailleurs).
+ * Économie à TROIS monnaies — tous les réglages sont ici (aucune valeur en dur ailleurs). Aucune conversion automatique entre elles.
  *
- * - Éclats : gagnés en jouant (éclat sur l'orbite en Survie, récompenses de niveau), dépensés en cosmétiques.
- * - Prismes : monnaie premium, solde séparé (0 au départ), jamais collectée sur l'orbite. Aucun achat réel n'est actif
- *   dans cette version (voir monetization/payments.ts).
- * Tous les achats sont cosmétiques : mêmes vitesses et mêmes hitboxes dans tous les modes.
+ * - Éclats : gagnés en jouant (éclat sur l'orbite en Survie, récompenses de niveau) ; servent aux BONUS (Boost, Gel temporel).
+ * - Médailles : gagnées en RÉCLAMANT les succès (config/achievements.ts) ; servent exclusivement aux cosmétiques non premium.
+ * - Prismes : monnaie premium (gagnée très rarement ou achetée plus tard) ; vaisseaux et traînées premium, puis secondes chances.
+ *   Le solde de Prismes vient UNIQUEMENT du service (jamais d'une donnée locale). Aucun achat réel n'est actif (monetization/payments.ts).
+ * Les achats sont cosmétiques ou des bonus d'inventaire : aucun effet sur les hitboxes ni sur les règles de la simulation partagée.
  */
 
 /** Éclat sur l'orbite (Survie). */
@@ -42,14 +43,47 @@ export const LEVEL_REWARDS = {
 } as const;
 
 /** Soldes initiaux. */
-export const WALLET_START = { shards: 0, prisms: 0 } as const;
+export const WALLET_START = { shards: 0, medals: 0, prisms: 0 } as const;
+
+/**
+ * Bonus de Survie (phase 2 : stock, achats et préparation ; les EFFETS en partie arrivent en phase 3).
+ * Chaque charge s'achète en Éclats et se conserve entre les parties (jamais supprimée). Un achat crédite l'inventaire sans rien consommer ;
+ * la consommation aura lieu lors d'une activation réussie (phase 3).
+ */
+export type BonusKind = 'boost' | 'gel';
+
+export interface BonusDef {
+  id: BonusKind;
+  name: string;
+  /** Prix d'une charge, en Éclats. */
+  price: number;
+  blurb: string;
+}
+
+export const BONUS_LIST: readonly BonusDef[] = [
+  { id: 'boost', name: 'Boost', price: 50, blurb: 'Une impulsion de vitesse, activée en partie.' },
+  { id: 'gel', name: 'Gel temporel', price: 100, blurb: 'Ralentit brièvement les menaces, activé en partie.' },
+];
+
+export const BONUS = {
+  /** Activations maximales par bonus pendant la première vie d'une partie (ne limite pas le stock). */
+  maxActivationsPerRun: 3,
+  /** Stock maximal par bonus (borne de sécurité de l'inventaire et de la sauvegarde). */
+  maxStock: 99,
+  /** Charges achetables d'un coup dans l'interface. */
+  quantities: [1, 5] as readonly number[],
+  /** Les effets en partie sont-ils actifs ? (phase 3) Tant que faux, l'interface le dit honnêtement. */
+  activationEnabled: false,
+} as const;
+
+export const bonusDef = (id: string): BonusDef | undefined => BONUS_LIST.find((b) => b.id === id);
 
 /** Plafond de sécurité d'un solde (valeurs de sauvegarde aberrantes ramenées à cette limite). */
 export const WALLET_MAX = 1_000_000_000;
 
 /**
  * Apparences qui se débloquaient par un succès avant la v1.5 (sauvegarde < 3) : celles déjà obtenues sont conservées.
- * Les apparences qui restent exclusives aux succès sont décrites dans config/catalog.ts.
+ * Les déblocages directs de la v1.5 à la v7 (glace, solaire…) sont décrits dans config/catalog.ts (LEGACY_ACHIEVEMENT_ITEMS).
  */
 export const LEGACY_SKIN_ACHIEVEMENTS: Record<string, string> = {
   aurore: 'first_cycle',

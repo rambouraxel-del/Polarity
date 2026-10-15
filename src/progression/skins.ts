@@ -1,6 +1,4 @@
-import { catalogItem } from '../config/catalog';
 import { CLASSIC_SKIN_ID, SHIP_MODELS, SKINS, type SkinDef } from '../config/skins';
-import { achievementById } from './achievements';
 import { isOwned, type Ownership } from './shop';
 
 /**
@@ -25,23 +23,9 @@ export function isKnownSkin(id: string): boolean {
   return SKINS.some((s) => s.id === id && s.asset in SHIP_MODELS);
 }
 
-/** Identifiant du succès dont l'apparence est l'exclusivité (null sinon). */
-export function unlockAchievementId(skin: Skin): string | null {
-  const a = catalogItem(skin.id)?.acquire;
-  return a?.type === 'achievement' ? a.id : null;
-}
-
-/** Possédée : gratuite, achetée, conservée d'une version précédente, ou exclusivité d'un succès obtenu. */
+/** Possédée : gratuite, achetée en Médailles ou en Prismes, ou conservée d'une version précédente. */
 export function isSkinOwned(skin: Skin, own: Ownership): boolean {
   return isOwned(own, skin.id);
-}
-
-/** Condition d'une exclusivité de succès : nom et description du succès. Null si l'apparence n'en dépend pas. */
-export function unlockCondition(skin: Skin): { name: string; description: string } | null {
-  const id = unlockAchievementId(skin);
-  if (!id) return null;
-  const a = achievementById(id);
-  return a ? { name: a.name, description: a.description } : { name: id, description: '' };
 }
 
 /** Apparence à équiper : celle de la sauvegarde si elle existe et est possédée, sinon la classique. */

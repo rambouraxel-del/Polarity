@@ -1,5 +1,5 @@
 import { ACHIEVEMENT_CONFIG, type AchievementConfig, type MetricKey } from '../config/achievements';
-import { CATALOG, type CatalogItem } from '../config/catalog';
+import { WALLET_MAX } from '../config/economy';
 import type { SaveData } from '../save/save';
 import type { RunSummary } from './progress';
 
@@ -9,11 +9,6 @@ export const ACHIEVEMENTS: AchievementDef[] = ACHIEVEMENT_CONFIG;
 
 export function achievementById(id: string): AchievementDef | undefined {
   return ACHIEVEMENTS.find((a) => a.id === id);
-}
-
-/** Cosmétiques débloqués par un succès (lien décrit au catalogue). */
-export function achievementCosmetics(id: string): CatalogItem[] {
-  return CATALOG.filter((i) => i.acquire.type === 'achievement' && i.acquire.id === id);
 }
 
 const levels = (save: SaveData) => Object.values(save.levels);
@@ -51,49 +46,72 @@ export interface AchievementProgress {
   /** Fraction accomplie, entre 0 et 1. */
   ratio: number;
   earned: boolean;
-  /** Récompense déjà versée. */
-  rewarded: boolean;
+  /** Médailles déjà récupérées. */
+  claimed: boolean;
 }
 
 export function achievementProgress(save: SaveData, a: AchievementDef): AchievementProgress {
   const earned = save.achievements[a.id] !== undefined;
   const value = metricValue(save, a.metric);
   const shown = earned ? Math.max(value, a.target) : value;
-  return { value: Math.min(shown, a.target), target: a.target, ratio: Math.min(1, shown / a.target), earned, rewarded: save.rewarded.includes(a.id) };
+  return { value: Math.min(shown, a.target), target: a.target, ratio: Math.min(1, shown / a.target), earned, claimed: save.medals.claimed.includes(a.id) };
 }
 
 /**
- * Débloque les succès dont l'objectif est atteint et verse chaque récompense **une seule fois** (registre `save.rewarded`).
- * Renvoie les succès nouvellement obtenus. Un succès déjà obtenu n'est jamais re-versé.
+ * Débloque les succès dont l'objectif est atteint. Un succès ne verse PLUS rien automatiquement : il devient RÉCLAMABLE (bouton « Récupérer »),
+ * et ses Médailles ne sont créditées qu'à la réclamation (une seule fois, registre `medals.claimed`). Aucun cosmétique n'est débloqué directement.
+ * Renvoie les succès nouvellement obtenus.
  */
 export function unlockAchievements(save: SaveData, run: RunSummary | undefined, now: number): AchievementDef[] {
   const gained: AchievementDef[] = [];
   for (const a of ACHIEVEMENTS) {
     if (save.achievements[a.id] !== undefined || metricValue(save, a.metric, run) < a.target) continue;
-    // Déblocage et versement dans la même modification de la sauvegarde (une seule écriture ensuite).
-    // Le registre `rewarded` est la garantie finale : un identifiant déjà versé n'est jamais re-versé ni re-notifié,
-    // même si la sauvegarde est incohérente (succès effacé à la main, copie ancienne…).
     save.achievements[a.id] = now;
-    if (save.rewarded.includes(a.id)) continue;
-    save.rewarded.push(a.id);
-    save.wallet.shards += a.shards;
     gained.push(a);
   }
   return gained;
 }
 
-/**
- * Au démarrage : succès devenus atteignables grâce à la progression existante (nouveaux objectifs).
- * Les gains sont mémorisés dans `save.rewardNotice` pour une notification à l'accueil.
- */
+/** Au démarrage : succès devenus atteignables grâce à la progression existante (nouveaux objectifs). Aucun versement. */
 export function reconcileAchievements(save: SaveData, now = Date.now()): AchievementDef[] {
-  const gained = unlockAchievements(save, undefined, now);
-  if (gained.length > 0) addRewardNotice(save, gained);
-  return gained;
+  return unlockAchievements(save, undefined, now);
 }
 
-export function addRewardNotice(save: SaveData, gained: readonly AchievementDef[]): void {
-  const shards = gained.reduce((t, a) => t + a.shards, 0);
-  const old = save.rewardNotice ?? { shards: 0, count: 0 };
-  save.rewardNotice = { shards: old.shards + shards, count: old.count + gained.length };
+// ————————————————————————— Médailles : réclamation
+
+/** Succès accompli dont les Médailles n'ont pas encore été récupérées. */
+export function isClaimable(save: SaveData, id: string): boolean {
+  return save.achievements[id] !== undefined && !save.medals.claimed.includes(id) && achievementById(id) !== undefined;
+}
+
+export function claimableAchievements(save: SaveData): AchievementDef[] {
+  return ACHIEVEMENTS.filter((a) => isClaimable(save, a.id));
+}
+
+/** Total de Médailles à récupérer. */
+export function claimableMedals(save: SaveData): number {
+  return claimableAchievements(save).reduce((t, a) => t + a.medals, 0);
+}
+
+export type ClaimResult = { ok: true; achievement: AchievementDef; medals: number; balance: number } | { ok: false; reason: 'unknown' | 'not_earned' | 'already' };
+
+/**
+ * Réclame les Médailles d'UN succès : inscription au registre et crédit dans la même modification de la sauvegarde. Une récompense ne peut être
+ * réclamée qu'une seule fois (l'identifiant historique du succès est la clé). Le crédit local est provisoire jusqu'à la confirmation du service.
+ */
+export function claimMedals(save: SaveData, id: string): ClaimResult {
+  const a = achievementById(id);
+  if (!a) return { ok: false, reason: 'unknown' };
+  if (save.achievements[id] === undefined) return { ok: false, reason: 'not_earned' };
+  if (save.medals.claimed.includes(id)) return { ok: false, reason: 'already' };
+  save.medals.claimed.push(id);
+  save.wallet.medals = Math.min(WALLET_MAX, save.wallet.medals + a.medals);
+  return { ok: true, achievement: a, medals: a.medals, balance: save.wallet.medals };
+}
+
+/** Réclame tous les succès accomplis. Renvoie les réclamations réussies. */
+export function claimAllMedals(save: SaveData): { claimed: AchievementDef[]; medals: number } {
+  const claimed: AchievementDef[] = [];
+  for (const a of claimableAchievements(save)) if (claimMedals(save, a.id).ok) claimed.push(a);
+  return { claimed, medals: claimed.reduce((t, a) => t + a.medals, 0) };
 }

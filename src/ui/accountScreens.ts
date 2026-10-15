@@ -37,7 +37,9 @@ function pendingLine(s: AccountState): string {
   const bits: string[] = [];
   if (p.legacy) bits.push('ancienne sauvegarde à importer');
   if (p.earned > 0) bits.push(`${p.earned} Éclat${p.earned > 1 ? 's' : ''} à confirmer`);
+  if (p.claims > 0) bits.push(`${p.claims} succès à confirmer (Médailles)`);
   if (p.purchases > 0) bits.push(`${p.purchases} achat${p.purchases > 1 ? 's' : ''} à confirmer`);
+  if (p.charges > 0) bits.push(`${p.charges} charge${p.charges > 1 ? 's' : ''} de bonus à confirmer`);
   return bits.length > 0 ? `En attente de confirmation par le service : ${bits.join(', ')}.` : '';
 }
 

@@ -5,8 +5,9 @@
  */
 
 import { ACHIEVEMENT_CONFIG } from '../config/achievements';
+import { LEGACY_ACHIEVEMENT_ITEMS } from '../config/catalog';
 import { MISSIONS, UPGRADES, missionKey } from '../config/campaign';
-import { LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
+import { BONUS, LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 
@@ -29,8 +30,14 @@ import { BALANCE_VERSION } from '../config/version';
  *  6 — campagne « Douze ans de silence » (niveaux 1 à 5) : étoiles, réserve d'Éclats de campagne SÉPARÉE du portefeuille, scènes vues,
  *      améliorations prévues pour la suite. Migration : champ `campaign` remis à neuf (le contenu de la v5 ne correspond plus à l'histoire ;
  *      copie `polarite.save.avant-v5` conservée) ; tout le reste (records, monnaies, succès, cosmétiques, identité du classement) est inchangé.
+ *  8 — économie v3, phase 2 : TROIS monnaies (Éclats, Médailles, Prismes), réclamation des succès (registre distinct `medals.claimed`, identifiants
+ *      immuables des succès), inventaire de bonus (`inventory`) et leur comptabilité de synchronisation. Migration : les cosmétiques que les succès
+ *      débloquaient directement (glace, solaire, prisme, citron, boréale) passent dans `owned` pour les succès DÉJÀ obtenus (acquis conservés, jamais
+ *      re-facturés) ; les succès déjà accomplis restent réclamables rétroactivement (aucune Médaille n'est créditée sans réclamation) ; le registre
+ *      `rewarded` (anciens Éclats déjà versés) et le portefeuille d'Éclats sont inchangés (aucun second versement). Nouveaux joueurs : aucun
+ *      cosmétique direct par succès.
  */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -75,8 +82,23 @@ export interface ArchivedRecords {
 
 /** Soldes des deux monnaies (entiers positifs). Les Prismes ne sont jamais crédités par le jeu local. */
 export interface Wallet {
+  /** Éclats : gagnés en jouant ; servent aux bonus. */
   shards: number;
+  /** Médailles : gagnées en réclamant les succès ; servent aux cosmétiques non premium. */
+  medals: number;
+  /** Prismes : reflet du solde du service (jamais créés ni débités localement). */
   prisms: number;
+}
+
+/** Médailles de succès déjà RÉCLAMÉES (identifiants historiques immuables) : registre distinct de `rewarded` (anciens Éclats). */
+export interface MedalsSave {
+  claimed: string[];
+}
+
+/** Charges de bonus possédées (conservées entre les parties). Effets en partie : phase 3. */
+export interface Inventory {
+  boost: number;
+  gel: number;
 }
 
 /** Récompenses de niveau déjà versées : bonus de première réussite, et nombre d'étoiles déjà rémunérées. */
@@ -131,10 +153,38 @@ export interface EconomySave {
   confirmedPurchases: string[];
   /** Solde d'une sauvegarde d'avant les comptes, à importer une seule fois (null : rien à importer). */
   legacy: { shards: number; imported: boolean } | null;
+  /**
+   * Derniers soldes CONFIRMÉS par le service (null : jamais synchronisé). Avec un service configuré, seuls ces soldes (moins les dépenses encore à
+   * confirmer) financent un achat hors ligne : les gains provisoires ne se dépensent qu'après confirmation.
+   */
+  confirmed: { shards: number; medals: number; prisms: number } | null;
+  /** Médailles déjà confirmées par le service (réclamées localement = provisoires jusqu'ici). */
+  confirmedClaims: string[];
+  /**
+   * Un service de comptes est configuré dans cette version : les achats hors ligne ne peuvent être financés que par des soldes CONFIRMÉS.
+   * Sans service (jeu purement local), tout le portefeuille local est dépensable. Renseigné par l'application à chaque démarrage.
+   */
+  managed: boolean;
+  /** Charges de bonus achetées depuis la v8 : compteurs monotones par bonus (idempotence côté service). */
+  bonusBought: Inventory;
+  /** Part de `bonusBought` déjà traitée par le service (acceptée ou refusée). L'écart = charges PROVISOIRES (achetées hors ligne). */
+  bonusProcessed: Inventory;
 }
 
 export function defaultEconomy(): EconomySave {
-  return { installId: '', earned: 0, confirmedEarned: 0, purchases: {}, confirmedPurchases: [], legacy: null };
+  return {
+    installId: '',
+    earned: 0,
+    confirmedEarned: 0,
+    purchases: {},
+    confirmedPurchases: [],
+    legacy: null,
+    confirmed: null,
+    confirmedClaims: [],
+    managed: false,
+    bonusBought: { boost: 0, gel: 0 },
+    bonusProcessed: { boost: 0, gel: 0 },
+  };
 }
 
 export interface SaveData {
@@ -156,6 +206,10 @@ export interface SaveData {
   /** Traînée équipée. */
   trail: string;
   wallet: Wallet;
+  /** Médailles de succès réclamées. */
+  medals: MedalsSave;
+  /** Charges de bonus possédées. */
+  inventory: Inventory;
   /** Cosmétiques possédés (achetés ou conservés d'une version précédente), hors articles gratuits et exclusivités de succès. */
   owned: string[];
   /** Récompenses de niveau déjà versées, par niveau. */
@@ -207,6 +261,8 @@ export function defaultSave(): SaveData {
     skin: 'classique',
     trail: DEFAULT_TRAIL_ID,
     wallet: { ...WALLET_START },
+    medals: { claimed: [] },
+    inventory: { boost: 0, gel: 0 },
     owned: [],
     paid: {},
     options: { muted: false, volume: 0.7, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, reducedEffects: false, tutorialSeen: false },
@@ -332,6 +388,7 @@ export function sanitize(raw: unknown): SaveData {
   if (isObj(raw.wallet)) {
     out.wallet = {
       shards: Math.floor(num(raw.wallet.shards, WALLET_START.shards, 0, WALLET_MAX)),
+      medals: Math.floor(num(raw.wallet.medals, WALLET_START.medals, 0, WALLET_MAX)),
       prisms: Math.floor(num(raw.wallet.prisms, WALLET_START.prisms, 0, WALLET_MAX)),
     };
   }
@@ -378,6 +435,11 @@ export function sanitize(raw: unknown): SaveData {
     const count = Math.floor(num(raw.rewardNotice.count, 0, 0, 999));
     out.rewardNotice = shards > 0 || count > 0 ? { shards, count } : null;
   }
+  if (isObj(raw.medals) && Array.isArray(raw.medals.claimed)) {
+    const known = new Set(ACHIEVEMENT_CONFIG.map((a) => a.id));
+    out.medals.claimed = [...new Set(raw.medals.claimed.filter((s): s is string => typeof s === 'string' && known.has(s)))];
+  }
+  if (isObj(raw.inventory)) out.inventory = sanitizeCounts(raw.inventory, BONUS.maxStock);
   if (isObj(raw.campaign)) out.campaign = sanitizeCampaign(raw.campaign);
   if (isObj(raw.economy)) out.economy = sanitizeEconomy(raw.economy);
   return out;
@@ -397,7 +459,28 @@ function sanitizeEconomy(raw: Record<string, unknown>): EconomySave {
     out.confirmedPurchases = [...new Set(raw.confirmedPurchases.filter((s): s is string => typeof s === 'string' && s.length > 0 && s.length < 40))].slice(0, 100);
   }
   if (isObj(raw.legacy)) out.legacy = { shards: Math.floor(num(raw.legacy.shards, 0, 0, WALLET_MAX)), imported: bool(raw.legacy.imported, false) };
+  if (isObj(raw.confirmed)) {
+    out.confirmed = {
+      shards: Math.floor(num(raw.confirmed.shards, 0, 0, WALLET_MAX)),
+      medals: Math.floor(num(raw.confirmed.medals, 0, 0, WALLET_MAX)),
+      prisms: Math.floor(num(raw.confirmed.prisms, 0, 0, WALLET_MAX)),
+    };
+  }
+  if (Array.isArray(raw.confirmedClaims)) {
+    const known = new Set(ACHIEVEMENT_CONFIG.map((a) => a.id));
+    out.confirmedClaims = [...new Set(raw.confirmedClaims.filter((x): x is string => typeof x === 'string' && known.has(x)))];
+  }
+  out.managed = bool(raw.managed, false);
+  if (isObj(raw.bonusBought)) out.bonusBought = sanitizeCounts(raw.bonusBought, 1e9);
+  if (isObj(raw.bonusProcessed)) out.bonusProcessed = sanitizeCounts(raw.bonusProcessed, 1e9);
+  // Une charge ne peut pas avoir été traitée sans avoir été achetée
+  out.bonusProcessed.boost = Math.min(out.bonusProcessed.boost, out.bonusBought.boost);
+  out.bonusProcessed.gel = Math.min(out.bonusProcessed.gel, out.bonusBought.gel);
   return out;
+}
+
+function sanitizeCounts(raw: Record<string, unknown>, max: number): Inventory {
+  return { boost: Math.floor(num(raw.boost, 0, 0, max)), gel: Math.floor(num(raw.gel, 0, 0, max)) };
 }
 
 function sanitizeCampaign(raw: Record<string, unknown>): CampaignSave {
@@ -464,7 +547,7 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   if (v < 4) {
     const ach = isObj(raw.achievements) ? raw.achievements : {};
     const earned = ACHIEVEMENT_CONFIG.filter((a) => typeof ach[a.id] === 'number');
-    const total = earned.reduce((t, a) => t + a.shards, 0);
+    const total = earned.reduce((t, a) => t + a.legacyShards, 0);
     const w = isObj(out.wallet) ? out.wallet : { ...WALLET_START };
     out.wallet = { ...w, shards: Math.floor(num(w.shards, 0, 0, WALLET_MAX)) + total };
     out.rewarded = earned.map((a) => a.id);
@@ -476,6 +559,16 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
     const w = isObj(out.wallet) ? out.wallet : { ...WALLET_START };
     const eco = isObj(out.economy) ? out.economy : {};
     out.economy = { ...eco, legacy: { shards: Math.floor(num(w.shards, 0, 0, WALLET_MAX)), imported: false } };
+  }
+  // Avant la v8 : trois monnaies. Les cosmétiques que les succès débloquaient directement sont conservés pour les succès DÉJÀ obtenus (passent dans
+  // `owned`). Aucune Médaille n'est créditée ici : elles se réclament (rétroactivement) ; `rewarded` et le solde d'Éclats ne bougent pas.
+  if (v < 8) {
+    const ach = isObj(raw.achievements) ? raw.achievements : {};
+    const owned = Array.isArray(out.owned) ? out.owned.filter((x): x is string => typeof x === 'string') : Array.isArray(raw.owned) ? raw.owned.filter((x): x is string => typeof x === 'string') : [];
+    for (const [item, achievement] of Object.entries(LEGACY_ACHIEVEMENT_ITEMS)) {
+      if (typeof ach[achievement] === 'number' && !owned.includes(item)) owned.push(item);
+    }
+    out.owned = owned;
   }
   return out;
 }

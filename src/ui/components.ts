@@ -73,12 +73,17 @@ export function tabs(items: { id: string; label: string; action: string }[], sel
 
 // ————————————————————————————————————————————— Monnaies
 
-export const CURRENCY_NAME: Record<Currency, string> = { shards: 'Éclats', prisms: 'Prismes' };
-const CURRENCY_ICON: Record<Currency, string> = { shards: eclatUrl, prisms: prismeUrl };
+export const CURRENCY_NAME: Record<Currency, string> = { shards: 'Éclats', medals: 'Médailles', prisms: 'Prismes' };
+const CURRENCY_ICON: Partial<Record<Currency, string>> = { shards: eclatUrl, prisms: prismeUrl };
 
-/** Icône d'une monnaie : le PNG fourni, utilisé tel quel. */
+/**
+ * Icône d'une monnaie : les PNG fournis (Éclats, Prismes), utilisés tels quels ; les Médailles ont leur propre pictogramme or (jamais confondu
+ * avec le violet des Éclats ni le rose des Prismes).
+ */
 export function coin(currency: Currency, cls = ''): string {
-  return `<img class="coin coin--${currency}${cls ? ` ${cls}` : ''}" src="${CURRENCY_ICON[currency]}" alt="" width="28" height="28" decoding="async" />`;
+  const src = CURRENCY_ICON[currency];
+  if (!src) return `<span class="coin coin--${currency}${cls ? ` ${cls}` : ''}" aria-hidden="true">${ICONS.medal}</span>`;
+  return `<img class="coin coin--${currency}${cls ? ` ${cls}` : ''}" src="${src}" alt="" width="28" height="28" decoding="async" />`;
 }
 
 /** Prix : icône, montant et nom de la monnaie. */
@@ -87,12 +92,15 @@ export function price(currency: Currency, amount: number): string {
 }
 
 /**
- * Soldes (accueil, boutique). Les Prismes ne sont ni achetables ni gagnables dans cette version : leur solde n'est affiché
- * que si un fournisseur de paiement est actif ou si le joueur en possède (jamais en V1) — aucune monnaie « fantôme » à l'écran.
+ * Soldes (accueil, boutique, succès). Trois monnaies séparées, jamais converties : Éclats (violet), Médailles (or), Prismes (rose).
+ * Les Prismes ne s'affichent que si le joueur en possède, si le service de comptes est configuré (`prisms: true`) ou si un paiement est actif :
+ * aucune monnaie « fantôme » à l'écran. `currencies` restreint l'affichage (ex. l'écran de préparation n'a besoin que des Éclats).
  */
-export function walletBar(wallet: Wallet): string {
+export function walletBar(wallet: Wallet, o: { prisms?: boolean; currencies?: Currency[] } = {}): string {
   const item = (c: Currency): string =>
     `<div class="wallet__item wallet__item--${c}">${coin(c, 'coin--lg')}<div class="wallet__text"><span class="wallet__n" data-wallet="${c}">${formatScore(wallet[c])}</span><span class="wallet__l">${CURRENCY_NAME[c]}</span></div></div>`;
-  const showPrisms = wallet.prisms > 0 || premiumAvailable();
-  return `<div class="wallet" role="group" aria-label="Solde d’Éclats">${item('shards')}${showPrisms ? `<span class="wallet__sep" aria-hidden="true"></span>${item('prisms')}` : ''}</div>`;
+  const showPrisms = wallet.prisms > 0 || o.prisms === true || premiumAvailable();
+  const list: Currency[] = o.currencies ?? (showPrisms ? ['shards', 'medals', 'prisms'] : ['shards', 'medals']);
+  const sep = '<span class="wallet__sep" aria-hidden="true"></span>';
+  return `<div class="wallet" role="group" aria-label="Soldes : ${list.map((c) => `${formatScore(wallet[c])} ${CURRENCY_NAME[c]}`).join(', ')}">${list.map(item).join(sep)}</div>`;
 }

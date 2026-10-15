@@ -1,10 +1,35 @@
 import { transaction, type Db } from './db';
 
-/** Soldes d'un profil : somme du registre (`ledger`). Les Prismes ne proviennent QUE de lignes écrites par le serveur (jamais d'une donnée du client). */
-export function balancesOf(db: Db, playerId: string): { shards: number; prisms: number } {
+export interface Balances {
+  shards: number;
+  medals: number;
+  prisms: number;
+}
+
+function sums(db: Db, playerId: string): Map<string, number> {
   const rows = db.prepare('SELECT currency, COALESCE(SUM(amount), 0) AS total FROM ledger WHERE player_id = ? GROUP BY currency').all(playerId) as unknown as { currency: string; total: number }[];
-  const get = (c: string): number => Math.max(0, Number(rows.find((r) => r.currency === c)?.total ?? 0));
-  return { shards: get('shards'), prisms: get('prisms') };
+  return new Map(rows.map((r) => [r.currency, Math.max(0, Number(r.total))]));
+}
+
+/**
+ * Soldes d'un profil : somme du registre (`ledger`). Les Médailles et les Prismes ne proviennent QUE de lignes écrites par le serveur
+ * (jamais d'une valeur annoncée par le client).
+ */
+export function balancesOf(db: Db, playerId: string): Balances {
+  const m = sums(db, playerId);
+  return { shards: m.get('shards') ?? 0, medals: m.get('medals') ?? 0, prisms: m.get('prisms') ?? 0 };
+}
+
+/** Charges de bonus possédées : somme du registre (achats + éventuelles consommations de la phase 3). */
+export function inventoryOf(db: Db, playerId: string): { boost: number; gel: number } {
+  const m = sums(db, playerId);
+  return { boost: m.get('boost') ?? 0, gel: m.get('gel') ?? 0 };
+}
+
+/** Succès dont les Médailles ont été créditées (clés `medal:<identifiant>` du registre). */
+export function claimedMedals(db: Db, playerId: string): string[] {
+  const rows = db.prepare("SELECT ref FROM ledger WHERE player_id = ? AND currency = 'medals' AND ref LIKE 'medal:%' ORDER BY id").all(playerId) as unknown as { ref: string }[];
+  return rows.map((r) => r.ref.slice('medal:'.length));
 }
 
 /** Pseudo de profil invité : « Joueur-xxxxxx » (dérivé de l'identifiant ; allongé en cas de collision). */
