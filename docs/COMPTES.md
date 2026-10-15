@@ -1,4 +1,4 @@
-# Comptes, migration et synchronisation (économie v3 — phase 1)
+# Comptes, migration et synchronisation (économie v3 — phases 1 et 2)
 
 > Suivi des six phases : `docs/ETAT_MAJ_ECONOMIE.md`. Cette page décrit ce qui est **implémenté** en phase 1 et ce qu'il faut **configurer** pour l'activer.
 > **Rien de tout cela ne change le jeu tant que le service n'est pas configuré** : sans `LEADERBOARD_URL`, le jeu reste local, complet, sans compte (l'entrée « Compte » est masquée).
@@ -41,3 +41,31 @@ Le service doit être **redéployé** (schéma SQLite v3, additif ; sauvegarde a
 
 ## Code
 `src/account/` (`AccountService` : invité, migration, synchronisation hors ligne ; `providers.ts` : Google / Apple / natif), `src/economy/` (règles, fusion, réconciliation, identifiants — partagés avec le serveur), `src/ui/accountScreens.ts`, `server/accounts.ts` (routes, registre), `oidc.ts`, `mailer.ts`, `profile.ts`. Tests : `tests/accounts-server.test.ts`, `tests/accounts-client.test.ts`.
+
+## Phase 2 : Médailles, bonus, articles premium (sauvegarde v8, schéma SQLite v4)
+
+### Sauvegarde locale : format 8
+Ajouts (migration additive, `save.ts` : sanitize + migrate ; copie `polarite.save.avant-v<n>` conservée) :
+- `wallet.medals` (Médailles) ; `wallet.prisms` reste un **reflet du service** ;
+- `medals.claimed` : succès dont les Médailles ont été réclamées (identifiants historiques immuables) ; **distinct** de `rewarded` (anciens Éclats) ;
+- `inventory {boost, gel}` : charges de bonus possédées (0–99) ;
+- `economy` : `confirmed` (derniers soldes confirmés par le service), `confirmedClaims`, `managed` (service configuré), `bonusBought` / `bonusProcessed` (compteurs monotones des charges achetées / traitées par le service).
+Migration v<8 : les cosmétiques que les succès débloquaient directement (glace, solaire, prisme, citron, boréale) passent dans `owned` pour les succès **déjà obtenus** ; aucune Médaille créditée ; `rewarded`, Éclats, `economy.legacy` inchangés.
+
+### Service : schéma SQLite v4 (additif, `MIGRATIONS` dans `server/db.ts`)
+`installs.bonus_boost`, `installs.bonus_gel` (compteurs des charges traitées par installation). Le registre `ledger` accueille de nouvelles valeurs de `currency` : **`medals`** (clé `medal:<succès>`), **`boost`** et **`gel`** (clés `bonus:<bonus>:<installation>:<compteur>:pay|grant`) et des `spend:<article>` en `medals` ou `prisms`. Base d'un schéma plus ancien : copie `…avant-v3.bak` puis migration automatique (testé). Redéploiement du service requis.
+
+### Règles du service (`POST /api/sync`, dans l'ordre de réception)
+1. **Médailles** : un crédit unique par succès (`medal:<id>`), montant de la configuration, si le succès figure dans la progression ; sinon la réclamation est refusée (`rejectedClaims`) et retirée localement. Un succès importé d'une ancienne sauvegarde reste réclamable ; deux appareils ou deux profils fusionnés ne créditent qu'une fois.
+2. Gains d'Éclats (phase 1), 3. récompenses historiques (phase 1), 4. **achats de cosmétiques** : article du catalogue, payable en Médailles, **le service débite le prix du catalogue** (jamais le montant annoncé), solde réel suffisant sinon refus (`insufficient`) ; jamais de solde négatif ; article déjà possédé jamais débité ; articles premium refusés en différé.
+5. **Bonus** : seul l'écart avec le compteur déjà traité compte ; financé par le solde réel d'Éclats, dans la limite du stock (99) ; la part refusée est comptée (`bonusRejected`) et le compteur avance (pas de réessai) ; l'application retire les charges refusées.
+6. Fusion de la progression. La réponse porte les soldes, l'inventaire et les Médailles réclamées **du registre** (source de vérité).
+`POST /api/shop/prisms { item }` : achat d'un article **premium**, en ligne uniquement ; le solde de Prismes vient du registre ; débit atomique dans une transaction, idempotent (`spend:<article>` unique), prorata si un élément du pack est déjà possédé, 409 si solde insuffisant. **Aucune route ne crédite des Prismes.**
+
+### Côté jeu
+`economy/funds.ts` : avec un service configuré, un achat n'est financé que par le solde **confirmé** (les gains provisoires — éclats d'orbite, Médailles réclamées hors ligne — attendent leur confirmation) ; sans service, tout le portefeuille local est dépensable. À chaque synchronisation (`reconcile.ts`), l'application s'aligne sur le service avec l'**instantané** envoyé (les gains faits pendant la requête sont conservés) ; un article premium que le service ne reconnaît pas est retiré de la sauvegarde locale.
+
+### Risques et limites documentés
+- Les **succès sont déclarés par le client** (statistiques locales) : un joueur qui falsifie sa sauvegarde peut déclarer des succès et réclamer des Médailles. Le dommage est borné (1 650 Médailles au total, une seule fois par succès et par profil, uniquement des cosmétiques non premium, aucun avantage de jeu). Un contrôle par rejeu serveur des succès de survie est envisageable (phase 6) ; les Prismes, eux, ne dépendent jamais d'une donnée locale.
+- Effacer la progression locale d'un joueur **connecté** puis se synchroniser restaure les soldes et possessions du service (le service est la source de vérité).
+- Les effets des bonus en partie, la consommation des charges et leur provenance dans les parties classées sont **hors phase 2** (phase 3).

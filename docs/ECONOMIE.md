@@ -1,7 +1,16 @@
-# Économie : Éclats, Prismes, boutique
+# Économie : Éclats, Médailles, Prismes, bonus, boutique
 
-Deux monnaies, **uniquement cosmétiques** : mêmes vitesses, mêmes hitboxes et même difficulté dans tous les modes. Réglages dans `src/config/economy.ts`,
-catalogue et conditions d'obtention dans `src/config/catalog.ts` (+ `skins.ts`, `trails.ts`).
+> **Économie v3 (phase 2)** : trois monnaies séparées, **jamais converties** l'une en l'autre. Suivi : `docs/ETAT_MAJ_ECONOMIE.md` ; comptes, synchronisation et sécurité : `docs/COMPTES.md`.
+> Les cosmétiques sont **purement cosmétiques** (mêmes vitesses, hitboxes et difficulté) ; les bonus sont des charges d'inventaire dont les effets en partie arrivent en phase 3.
+> Réglages : `src/config/economy.ts` (bonus, récompenses de niveau, éclat d'orbite), `src/config/achievements.ts` (Médailles), `src/config/catalog.ts` (prix).
+
+| Monnaie | Gagnée par | Dépensée pour |
+|---|---|---|
+| **Éclats** (violet) | gameplay : éclat sur l'orbite (Survie), récompenses de niveau | **bonus** : Boost 50, Gel temporel 100 (par charge) |
+| **Médailles** (or) | **réclamer** les 27 succès (1 650 au total) | cosmétiques **non premium** uniquement (1 640 pour tout) |
+| **Prismes** (rose) | très rarement, ou achat (phase 4/5) ; **toujours contrôlés par le service** | cosmétiques **premium** (Néon 150, Nébuleuse 75, Pack 200) ; plus tard secondes chances |
+
+La réserve d'**Éclats de campagne** reste indépendante (campagne inchangée).
 
 ## Éclats (gagnés en jouant)
 - **Sur l'orbite (Survie seulement)** : un éclat apparaît à un emplacement aléatoire, disponible **5 s** ; un seul à la fois ; prochaine apparition **15 à 25 s** après sa collecte ou sa disparition
@@ -18,26 +27,36 @@ catalogue et conditions d'obtention dans `src/config/catalog.ts` (+ `skins.ts`, 
 50 Éclats à la **première réussite**, **15 par étoile** obtenue pour la première fois, **10** par réussite suivante (`LEVEL_REWARDS`). Le registre `paid` de la sauvegarde empêche tout second versement.
 Le détail (origine, total, nouveau solde) est affiché au résultat ; l'écran ne crédite rien (le crédit a lieu une fois, à la fin de la partie).
 
+## Médailles et succès
+- Les succès ne versent **plus** d'Éclats ni de cosmétique. Un succès accompli affiche **« Récupérer »** (ou « Tout récupérer ») ; les Médailles ne sont créditées qu'à la réclamation, **une seule fois** par succès (registre `medals.claimed`, identifiants historiques immuables ; distinct de `rewarded`, le registre des **anciens Éclats**).
+- Grille : 10 succès à 20, 9 à 50, 6 à 100, 2 à 200 = **1 650** (config : `medals` ; `legacyShards` = anciens montants en Éclats, comptabilité historique uniquement).
+- **Rétroactivité** : tous les succès déjà accomplis avant la mise à jour sont réclamables ; les anciens Éclats versés et les anciens cosmétiques débloqués sont **conservés** (jamais re-versés ni re-facturés).
+- Collection non premium : vaisseaux Aurore 140, Menthe 150, Ambre 160, Spectre 170, Glace 180, Solaire 190, Prisme 200 (= **1 190**) ; traînées Émeraude 70, Glacier 80, Ultraviolet 90, Citron 100, Boréale 110 (= **450**) ; total **1 640** → **10 Médailles** de reste. Classique et Assortie restent gratuits. Plus aucun pack en Médailles (aucun contournement).
+
+## Bonus (Boost, Gel temporel)
+Inventaire persistant (`inventory`), 50 / 100 Éclats par charge, jamais supprimé, maximum 99 par bonus. **Acheter ne consomme rien** ; la consommation aura lieu à une activation réussie (phase 3, 3 activations par bonus et par partie pendant la première vie). Section « Bonus » de la Boutique et écran **« Préparer la partie »** avant la Survie (stocks, solde, achats avec confirmation, limite de 3, lancement possible sans aucun bonus). Les charges du futur calendrier de connexion s'ajouteront au même inventaire (`grantCharges`).
+
+## Fonds dépensables (confirmé / provisoire)
+Avec un service configuré (`economy.managed`), un achat n'est financé que par le **solde confirmé** à la dernière synchronisation (+ solde hérité à importer, − dépenses non confirmées) : les gains **provisoires** (éclats d'orbite, Médailles réclamées hors ligne) ne se dépensent qu'après confirmation (`economy/funds.ts`). Les achats hors ligne restent provisoires ; le service les traite **dans l'ordre de réception**, refuse ceux que le solde réel ne finance pas (jamais de solde négatif) et l'application retire alors l'article ou les charges. Provenance des charges (`chargeProvenance` : confirmées / provisoires) conservée pour la validation des parties classées (phase 3). Sans service : tout le portefeuille local est dépensable.
+
 ## Prismes (premium)
-Solde séparé, **0 au départ**, jamais collecté sur l'orbite. Les articles en Prismes sont affichés « **Bientôt disponible** » : aucun bouton de paiement actif, aucun crédit automatique, aucun débit local
-(`purchase()` renvoie `unavailable`). Interface future : `src/monetization/payments.ts` (`PaymentProvider`, `NullPaymentProvider` par défaut). Règles pour une intégration réelle :
+Solde séparé, **0 au départ**, jamais collecté sur l'orbite, **jamais créé ni débité localement** : le solde affiché est le reflet du service. Sans service de comptes, les articles premium restent « **Bientôt disponible** ». Avec un service, un article premium s'achète **en ligne** (`POST /api/shop/prisms`) : le service vérifie le solde et débite de façon atomique et idempotente (pack à 200 : 25 d'économie ; prorata si un élément est déjà possédé) ; l'achat réel de Prismes n'existe pas encore (phases 4/5). Interface future : `src/monetization/payments.ts` (`PaymentProvider`, `NullPaymentProvider` par défaut). Règles pour une intégration réelle :
 - seuls des justificatifs **validés côté serveur ou fournisseur** créditent des Prismes ; la sauvegarde locale est modifiable par le joueur et **ne protège pas** une monnaie payante ;
 - chaque transaction a un `transactionId` unique ; le serveur refuse tout crédit répété (idempotence) et renvoie le solde de référence ;
 - le client n'affiche « Acheter » pour un article premium que si le fournisseur est disponible.
 
 ## Boutique
-Onglets **Vaisseaux / Traînées / Packs**. Chaque article : aperçu animé, contenu, prix et monnaie. États : **Acheter**, **Solde insuffisant**, **Succès requis**, **Bientôt disponible** (premium),
-**Possédé** / **Équiper** / **Équipé**. Achat en Éclats : confirmation → vérification du solde → débit **et** déblocage dans la même modification (une seule écriture) ; un article possédé n'est jamais débité deux fois.
-Prix de départ : 100 (Aurore), 200, 350, 600 (vaisseaux) ; 150, 250, 400 (traînées) ; packs à prix réduit — tous ajustables dans `catalog.ts`. Exclusivités de succès conservées : Glace, Solaire, Prisme.
+Onglets **Vaisseaux / Traînées / Packs / Bonus**. Les cosmétiques sont présentés en deux sections : **En Médailles** et **Premium · en Prismes** ; les bonus en Éclats. États : **Acheter**, **Médailles insuffisantes**, **Bientôt disponible** (premium sans service), **Possédé** / **Équiper** / **Équipé**. Achat : confirmation → vérification des fonds dépensables → débit **et** déblocage dans la même modification (une seule écriture) ; un article possédé n'est jamais débité deux fois. Prix : voir ci-dessus, ajustables dans `catalog.ts`.
 
-## Sauvegarde (format 3)
-`wallet {shards, prisms}`, `owned` (cosmétiques possédés), `trail` (traînée équipée), `paid` (récompenses de niveau déjà versées). Migration depuis 1 et 2 : soldes à 0 ; cosmétiques déjà obtenus conservés
+## Sauvegarde (format 8 ; historique ci-dessous)
+Format 8 : `wallet {shards, medals, prisms}`, `medals.claimed`, `inventory {boost, gel}`, `economy` (comptabilité de synchronisation, voir `docs/COMPTES.md`). Format 3 : `wallet {shards, prisms}`, `owned` (cosmétiques possédés), `trail` (traînée équipée), `paid` (récompenses de niveau déjà versées). Migration depuis 1 et 2 : soldes à 0 ; cosmétiques déjà obtenus conservés
 (succès d'origine + apparence équipée) ; récompenses historiques marquées comme **déjà versées** (aucun crédit rétroactif) ; copie de l'ancienne sauvegarde dans `polarite.save.avant-v<version>`.
 
 ## Évolutions préparées (non implémentées)
 Améliorations de campagne payées en Éclats : le solde, le registre d'achats et le catalogue sont prêts ; aucune campagne ni amélioration n'existe dans cette version.
 
-## Succès récompensés (v1.6)
+## Succès (historique v1.6 — remplacé par les Médailles en v8)
+> Les paragraphes suivants décrivent l'**ancien** système (succès → Éclats + cosmétiques directs), conservé pour la migration ; voir « Médailles et succès » ci-dessus pour les règles actuelles.
 27 succès dans `src/config/achievements.ts` (découverte, Survie, niveaux, collectes, maîtrise) : durées de survie (1, 2, 3, 5, 8, 10 min), cycles (1, 10, 100, 500), événements traversés (1, 10, 30), étoiles (3★, 18, 36), niveaux (1, 3, 6, 12), Éclats collectés au total (50, 250, 1 000), multiplicateur maximal, score 100 000.
 Aucun objectif ne demande de dépenser (« Éclats collectés » = gains cumulés, pas le solde). Chaque succès verse ses Éclats **une seule fois** au déblocage (registre `rewarded`), avec notification au résultat, sauvegarde immédiate.
 Cosmétiques liés (catalogue) : Glace (Pleine charge), Solaire (Endurance), Prisme (Maître de l'orbite), traînées Citron (Chasseur d'éclats) et Boréale (Maître des éléments).

@@ -1351,6 +1351,7 @@ export class App {
       case 'ask-reset': this.showScreen('confirm-reset'); break;
       case 'confirm-reset': {
         this.save = resetProgress(this.store, this.save);
+        this.save.economy.managed = this.lb.configured;
         ensureInstallId(this.save);
         this.persist(false);
         if (this.store.failed === true) this.storageFailed = true;
