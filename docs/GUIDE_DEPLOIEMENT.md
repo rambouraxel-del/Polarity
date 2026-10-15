@@ -11,6 +11,8 @@ Joueur ──▶ jeu sur GitHub Pages ──HTTPS──▶ Caddy (HTTPS auto) �
 - Le **service** tourne sur UN petit serveur à vous (Docker). Il détient le seul secret : `TICKET_SECRET`.
 - Si le service tombe ou n'existe pas : le jeu reste jouable, les résultats éligibles restent « en attente » et partent au retour du service.
 
+> **Mise à jour « Économie v3 »** : la procédure complète de publication (ordre serveur puis jeu, sauvegarde, migration sur copie, contrôle, retour arrière) est dans **`docs/PUBLICATION_BETA.md`**. Contrôle d'une migration sur une copie : `npm run server:migrate-check -- <sauvegarde.sqlite>`. Attention : `server:admin` ouvre la base avec le code courant et la **migre** si son schéma est plus ancien.
+
 ## 1. Prérequis
 | Quoi | Détail |
 |---|---|
@@ -31,7 +33,7 @@ Joueur ──▶ jeu sur GitHub Pages ──HTTPS──▶ Caddy (HTTPS auto) �
 | `RESEND_API_KEY`, `MAIL_FROM`, `APP_PUBLIC_URL` | `deploy/.env` | compte Resend (courriels de connexion) ; adresse publique du jeu | `RESEND_API_KEY` : **OUI** |
 | `GOOGLE_CLIENT_IDS`, `GOOGLE_WEB_CLIENT_ID`, `APPLE_CLIENT_IDS`, `APPLE_WEB_CLIENT_ID` | `deploy/.env` | consoles Google / Apple (voir `docs/COMPTES.md`) | non (identifiants clients publics) |
 
-Comptes joueurs (facultatifs, économie v3) : toute méthode sans valeur reste désactivée ; le service a besoin d'être redéployé (schéma v3 additif, sauvegarde automatique avant migration). Détail : `docs/COMPTES.md`.
+Comptes joueurs (facultatifs, économie v3) : toute méthode sans valeur reste désactivée ; le service a besoin d'être redéployé (schéma v3 additif, sauvegarde automatique avant migration). Détail : `docs/COMPTES.md`. Achats et publicités (facultatifs, désactivés sans variables) : `docs/MONETISATION.md` ; adresses à déclarer chez les fournisseurs : `/api/payments/notify/apple`, `/api/payments/notify/google`, `/api/ads/ssv`.
 
 Règles : un secret **différent** par instance (bêta ≠ production) ; ne le réutilisez nulle part ; ne le collez jamais dans une conversation (y compris avec une IA).
 Perte ou fuite du `TICKET_SECRET` : générez-en un nouveau, mettez à jour `deploy/.env`, `docker compose up -d` — les tickets en cours deviennent invalides (les joueurs en reçoivent de nouveaux automatiquement) ; profils et records ne sont pas touchés.
@@ -129,4 +131,4 @@ puis le même avec `--yes`. Les parties qui sont des records en cours, tous les 
 | Parties refusées avec « Trop de requêtes : réessayez plus tard. » pour tout le monde | plafond global de rejeux atteint | attendre 1 minute ; augmenter `MAX_REPLAYS_PER_MINUTE` si la machine le permet |
 
 ## Achats et publicités récompensées (phase 5, facultatif)
-Schéma SQLite **v7** (migration additive automatique, copie `.avant-v7.bak`). Variables : `deploy/env.example` (section phase 5) ; chaque fournisseur reste désactivé si une variable manque. Adresses à déclarer chez les fournisseurs : `/api/payments/notify/apple`, `/api/payments/notify/google?token=<PLAY_NOTIFY_TOKEN>`, `/api/ads/ssv`. Le service doit rester joignable en HTTPS et en continu. Détail et liste complète : `docs/MONETISATION.md`.
+Schéma SQLite **v8** (migration additive automatique, copie `.avant-vN.bak`). Variables : `deploy/env.example` (section phase 5) ; chaque fournisseur reste désactivé si une variable manque. Adresses à déclarer chez les fournisseurs : `/api/payments/notify/apple`, `/api/payments/notify/google` (authentification : jeton OIDC Pub/Sub recommandé, ou `?token=`), `/api/ads/ssv`. Le service doit rester joignable en HTTPS et en continu. Détail et liste complète : `docs/MONETISATION.md`.

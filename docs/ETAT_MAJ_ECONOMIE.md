@@ -5,19 +5,10 @@
 > La version publique existante (GitHub Pages + éventuel service de classement déjà déployé) doit continuer à fonctionner : tout ce qui est ajouté est **additif et désactivé tant que le service n'est pas configuré**.
 
 ## Où reprendre
-**PHASE 6 EN COURS (finalisation, aucune publication).** Journal d'avancement (mis à jour à chaque étape) :
-- [x] 6.1 Sécurité serveur : réconciliation officielle des remboursements (Google « achats annulés », Apple « historique des notifications »), curseur en base (schéma **v8**), minuteur 15 min, notification = simple déclencheur ; clés de dette uniques à la fusion.
-- [ ] 6.2 Audit fonctionnel (économie, comptes, Survie, fidélité) · [ ] 6.3 Plugins natifs / confidentialité · [ ] 6.4 Tests + e2e modernisé + contrôle navigateur · [ ] 6.5 Plan de publication / retour arrière / rapport.
-Reprise : `git status`, `npx tsc --noEmit`, `npx vitest run`, puis reprendre à la première case non cochée.
-
-**Phases 1, 2, 3, 4 et 5 : TERMINÉES côté code et tests** (commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**). La phase 5 est testée **avec des fournisseurs simulés** ; **aucun paiement ni aucune publicité réels n'ont été essayés** (configuration externe : `docs/MONETISATION.md`).
-**Prochaine étape : phase 6 — intégration finale, essais réels, configuration de production, déploiement unique** — **À NE PAS COMMENCER sans demande du propriétaire.** À prévoir :
-- écrire/installer les plugins natifs `PolarRiftBilling` et `PolarRiftAds`, créer les produits (3 consommables) et blocs récompensés, renseigner les variables (`deploy/env.example`), essais en bac à sable puis en réel (achat, annulation, remboursement, restauration, publicité complète/interrompue) ;
-- choisir (ou non) un prestataire de paiement web (`WebProvider`) ; identifiant d'application définitif ; politique de confidentialité ;
-- réécrire et rejouer l'E2E complet (obsolète depuis la phase 2), redéployer le service (**schéma SQLite v7**, sauvegarde préalable) ;
-- limite connue : détection d'un remboursement Google seulement si l'API répond « annulé » à la re-vérification.
-Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run` (**746 tests verts attendus**, 37 fichiers).
-Reste à la charge du propriétaire (action externe) : OAuth Google / Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL` (`docs/COMPTES.md`) et tout ce qui figure dans `docs/MONETISATION.md`.
+**Phases 1 à 6 : TERMINÉES côté code, tests et documentation** (commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**, aucune opération sur la production).
+**Prochaine étape : l'accord explicite du propriétaire pour publier**, puis suivre à la lettre `docs/PUBLICATION_BETA.md` (inventaire → sauvegarde → migration sur copie → service → jeu → contrôle → retour arrière si besoin). Ne rien publier avant cet accord.
+Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run` (**767 tests verts attendus**, 39 fichiers), `npm run build && npm run check:bundle`, `npm run e2e` (≈ 3 min, service local réel, **120 contrôles**).
+Reste à la charge du propriétaire (actions externes, **aucune n'est requise pour la bêta**) : voir `docs/PUBLICATION_BETA.md` § 9 et `docs/MONETISATION.md` (plugins natifs, comptes développeur, produits, clés, AdMob, prestataire web).
 
 ## Les six phases
 | # | Phase | État |
@@ -27,7 +18,7 @@ Reste à la charge du propriétaire (action externe) : OAuth Google / Apple, `RE
 | **3** | **Effets de gameplay : Boost, Gel temporel, Bouclier gratuit ; deux classements mondiaux (Sans bonus / Avec bonus) ; première mort = résultat classé figé ; deuxième et troisième chances ; survie libre non classée ; rejeu serveur étendu** | **TERMINÉE** (publicité récompensée : interface seulement, aucun fournisseur) |
 | **4** | **Récompenses gratuites : calendrier de connexion (10 jours), classement mondial du Défi quotidien (Top 10 récompensé en Prismes), drop rare de Prismes en Survie** | **TERMINÉE** |
 | **5** | **Monétisation : packs de Prismes (30/100/380), achats Apple / Google / web modulaire vérifiés par le service, remboursements, publicité récompensée pour la 2ᵉ chance** | **TERMINÉE (code + tests simulés ; rien d'essayé en réel)** |
-| 6 | Intégration finale, essais, configuration de production (OAuth, e-mail), **déploiement unique** | à faire *(proposition)* |
+| **6** | **Finalisation : audits (sécurité, fonctionnel, paiements), réconciliation des remboursements, e2e modernisé, plan de publication et de retour arrière** | **TERMINÉE — publication en attente de l'accord du propriétaire** |
 
 Les phases 3 à 6 sont un découpage **proposé** (le propriétaire n'a fixé explicitement que la phase 2 : les Médailles) ; à confirmer ou corriger.
 
@@ -52,6 +43,20 @@ Solde serveur = Σ du **registre** (`ledger`) :
 | (phase 2+) Médailles, Prismes | à définir | **serveur uniquement** |
 
 Fusion de deux profils : registre dédupliqué **par clé** (récompense : on garde le plus petit montant ; dépense : le plus petit débit) → jamais de double crédit ; les filigranes d'installation changent de propriétaire.
+
+## Phase 6 — finalisation (commits `c13d3ad` … dernier ; aucune publication)
+**Audit fonctionnel** (lecture du code + tests existants + nouveau test des chiffres validés `tests/phase6-spec.test.ts` + e2e navigateur) : comptes, migration, fusion, hors ligne, économie (Boost 50, Gel 100, 1 650 / 1 640 Médailles, premium 150/75/200, packs 30/100/380), pouvoirs (durées, recharges, exclusivité, plafond 3, Bouclier 18 balises), deux classements, reprises (5 puis 10 Prismes, jamais de 4ᵉ vie), calendrier, Défi quotidien, drop : conformes aux chiffres validés ; **`BALANCE_VERSION` inchangée (3)**.
+**Anomalies trouvées et corrigées**
+1. *Google Play, remboursements* : une notification « annulé » était ignorée si l'API répondait encore « acheté » (ou si le jeton avait expiré) ; une relecture ponctuelle n'est pas exhaustive. → réconciliation officielle (liste des achats annulés, + historique des notifications Apple), curseur persistant (**schéma v8**), minuteur 15 min, notification = déclencheur seulement ; authentification OIDC du push Pub/Sub (en plus du jeton d'adresse).
+2. *Drop de Prisme* crédité aux profils invités (contraire à la règle « Prismes gratuits = pseudo ou compte ») → refusé aux invités (test).
+3. *Clés de dette de remboursement* (`debt:<n>`) pouvant entrer en collision à la fusion de deux profils → clés uniques par profil (test).
+4. *Déploiement* : `deploy/docker-compose.yml` ne transmettait pas au conteneur les variables des achats/publicités → ajoutées ; `deploy/env.example` complété.
+5. *Limites des notifications Apple/Google* abaissées à 120/min (chaque notification peut déclencher un appel fournisseur).
+6. *e2e* : `scripts/e2e.mjs` réécrit (l'ancien était obsolète depuis la phase 2) ; il construit le jeu, lance un **vrai service local** et couvre connexion, boutique, succès, bonus, préparation, pouvoirs, reprises, calendrier, classements, migration d'une sauvegarde produite par `main`, 3 tailles d'écran, hors ligne.
+**Outils de publication ajoutés** : `npm run server:migrate-check -- <fichier>` (migration contrôlée sur COPIE, l'original n'est jamais touché ; `tests/migrate-check.test.ts`), `docs/PUBLICATION_BETA.md`.
+**Vérifié par exécution** : le jeu publié aujourd'hui (code de `main`) fonctionne contre le NOUVEAU service (20/20 contrôles de l'ancien `e2e:classement`) → l'ordre « service puis jeu » est sans régression.
+**Non faisable ici / documenté** : plugins natifs et SDK (aucun SDK dans le dépôt ; comptes, clés, produits, identifiant d'application définitif requis), paiement web (aucun prestataire), essais réels Apple/Google/AdMob, Docker/Caddy réels, filtre de journal Caddy pour le jeton d'adresse.
+**Problèmes restants** — *bloquant* : aucun pour la bêta sans achats. *Non bloquant* : achats/publicités indisponibles (prérequis externes) ; profils invités multiples = ferme possible mais limitée (20 inscriptions/h/IP, Prismes seulement avec pseudo) ; Médailles réclamables sur la foi de la sauvegarde locale (cosmétiques non premium seulement) ; le compteur local d'usage Boost/Gel peut repartir de zéro après un retour arrière du jeu ; une publicité vue dont la confirmation arrive après ~12 s n'accorde pas la reprise (session expirée côté jeu, aucune perte de Prisme). *Amélioration future* : plugins natifs, prestataire web, `REFUND_REVERSED` Apple, onglets de la boutique plus aérés sur 360 px, tests sur appareils réels.
 
 ## Phase 5 — ce qui a été fait (commits `15a9e28`, `784b650` + dernier)
 - **Vérifs phase 4** : un invité obtient ses récompenses avec un simple pseudo ; une soumission tardive du Défi quotidien exige un engagement SHA-256 reçu avant minuit (début serveur + durée simulée ne suffisaient pas), grâce de 15 min inchangée.
@@ -142,6 +147,7 @@ Reprise : menaces écartées, 3 s d'invulnérabilité sans entrée, vaisseau res
 - Les achats de Prismes réels, remboursements et le calendrier de connexion n'existent pas encore.
 
 ## Journal des étapes (le plus récent en haut)
+- **Phase 6 terminée** — audits, réconciliation, e2e, plan de publication ; publication en attente d'accord (voir ci-dessus).
 - **Phase 5 terminée** — monétisation, schéma v7 (voir ci-dessus).
 - **Phase 4 terminée** — calendrier, Défi quotidien mondial, drop rare, schéma v6, sauvegarde 10 (voir ci-dessus).
 - **Phase 3 terminée** — pouvoirs, classements, reprises, protocole v2, SQLite v5 (voir ci-dessus).
