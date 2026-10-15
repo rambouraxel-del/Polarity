@@ -159,6 +159,24 @@ async function layoutOk(page, label) {
   check(!r.overflow, `${label} : aucun débordement horizontal`);
   check(r.hidden.length === 0, `${label} : aucun bouton masqué par une superposition${r.hidden.length ? ` (${r.hidden.join(', ')})` : ''}`);
 }
+/** Interface compacte : surfaces tactiles ≥ 44 px, onglets non tronqués, pas de défilement horizontal ; `noScroll` : l'écran tient sans défilement vertical. */
+async function compactOk(page, label, o = {}) {
+  const r = await page.evaluate(() => {
+    const sc = document.getElementById('screen');
+    const small = [];
+    for (const el of document.querySelectorAll('#screen button:not([disabled]), #screen .tab, #screen .filter')) {
+      const b = el.getBoundingClientRect();
+      if (b.width === 0 || b.height === 0) continue;
+      if (Math.min(b.width, b.height) < 43.5) small.push(`${(el.dataset.action || el.className).slice(0, 20)} ${Math.round(b.width)}×${Math.round(b.height)}`);
+    }
+    const clipped = [...document.querySelectorAll('#screen .tab')].filter((t) => t.scrollWidth > t.clientWidth + 1).map((t) => t.textContent);
+    return { small, clipped, scrolls: sc.scrollHeight > sc.clientHeight + 1, overflowX: sc.scrollWidth > sc.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1 };
+  });
+  check(r.small.length === 0, `${label} : surfaces tactiles ≥ 44 px${r.small.length ? ` (${r.small.join(', ')})` : ''}`);
+  check(r.clipped.length === 0, `${label} : onglets lisibles (aucun texte tronqué)${r.clipped.length ? ` (${r.clipped.join(', ')})` : ''}`);
+  check(!r.overflowX, `${label} : aucun débordement horizontal`);
+  if (o.noScroll) check(!r.scrolls, `${label} : l'écran tient sans défilement`);
+}
 const noErrors = (errors, label) => check(errors.length === 0, `${label} : aucune erreur console${errors.length ? ` — ${errors.join(' | ').slice(0, 300)}` : ''}`);
 
 /** Joue la partie en cours jusqu'à la mort (accélérée, sans entrée) puis attend l'étape suivante. */
@@ -266,16 +284,19 @@ const m = await newPage({ width: 390, height: 844 }, { touch: true });
   check(/200/.test(t) && /400/.test(t), 'Boutique : soldes confirmés par le service (400 Éclats, 200 Prismes de test)');
   await shot(page, 'e2e-03-boutique-mobile');
   await layoutOk(page, 'Boutique (390×844)');
-  for (const tab of ['ships', 'trails', 'packs', 'bonus', 'prisms']) {
+  for (const tab of ['ships', 'trails', 'bonus', 'prisms']) {
     await page.click(`[data-action="cat-${tab}"]`);
     await page.waitForTimeout(150);
     check((await page.locator('#screen').innerText()).length > 30, `Boutique : onglet « ${tab} » s’affiche`);
   }
 
+  check((await page.locator('[data-action="cat-packs"]').count()) === 0 && !/packs/i.test(await page.locator('#screen .tabs').innerText()), 'Boutique : plus d’onglet « Packs »');
+  await compactOk(page, 'Boutique compacte (390×844)');
   // — Prismes (argent réel) : aucun fournisseur configuré → achats désactivés et expliqués, jamais de faux succès
   await page.click('[data-action="cat-prisms"]');
   await page.waitForTimeout(400);
   t = await text(page);
+  check((await page.locator('[data-premium="pack-neon"]').count()) === 1 && /200/.test(t), 'Prismes : le pack premium Néon + Nébuleuse (200 Prismes) est dans cet onglet');
   check(/30/.test(t) && /100/.test(t) && /380/.test(t) && /0,99/.test(t) && /2,99/.test(t) && /9,99/.test(t), 'Prismes : 3 packs 30/100/380 à 0,99/2,99/9,99 €');
   check((await page.locator('[data-action="prisms-buy"]:not([disabled])').count()) === 0, 'Prismes : boutons d’achat désactivés sans fournisseur configuré');
   check(/indisponible|non configuré|pas disponible/i.test(t), 'Prismes : raison affichée (fournisseur non configuré)');
@@ -344,6 +365,8 @@ const m = await newPage({ width: 390, height: 844 }, { touch: true });
   check(/Boost/.test(t) && /Gel/.test(t), 'Préparation : bonus possédés affichés');
   await shot(page, 'e2e-06-preparation-mobile');
   await layoutOk(page, 'Préparation (390×844)');
+  await compactOk(page, 'Préparation (390×844)', { noScroll: true });
+  check(/Préparation/i.test(t) && !/Médailles/.test(t), 'Préparation : titre « Préparation », aucune information sur les Médailles');
   await page.click('[data-action="survival-start"]');
   await page.waitForTimeout(600);
   let s = await simState(page);
@@ -516,6 +539,27 @@ for (const [label, vp, touch] of [['Mobile paysage 844×390', { width: 844, heig
     check((await simState(page)).flips === f0 + 1, `${label} : Espace inverse exactement une fois`);
   }
   noErrors(errors, label);
+  await context.close();
+}
+
+// ═════════════════════════════════════════════ 4 bis. Petit téléphone 360 × 780 : Préparation sans défilement, boutique compacte
+{
+  const { page, errors, context } = await newPage({ width: 360, height: 780 }, { touch: true });
+  await waitFor(page, () => !!JSON.parse(localStorage.getItem('polarite.classement.identite') || 'null')?.playerId);
+  await go(page, 'home');
+  await page.click('[data-action="survival"]');
+  await page.waitForTimeout(500);
+  await compactOk(page, 'Préparation (360×780)', { noScroll: true });
+  await layoutOk(page, 'Préparation (360×780)');
+  await shot(page, 'e2e-15-preparation-360');
+  await go(page, 'cosmetics');
+  for (const tab of ['ships', 'trails', 'bonus', 'prisms']) {
+    await page.click(`[data-action="cat-${tab}"]`);
+    await page.waitForTimeout(250);
+    await compactOk(page, `Boutique ${tab} (360×780)`);
+  }
+  await shot(page, 'e2e-16-boutique-360');
+  noErrors(errors, '360×780');
   await context.close();
 }
 

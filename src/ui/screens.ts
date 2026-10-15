@@ -7,7 +7,7 @@ import { prismShopHtml, privacyHtml, type StoreView } from './storeScreens';
 import { BONUS, BONUS_LIST, bonusDef, type BonusKind } from '../config/economy';
 import { bonusStock, maxAffordable } from '../economy/bonus';
 import { chargeProvenance, provisional, spendable } from '../economy/funds';
-import { catalogItem, isPremium, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
+import { CATALOG, catalogItem, isPremium, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
 import { CHAPTER, MISSIONS } from '../config/campaign';
 import { LEVELS } from '../config/levels';
 import { maxStars, missionsCleared, nextMission, totalStars } from '../campaign/progress';
@@ -188,13 +188,12 @@ export function dailyScreen(save: SaveData, today: string, board = ''): string {
 
 // ————————————————————————————————————————————— Boutique (cosmétiques en Médailles / Prismes, bonus en Éclats)
 
-export type CosmeticsTab = 'ships' | 'trails' | 'packs' | 'bonus' | 'prisms';
+export type CosmeticsTab = 'ships' | 'trails' | 'bonus' | 'prisms';
 export type CosmeticsFilter = 'all' | 'owned' | 'locked';
 
 export const COSMETIC_TABS: { id: CosmeticsTab; label: string; kind: ItemKind | null }[] = [
   { id: 'ships', label: 'Vaisseaux', kind: 'ship' },
   { id: 'trails', label: 'Traînées', kind: 'trail' },
-  { id: 'packs', label: 'Packs', kind: 'pack' },
   { id: 'bonus', label: 'Bonus', kind: null },
   { id: 'prisms', label: 'Prismes', kind: null },
 ];
@@ -261,15 +260,14 @@ function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: s
   switch (st) {
     case 'buy':
       return {
-        note: p?.currency === 'prisms' ? 'Le débit des Prismes est effectué en ligne par le service, après votre confirmation.' : '',
+        note: p?.currency === 'prisms' ? 'Débit des Prismes par le service, après votre confirmation.' : '',
         button: button({ action: 'buy', label: 'Acheter', icon: 'shop', variant: 'primary', attrs: `data-item="${item.id}"` }),
       };
     case 'insufficient': {
       const missing = p ? p.amount - spendable(save, p.currency) : 0;
       const waiting = p ? provisional(save, p.currency) : 0;
-      const how = p?.currency === 'medals' ? ' Les Médailles se gagnent en récupérant vos succès.' : p?.currency === 'prisms' ? ' Les Prismes sont contrôlés par le service.' : '';
       return {
-        note: p ? `Il vous manque ${formatScore(missing)} ${CURRENCY_NAME[p.currency]}.${waiting > 0 ? ` ${formatScore(waiting)} ${CURRENCY_NAME[p.currency]} sont en attente de confirmation par le service (dépensables après la synchronisation).` : ''}${how}` : '',
+        note: p ? `Il manque ${formatScore(missing)} ${CURRENCY_NAME[p.currency]}${waiting > 0 ? ` (${formatScore(waiting)} en attente de confirmation)` : ''}.` : '',
         button: button({ action: 'buy', label: p?.currency === 'medals' ? 'Médailles insuffisantes' : 'Solde insuffisant', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
       };
     }
@@ -304,24 +302,32 @@ export function cosmeticItems(save: SaveData, tab: CosmeticsTab, filter: Cosmeti
   return itemsOfKind(kind).filter((i) => (filter === 'all' ? true : filter === 'owned' ? isOwned(save, i.id) : !isOwned(save, i.id)));
 }
 
-/** Gains encore à confirmer par le service (information : ils ne sont pas encore dépensables). */
-function waitingNote(save: SaveData): string {
+/**
+ * Gains encore à confirmer par le service (information : pas encore dépensables). Une ligne courte ; `only` limite aux monnaies pertinentes pour l'écran
+ * (la préparation de la Survie ne parle que des Éclats).
+ */
+function waitingNote(save: SaveData, only: readonly ('shards' | 'medals')[] = ['shards', 'medals']): string {
   if (!save.economy.managed) return '';
-  const bits = (['shards', 'medals'] as const).filter((c) => provisional(save, c) > 0).map((c) => `${formatScore(provisional(save, c))} ${CURRENCY_NAME[c]}`);
+  const bits = only.filter((c) => provisional(save, c) > 0).map((c) => `${formatScore(provisional(save, c))} ${CURRENCY_NAME[c]}`);
   if (bits.length === 0) return '';
-  const why = isServiceIncompatible() ? 'le service en ligne n’est pas encore à jour pour cette version du jeu (rien n’est perdu : dépensables dès sa mise à jour)' : 'dépensables après la prochaine synchronisation';
-  return `<p class="small shop-pending" role="status">En attente de confirmation par le service : ${bits.join(' et ')} — ${why}.</p>`;
+  const why = isServiceIncompatible() ? ' Le service en ligne n’est pas encore à jour pour cette version : rien n’est perdu, ce sera confirmé dès sa mise à jour.' : '';
+  return `<p class="small shop-pending" role="status">En attente de confirmation : ${bits.join(' et ')}.${why}</p>`;
 }
 
 const BONUS_ICON: Record<BonusKind, IconName> = { boost: 'bolt', gel: 'snow' };
 
-/** Règles des bonus, répétées là où l'on achète. */
+/** Règles des bonus (texte complet, repliable dans la boutique). */
 export function bonusRules(): string {
   const effect = BONUS.activationEnabled ? '' : ' Les effets ne sont pas activés dans cette version : vos charges sont conservées.';
   return `Les charges achetées sont conservées entre les parties et ne disparaissent jamais ; Acheter ne consomme aucune charge. Une charge est consommée à chaque activation réussie ; chaque bonus peut être activé au plus ${BONUS.maxActivationsPerRun} fois pendant la première vie d’une partie de Survie (ce plafond ne limite pas votre stock, au maximum ${BONUS.maxStock} charges par bonus). Boost et Gel ne s’activent pas en même temps. Le <strong>Bouclier</strong> est gratuit : il se charge en collectant ${POWERS.shield.beacons} balises et absorbe un impact. Une partie où vous activez un pouvoir est classée « Avec bonus » ; sans aucune activation, elle reste classée « Sans bonus ».${effect}`;
 }
 
-/** Cartes de bonus : stock, prix, achat par lots (Éclats uniquement). */
+/** Rappel d'une ligne (préparation de la Survie) : l'essentiel des règles, le détail est dans la boutique. */
+export function bonusRulesShort(): string {
+  return `${BONUS.maxActivationsPerRun} activations au plus par bonus en première vie · Boost et Gel jamais ensemble · Bouclier gratuit (${POWERS.shield.beacons} balises).`;
+}
+
+/** Cartes de bonus COMPACTES : icône, nom, stock, effet, prix par charge, achats ×1 et ×5 côte à côte (Éclats uniquement). */
 function bonusCards(save: SaveData): string {
   const prov = chargeProvenance(save);
   return BONUS_LIST.map((b) => {
@@ -333,56 +339,81 @@ function bonusCards(save: SaveData): string {
         const ok = q <= afford;
         return button({
           action: 'bonus-ask',
-          label: `Acheter × ${q}`,
+          label: `×${q}`,
           sub: `${formatScore(q * b.price)} Éclats`,
-          icon: 'shop',
           variant: ok ? 'primary' : 'secondary',
           size: 'sm',
-          attrs: `data-bonus="${b.id}" data-qty="${q}"${ok ? '' : ' disabled'}`,
+          attrs: `data-bonus="${b.id}" data-qty="${q}" aria-label="Acheter ${q} ${escapeHtml(b.name)}, ${formatScore(q * b.price)} Éclats"${ok ? '' : ' disabled'}`,
         });
       })
       .join('');
-    const state = room <= 0 ? 'Inventaire plein.' : afford <= 0 ? `Éclats insuffisants (il vous en faut ${formatScore(b.price)} par charge${provisional(save, 'shards') > 0 ? ' ; une partie de vos gains attend sa confirmation' : ''}).` : '';
+    const hint = room <= 0 ? 'Inventaire plein' : afford <= 0 ? 'Éclats insuffisants' : '';
     const waiting = prov[b.id].provisional > 0 ? `<span class="chip chip--soon">dont ${prov[b.id].provisional} à confirmer</span>` : '';
     return `<div class="bonus bonus--${b.id}" data-bonus-card="${b.id}">
-      <span class="bonus__icon">${ICONS[BONUS_ICON[b.id]]}</span>
-      <div class="bonus__body">
-        <h4 class="bonus__name">${escapeHtml(b.name)}</h4>
-        <p class="bonus__blurb">${escapeHtml(b.blurb)}</p>
-        <div class="bonus__meta"><span>Possédés : <strong class="bonus__stock" data-stock="${b.id}">${formatScore(stock)}</strong></span>${waiting}<span>${price('shards', b.price)} <span class="small">par charge</span></span></div>
-        <div class="bonus__buy">${buttons}</div>
-        ${state ? `<p class="small">${state}</p>` : ''}
+      <div class="bonus__top">
+        <span class="bonus__icon">${ICONS[BONUS_ICON[b.id]]}</span>
+        <div class="bonus__body">
+          <h4 class="bonus__name">${escapeHtml(b.name)}<span class="bonus__have">Stock <strong class="bonus__stock" data-stock="${b.id}">${formatScore(stock)}</strong></span>${waiting}</h4>
+          <p class="bonus__blurb">${escapeHtml(b.blurb)}</p>
+        </div>
+        <span class="bonus__price" aria-label="${formatScore(b.price)} Éclats par charge">${price('shards', b.price)}<small>/ charge</small></span>
       </div>
+      <div class="bonus__buy">${buttons}</div>
+      ${hint ? `<p class="bonus__hint">${hint}</p>` : ''}
     </div>`;
   }).join('');
+}
+
+/** Articles premium (Prismes) : lignes compactes, achat par la confirmation habituelle (débit par le service). Le pack Néon + Nébuleuse y figure. */
+function premiumRows(save: SaveData): string {
+  const items = CATALOG.filter((i) => isPremium(i)).sort((a, b) => (a.kind === 'pack' ? 1 : 0) - (b.kind === 'pack' ? 1 : 0));
+  const rows = items
+    .map((item) => {
+      const st = itemState(save, item);
+      const p = effectivePrice(save, item);
+      const owned = st === 'owned' || st === 'equipped';
+      const act = owned
+        ? '<span class="chip chip--owned">Possédé</span>'
+        : st === 'buy'
+          ? button({ action: 'buy', label: 'Acheter', variant: 'primary', size: 'sm', attrs: `data-item="${item.id}" aria-label="Acheter ${escapeHtml(item.name)}, ${p ? formatScore(p.amount) : ''} Prismes"` })
+          : button({ action: 'buy', label: st === 'soon' ? 'Bientôt' : 'Insuffisant', variant: 'secondary', size: 'sm', attrs: `data-item="${item.id}" disabled` });
+      const sub = item.kind === 'pack' ? 'Vaisseau + traînée · économie de 25' : KIND_LABEL[item.kind];
+      return `<div class="prem${owned ? ' prem--owned' : ''}" data-premium="${item.id}">
+        <span class="prem__thumb prem__thumb--${item.kind}">${itemThumb(save, item)}</span>
+        <span class="prem__text"><strong class="prem__name">${escapeHtml(item.name)}</strong><span class="prem__sub">${escapeHtml(sub)}</span>${owned || !p ? '' : `<span class="prem__price">${price(p.currency, p.amount)}</span>`}</span>
+        <span class="prem__act">${act}</span>
+      </div>`;
+    })
+    .join('');
+  return `<h3 class="section-title">${coin('prisms')} Premium · en Prismes</h3><div class="prem-list">${rows}</div>`;
 }
 
 /** Une grille de cartes d'articles. */
 const itemGrid = (save: SaveData, items: CatalogItem[], selectedId: string, label: string): string =>
   `<div class="skins" role="group" aria-label="${escapeHtml(label)}">${items.map((i) => itemCard(save, i, i.id === selectedId)).join('')}</div>`;
 
-/** Menu unique « Boutique » : soldes, catégories, filtres, aperçu animé et action adaptée ; cosmétiques en Médailles et premium en Prismes séparés ; Bonus en Éclats. */
+/** Menu unique « Boutique » : soldes, onglets compacts, aperçu et action de l'article ; cosmétiques en Médailles, premium et achats de Prismes dans l'onglet Prismes ; Bonus en Éclats. */
 export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string, message: { kind: 'ok' | 'error'; text: string } | null = null, store?: StoreView): string {
   const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
   const wallet = walletBar(save.wallet, { prisms: save.economy.managed });
   const tabBar = tabs(COSMETIC_TABS.map((t) => ({ id: t.id, label: t.label, action: `cat-${t.id}` })), tab);
-  if (tab === 'prisms' && store) {
-    return `<div class="panel panel--wide">${screenHead('Boutique')}
+  if (tab === 'prisms') {
+    return `<div class="panel panel--wide compact">${screenHead('Boutique')}
       ${msg}
       ${wallet}
       ${tabBar}
-      ${prismShopHtml(store)}
+      ${premiumRows(save)}
+      ${store ? prismShopHtml(store) : ''}
     </div>`;
   }
   if (tab === 'bonus') {
-    return `<div class="panel panel--wide">${screenHead('Boutique')}
+    return `<div class="panel panel--wide compact">${screenHead('Boutique')}
       ${msg}
       ${wallet}
       ${waitingNote(save)}
       ${tabBar}
-      <h3 class="section-title">${coin('shards')} Bonus · en Éclats</h3>
       <div class="bonus-list">${bonusCards(save)}</div>
-      <p class="small" style="margin-top:12px">${bonusRules()}</p>
+      <details class="rules"><summary>Règles des bonus</summary><p class="small">${bonusRules()}</p></details>
     </div>`;
   }
   const items = cosmeticItems(save, tab, filter);
@@ -391,32 +422,21 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
   const head = `${screenHead('Boutique')}
     ${msg}
     ${wallet}
-    ${waitingNote(save)}
+    ${waitingNote(save, ['medals'])}
     ${tabBar}
     <div class="filters" role="group" aria-label="Filtre">${COSMETIC_FILTERS.map((f) => `<button class="filter${f.id === filter ? ' filter--on' : ''}" data-action="filter-${f.id}" aria-pressed="${f.id === filter}">${f.label}</button>`).join('')}</div>`;
   if (!sel) {
-    return `<div class="panel panel--wide">${head}<p class="sub" style="margin:18px 0">${filter === 'owned' ? 'Vous ne possédez encore aucun article dans cette catégorie.' : 'Tout est débloqué dans cette catégorie.'}</p></div>`;
+    return `<div class="panel panel--wide compact">${head}<p class="sub" style="margin:12px 0">${filter === 'owned' ? 'Vous ne possédez encore aucun article dans cette catégorie.' : 'Tout est débloqué dans cette catégorie.'}</p></div>`;
   }
   const st = itemState(save, sel);
   const act = itemAction(save, sel, st);
   const prev = previewOf(save, sel);
   const p = effectivePrice(save, sel);
-  const contents =
-    sel.kind === 'pack'
-      ? `<ul class="pack-list">${(sel.contents ?? [])
-          .map((id) => {
-            const c = catalogItem(id);
-            return c ? `<li>${KIND_LABEL[c.kind]} ${escapeHtml(c.name)}${isOwned(save, id) ? ' <span class="chip chip--owned">Possédé</span>' : ''}</li>` : '';
-          })
-          .join('')}</ul>`
-      : '';
-  const ownedParts = sel.kind === 'pack' ? (sel.contents ?? []).filter((id) => isOwned(save, id)).length : 0;
-  const packNote = ownedParts > 0 && st !== 'owned' ? `<p class="shop-note">Vous possédez déjà ${ownedParts} article${ownedParts > 1 ? 's' : ''} de ce pack : le prix affiché est ajusté, vous ne repayez rien.</p>` : '';
   const regular = items.filter((i) => !isPremium(i));
   const premium = items.filter((i) => isPremium(i));
   const medalGrid = regular.length > 0 ? `<h3 class="section-title">${coin('medals')} En Médailles</h3>${itemGrid(save, regular, sel.id, 'Cosmétiques en Médailles')}` : '';
   const prismGrid = premium.length > 0 ? `<h3 class="section-title">${coin('prisms')} Premium · en Prismes</h3>${itemGrid(save, premium, sel.id, 'Cosmétiques premium en Prismes')}` : '';
-  return `<div class="panel panel--wide">${head}
+  return `<div class="panel panel--wide compact">${head}
     <div class="skin-stage">
       <div class="skin-preview${st === 'soon' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
@@ -425,16 +445,14 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
         <span class="kind-label">${KIND_LABEL[sel.kind]}</span>
         <h3 class="skin-info__name">${escapeHtml(sel.name)}</h3>
         <p class="skin-info__cond">${escapeHtml(sel.blurb)}</p>
-        ${contents}
         <div class="item__badge item__badge--lg">${itemBadge(st, sel, save)}</div>
         ${p && (st === 'buy' || st === 'insufficient') ? `<p class="shop-balance">Disponible : <strong>${formatScore(spendable(save, p.currency))}</strong> ${CURRENCY_NAME[p.currency]}</p>` : ''}
         ${act.note ? `<p class="shop-note" id="item-note">${act.note}</p>` : ''}
-        ${packNote}
         ${act.button}
       </div>
     </div>
     ${medalGrid}${prismGrid}
-    <p class="small" style="margin-top:12px">Purement cosmétiques : mêmes vitesses, mêmes hitboxes et même difficulté dans tous les modes. Les cosmétiques s’achètent avec des Médailles, gagnées en récupérant vos succès (jamais avec des Éclats) ; les articles premium avec des Prismes. Les Éclats servent aux bonus. Aucune monnaie n’est convertie en une autre ; les « Éclats de campagne » sont une réserve séparée.</p>
+    <p class="small shop-foot">Purement cosmétique : aucun effet sur le jeu. Médailles (succès) pour les articles standard, Prismes pour le premium (onglet Prismes). Les « Éclats de campagne » sont une réserve séparée.</p>
   </div>`;
 }
 
@@ -507,19 +525,16 @@ export function confirmBonusScreen(save: SaveData, kind: string, quantity: numbe
  * (Ce n'est pas un mode : la partie lancée est la Survie habituelle.)
  */
 export function prepScreen(save: SaveData, message: { kind: 'ok' | 'error'; text: string } | null = null, record = ''): string {
-  const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
-  const totalStock = BONUS_LIST.reduce((t, b) => t + save.inventory[b.id], 0);
-  // Le lancement est tout en haut : toujours visible, même sur téléphone ; les bonus sont facultatifs
-  return `<div class="panel panel--wide prep">${screenHead('Préparer la partie')}
+  const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice notice--compact${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
+  const waitingShards = save.economy.managed ? provisional(save, 'shards') : 0;
+  const balance = `<span class="prep__balance" role="group" aria-label="Solde : ${formatScore(save.wallet.shards)} Éclats">${coin('shards')}<strong data-wallet="shards">${formatScore(save.wallet.shards)}</strong><span class="prep__unit">Éclats</span>${waitingShards > 0 ? `<span class="prep__wait" title="Gains en attente de confirmation par le service">dont ${formatScore(waitingShards)} à confirmer</span>` : ''}</span>`;
+  // Titre, record et solde en tête ; le lancement juste dessous (une ligne) ; deux cartes de bonus compactes : le tout tient sur un téléphone sans défilement
+  return `<div class="panel panel--wide compact prep">${screenHead('Préparation')}
+    <div class="prep__line"><span class="prep__record">Survie${record ? ` · ${escapeHtml(record)}` : ''}</span>${balance}</div>
     ${msg}
-    <div class="btn-stack prep__go">
-      ${button({ action: 'survival-start', label: 'Lancer la partie', sub: totalStock > 0 ? 'Vos charges sont conservées' : 'Sans bonus', icon: 'play', variant: 'primary', size: 'hero', attrs: 'data-autofocus' })}
-    </div>
-    <p class="sub prep__intro">Survie${record ? ` · ${escapeHtml(record)}` : ''}. Les bonus ci-dessous sont facultatifs.</p>
-    ${walletBar(save.wallet, { currencies: ['shards'] })}
-    ${waitingNote(save)}
+    <div class="prep__go">${button({ action: 'survival-start', label: 'Lancer la partie', icon: 'play', variant: 'primary', size: 'go', attrs: 'data-autofocus' })}</div>
     <div class="bonus-list">${bonusCards(save)}</div>
-    <p class="small">${bonusRules()}</p>
+    <p class="small prep__rules">${bonusRulesShort()}</p>
   </div>`;
 }
 

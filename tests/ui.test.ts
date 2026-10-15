@@ -119,7 +119,8 @@ describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', (
     expect(html.match(/data-wallet="medals"/g)?.length).toBe(1);
     // Sans service de comptes, le solde de Prismes n'est pas affiché (aucune monnaie « fantôme »)
     expect(html).not.toContain('data-wallet="prisms"');
-    for (const a of ['cat-ships', 'cat-trails', 'cat-packs', 'cat-bonus', 'filter-all', 'filter-owned', 'filter-locked']) expect(html).toContain(`data-action="${a}"`);
+    for (const a of ['cat-ships', 'cat-trails', 'cat-bonus', 'cat-prisms', 'filter-all', 'filter-owned', 'filter-locked']) expect(html).toContain(`data-action="${a}"`);
+    expect(html).not.toContain('cat-packs'); // l'onglet « Packs » n'existe plus
     expect(html).not.toContain('tab-shop');
     expect(S.homeScreen(base(), '2026-10-12')).not.toContain('data-action="skins"');
   });
@@ -138,7 +139,9 @@ describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', (
     expect(S.cosmeticsScreen(save, 'ships', 'locked', 'aurore')).not.toContain('data-skin-preview="aurore"');
     expect(S.cosmeticsScreen(save, 'ships', 'owned')).toContain('data-skin-preview="aurore"');
     // Catégorie vide dans un filtre : message
-    expect(S.cosmeticsScreen(save, 'packs', 'owned')).toContain('aucun article');
+    const everything = base();
+    everything.owned = S.cosmeticItems(everything, 'ships', 'all').map((i) => i.id);
+    expect(S.cosmeticsScreen(everything, 'ships', 'locked')).toContain('Tout est débloqué');
   });
 
   it('états : Acheter, Médailles insuffisantes, Équiper, Équipé, Bientôt disponible', () => {
@@ -150,10 +153,10 @@ describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', (
     html = S.cosmeticsScreen(save, 'ships', 'all', 'menthe');
     expect(html).toContain('Médailles insuffisantes');
     expect(html).toMatch(/data-action="buy"\s+disabled/);
-    expect(html).toContain('Il vous manque 100 Médailles');
+    expect(html).toContain('Il manque 100 Médailles');
     // Les Éclats ne financent pas un cosmétique : le solde d'Éclats n'y change rien
     save.wallet.shards = 100000;
-    expect(S.cosmeticsScreen(save, 'ships', 'all', 'menthe')).toContain('Il vous manque 100 Médailles');
+    expect(S.cosmeticsScreen(save, 'ships', 'all', 'menthe')).toContain('Il manque 100 Médailles');
     save.owned.push('ambre');
     html = S.cosmeticsScreen(save, 'ships', 'all', 'ambre');
     expect(html).toMatch(/data-action="equip-item"[^>]*data-item="ambre"/);
@@ -177,19 +180,22 @@ describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', (
     expect(html).toContain('Premium · en Prismes');
     expect(html.indexOf('En Médailles')).toBeLessThan(html.indexOf('Premium · en Prismes'));
     expect(S.cosmeticsScreen(base(), 'trails', 'all')).toContain('Premium · en Prismes');
-    // Pack : uniquement premium
-    const packs = S.cosmeticsScreen(base(), 'packs', 'all');
-    expect(packs).not.toContain('En Médailles');
-    expect(packs).toContain('Premium · en Prismes');
+    // Pack premium Néon + Nébuleuse : dans l'onglet Prismes (section premium), jamais en Médailles
+    const prismes = S.cosmeticsScreen(base(), 'prisms', 'all');
+    expect(prismes).not.toContain('En Médailles');
+    expect(prismes).toContain('Premium · en Prismes');
+    expect(prismes).toContain('data-premium="pack-neon"');
+    expect(prismes).toContain('200');
   });
 
   it('chaque article affiche aperçu animé, description, contenu, prix ou condition', () => {
     const save = base();
-    const pack = S.cosmeticsScreen(save, 'packs', 'all', 'pack-neon');
-    expect(pack).toContain('data-skin-preview="neon"');
-    expect(pack).toContain('Vaisseau Néon');
-    expect(pack).toContain('Traînée Nébuleuse');
+    const pack = S.cosmeticsScreen(save, 'prisms', 'all');
+    expect(pack).toContain('Pack Néon + Nébuleuse');
+    expect(pack).toContain('data-premium="pack-neon"');
     expect(pack).toContain('200');
+    const neon = S.cosmeticsScreen(save, 'ships', 'all', 'neon');
+    expect(neon).toContain('data-skin-preview="neon"');
     const trail = S.cosmeticsScreen(save, 'trails', 'all', 'glacier');
     expect(trail).toContain('data-trail-color=');
     expect(trail).toContain('80');
@@ -198,11 +204,11 @@ describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', (
   it('aucun article premium n’a de bouton de paiement actif, dans aucune catégorie', () => {
     const save = base();
     save.wallet.prisms = 100000;
-    for (const [tab, item] of [['ships', 'neon'], ['trails', 'nebuleuse'], ['packs', 'pack-neon']] as const) {
+    for (const [tab, item] of [['ships', 'neon'], ['trails', 'nebuleuse'], ['prisms', 'pack-neon']] as const) {
       const html = S.cosmeticsScreen(save, tab, 'all', item);
       const enabled = html.match(/<button[^>]*data-action="buy"[^>]*>/g)?.filter((b) => !b.includes('disabled')) ?? [];
       expect(enabled).toEqual([]);
-      expect(html).toContain('Bientôt disponible');
+      expect(html).toContain('Bientôt');
     }
   });
 

@@ -1308,3 +1308,533 @@
   width: 56px;
   height: 56px;
 }
+
+/* ———————————————————————————— Allègement « compact » : Préparation, Boutique, boutique Prismes
+   Composants et dispositions resserrés (jamais de zoom global) ; surfaces tactiles ≥ 44 px. */
+.panel.compact {
+  padding: 12px 12px 14px;
+}
+
+.compact .screen-head {
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.compact .screen-head .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+
+.compact .screen-head .title {
+  font-size: 19px;
+  letter-spacing: 0.12em;
+}
+
+.compact .wallet {
+  margin: 4px 0 0;
+  padding: 4px 6px;
+  gap: 4px;
+}
+
+.compact .wallet .coin--lg {
+  width: 26px;
+  height: 26px;
+}
+
+.compact .wallet__n {
+  font-size: 15px;
+}
+
+.compact .wallet__l {
+  font-size: 10.5px;
+}
+
+.compact .tabs {
+  margin: 8px 0;
+  padding: 3px;
+  gap: 2px;
+}
+
+.compact .tab {
+  min-height: 44px;
+  padding: 0 2px;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 380px) {
+  .compact .tab {
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+}
+
+.compact .btn {
+  min-height: 44px;
+  padding: 6px 12px;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.compact .section-title {
+  margin: 12px 0 6px;
+  font-size: 11px;
+}
+
+.compact .small {
+  font-size: 12px;
+}
+
+.notice--compact {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+.btn--go {
+  min-height: 52px;
+  font-size: 16px;
+  letter-spacing: 0.1em;
+  gap: 10px;
+}
+
+.btn--go .icon {
+  width: 22px;
+  height: 22px;
+}
+
+/* Préparation de la Survie : titre, record, solde, lancement (une ligne), deux bonus */
+.prep__line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 2px 8px;
+}
+
+.prep__record {
+  font-size: 13px;
+  color: var(--c-muted);
+}
+
+.prep__balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--c-muted);
+}
+
+.prep__balance .coin {
+  width: 18px;
+  height: 18px;
+}
+
+.prep__balance strong {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--c-white);
+}
+
+.prep__wait {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--c-gold);
+}
+
+.prep__go {
+  margin: 0 0 10px;
+}
+
+.prep__rules {
+  margin: 8px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+/* Cartes de bonus compactes : icône, nom, stock, effet, prix par charge ; achats ×1 et ×5 côte à côte */
+.compact .bonus-list {
+  gap: 8px;
+  margin: 0;
+}
+
+.bonus {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+}
+
+.bonus__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bonus__icon {
+  width: 40px;
+  height: 40px;
+  border-width: 1.5px;
+}
+
+.bonus__icon .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.bonus__body {
+  gap: 2px;
+}
+
+.bonus__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font-size: 16px;
+}
+
+.bonus__have {
+  font-family: var(--font-text);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--c-muted);
+}
+
+.bonus__stock {
+  font-size: 15px;
+}
+
+.bonus__blurb {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.bonus__price {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 11px;
+  color: var(--c-muted);
+}
+
+.bonus__price .coin {
+  width: 18px;
+  height: 18px;
+}
+
+.bonus__buy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.bonus__buy .btn {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+}
+
+.bonus__buy .btn__text {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+.bonus__buy .btn__sub {
+  margin-top: 0;
+  font-size: 12px;
+}
+
+.bonus__hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--c-muted);
+}
+
+.rules {
+  margin-top: 8px;
+  text-align: left;
+}
+
+.rules summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--c-cyan);
+}
+
+/* Boutique : aperçu à gauche de l'article choisi, cartes réduites, pied de page d'une ligne */
+.compact .skin-stage {
+  grid-template-columns: 104px 1fr;
+  gap: 12px;
+  justify-items: start;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.compact .skin-preview {
+  width: 104px;
+}
+
+.compact .skin-info {
+  align-items: flex-start;
+  text-align: left;
+  gap: 4px;
+  max-width: none;
+}
+
+.compact .skin-info__name {
+  font-size: 16px;
+  letter-spacing: 0.08em;
+}
+
+.compact .skin-info__cond {
+  font-size: 12px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.compact .skin-info .btn {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.compact .shop-balance,
+.compact .shop-note {
+  margin: 0;
+  font-size: 12px;
+  text-align: left;
+}
+
+.compact .skins {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.compact .skin {
+  padding: 6px 4px;
+  gap: 3px;
+}
+
+.compact .skin__thumb {
+  width: 48px;
+  height: 48px;
+}
+
+.compact .trail-swatch {
+  width: 48px;
+  height: 48px;
+}
+
+.compact .filters {
+  margin: 4px 0 8px;
+  gap: 6px;
+}
+
+.compact .filter {
+  font-size: 12.5px;
+}
+
+.shop-foot {
+  margin: 10px 2px 0;
+  line-height: 1.35;
+}
+
+@media (min-width: 720px) {
+  .compact .skin-stage {
+    grid-template-columns: 150px 1fr;
+    gap: 22px;
+  }
+
+  .compact .skin-preview {
+    width: 150px;
+  }
+}
+
+/* Articles premium (Prismes) : lignes compactes, pack Néon + Nébuleuse inclus */
+.prem-list {
+  display: grid;
+  gap: 6px;
+}
+
+.prem {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  border: 1.5px solid rgb(var(--c-prism-rgb) / 0.4);
+  background: rgb(var(--c-panel-rgb) / 0.55);
+}
+
+.prem--owned {
+  border-color: var(--line);
+}
+
+.prem__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+}
+
+.prem__thumb img,
+.prem__thumb svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.prem__thumb--pack .pack-part {
+  width: 22px;
+  height: 36px;
+}
+
+.prem__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.prem__name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.prem__sub {
+  font-size: 11.5px;
+  color: var(--c-muted);
+}
+
+.prem__price .coin {
+  width: 18px;
+  height: 18px;
+}
+
+.prem__act .btn {
+  width: auto;
+  min-width: 92px;
+}
+
+/* Packs de Prismes (achat) : lignes compactes */
+.compact .pack-grid {
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+
+.compact .pack-card {
+  grid-template-columns: 32px 1fr auto auto;
+  align-items: center;
+  justify-items: start;
+  gap: 8px;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.compact .pack-card__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.compact .pack-card__n {
+  font-size: 16px;
+}
+
+.compact .pack-card__name {
+  font-size: 11.5px;
+}
+
+.compact .pack-card__price {
+  font-size: 15px;
+}
+
+.compact .pack-card .btn {
+  min-width: 84px;
+}
+
+.compact .pack-card__n span {
+  font-size: 12px;
+}
+
+.compact .pack-card__gem {
+  display: grid;
+  place-items: center;
+}
+
+.compact .prem__name {
+  font-size: 13px;
+}
+
+.compact .store-note,
+.compact .notice {
+  margin: 6px 0;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+/* Paysage sur téléphone : deux cartes de bonus côte à côte (la Préparation tient sans défilement) */
+@media (orientation: landscape) and (max-height: 520px) {
+  .compact .bonus-list {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .compact .skin__thumb,
+  .compact .trail-swatch {
+    width: 44px;
+    height: 44px;
+  }
+
+  .prep__rules {
+    margin-top: 6px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .panel.compact {
+    padding: 8px 12px 10px;
+  }
+}
+
+.compact .prem__act .btn,
+.compact .pack-card .btn {
+  min-width: 0;
+  padding: 6px 10px;
+  letter-spacing: 0.05em;
+  font-size: 12.5px;
+}
+
+.compact .pack-card__n,
+.compact .pack-card__n span {
+  white-space: nowrap;
+}
+
+.compact .pack-card__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact .pack-card__gem .coin {
+  width: 30px;
+  height: 30px;
+}

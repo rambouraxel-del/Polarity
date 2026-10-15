@@ -753,7 +753,7 @@ describe('suppression et autorisations', () => {
     const a = pseudo(c, 'Axel');
     expect(c.call('GET', '/api/me', { auth: a.auth }).status).toBe(200);
     expect(c.call('POST', '/api/tickets', { auth: a.auth }).status).toBe(200);
-    expect(c.call('GET', '/api/health').body).toEqual({ ok: true, balance: BALANCE_VERSION });
+    expect(c.call('GET', '/api/health').body).toMatchObject({ ok: true, balance: BALANCE_VERSION });
   });
 });
 

@@ -52,18 +52,17 @@ export function privacyHtml(): string {
 export function prismShopHtml(v: StoreView): string {
   const av = v.availability;
   const busy = ['preparing', 'purchasing', 'verifying', 'restoring'].includes(v.state.status);
-  const balance = v.confirmedPrisms !== null ? `<p class="store-balance">${coin('prisms')} Solde confirmé : <strong>${formatScore(v.confirmedPrisms)}</strong> Prismes</p>` : '';
+  const balance = '';
   const why = av.reason
     ? `<div class="notice" role="status">${escapeHtml(av.reason)}${av.fix === 'account' ? ` ${button({ action: 'prisms-account', label: 'Ouvrir Compte', icon: 'gear', variant: 'secondary', size: 'sm' })}` : ''}</div>`
     : '';
   const cards = PRISM_PACKS.map((p) => {
     const best = p.id === 'grand';
-    return `<div class="pack-card${best ? ' pack-card--best' : ''}">
-      <div class="pack-card__gem">${coin('prisms', 'coin--xl')}</div>
-      <div class="pack-card__n">${formatScore(p.prisms)} <span>Prismes</span></div>
-      <div class="pack-card__name">${escapeHtml(p.name)}</div>
-      <div class="pack-card__price">${formatEuros(p.priceCents)}</div>
-      ${button({ action: 'prisms-buy', label: 'Acheter', icon: 'shop', variant: 'primary', size: 'sm', attrs: `data-pack="${p.id}" aria-label="Acheter ${p.prisms} Prismes, ${formatEuros(p.priceCents)}"${av.canBuy && !busy ? '' : ' disabled'}` })}
+    return `<div class="pack-card${best ? ' pack-card--best' : ''}" role="listitem">
+      <span class="pack-card__gem">${coin('prisms', 'coin--lg')}</span>
+      <span class="pack-card__text"><strong class="pack-card__n">${formatScore(p.prisms)} <span>Prismes</span></strong><span class="pack-card__name">${escapeHtml(p.name)}${best ? ' · meilleur prix' : ''}</span></span>
+      <span class="pack-card__price">${formatEuros(p.priceCents)}</span>
+      ${button({ action: 'prisms-buy', label: 'Acheter', variant: 'primary', size: 'sm', attrs: `data-pack="${p.id}" aria-label="Acheter ${p.prisms} Prismes, ${formatEuros(p.priceCents)}"${av.canBuy && !busy ? '' : ' disabled'}` })}
     </div>`;
   }).join('');
   const restore = v.canRestore ? `<div class="btn-row">${button({ action: 'prisms-restore', label: 'Restaurer mes achats', icon: 'replay', variant: 'secondary', size: 'sm', attrs: busy || !av.canBuy ? 'disabled' : '' })}</div>` : '';
@@ -73,7 +72,7 @@ export function prismShopHtml(v: StoreView): string {
     <h3 class="section-title">${coin('prisms')} Acheter des Prismes</h3>
     <div class="pack-grid" role="list">${cards}</div>
     ${restore}
-    <p class="small">Prix indicatifs en euros : le prix final est affiché par la ${escapeHtml(v.storeName)}. Les Prismes achetés et les Prismes gagnés (calendrier, Top 10 du défi quotidien, drop rare) sont <strong>identiques</strong> : ils servent aux cosmétiques premium (Néon 150, Nébuleuse 75, pack 200) et aux reprises (5 puis 10). Aucun avantage de jeu : les achats sont facultatifs et aucune publicité n’est imposée. Top 10 du défi : jusqu’à ${DAILY_RANKING.prizes[0].prisms} Prismes par jour, gratuitement.</p>
+    <p class="small shop-foot">Prix indicatifs : le prix final est affiché par la ${escapeHtml(v.storeName)}. Prismes achetés et gagnés (calendrier, Top 10 du défi jusqu’à ${DAILY_RANKING.prizes[0].prisms} par jour, drop rare) sont identiques ; achats facultatifs, sans avantage de jeu, aucune publicité n’est imposée.</p>
     ${privacyHtml()}`;
 }
 

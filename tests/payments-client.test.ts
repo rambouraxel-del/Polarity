@@ -310,7 +310,7 @@ describe('Boutique : écran des packs de Prismes', () => {
     for (const t of ['30', '100', '380', '0,99 €', '2,99 €', '9,99 €', 'Découverte', 'Intermédiaire', 'Grand']) expect(html).toContain(t);
     expect(html.match(/data-action="prisms-buy"/g)).toHaveLength(3);
     expect(html).not.toMatch(/data-action="prisms-buy"[^>]*disabled/);
-    expect(html).toContain('Solde confirmé : <strong>12</strong>');
+    expect(html).not.toContain('Solde confirmé'); // le solde est dans la barre des soldes (une seule fois) ; l'onglet reste compact
     expect(html).toContain('prisms-restore');
     expect(html).toContain('identiques');
     expect(html).toContain('facultatifs');
@@ -357,7 +357,10 @@ describe('Boutique : écran des packs de Prismes', () => {
     const shop = S.cosmeticsScreen(save, 'prisms', 'all', undefined, null, view());
     expect(shop).toContain('cat-prisms');
     expect(shop).toContain('Acheter des Prismes');
-    expect(S.COSMETIC_TABS.map((t) => t.id)).toEqual(['ships', 'trails', 'packs', 'bonus', 'prisms']);
+    expect(S.COSMETIC_TABS.map((t) => t.id)).toEqual(['ships', 'trails', 'bonus', 'prisms']);
+    // Onglet « Packs » supprimé : le pack premium Néon + Nébuleuse (200 Prismes) est présenté dans l'onglet Prismes
+    expect(shop).not.toContain('cat-packs');
+    expect(shop).toContain('data-premium="pack-neon"');
     expect(S.optionsScreen(save, true)).toContain('Achats, publicités et confidentialité');
     expect(S.optionsScreen(save, false)).not.toContain('Achats, publicités');
   });

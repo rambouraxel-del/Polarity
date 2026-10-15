@@ -21,7 +21,7 @@ export interface ButtonOptions {
   icon?: IconName;
   variant?: ButtonVariant;
   /** Gabarit : héros (Survie), ligne d'accueil, compact. */
-  size?: 'hero' | 'row' | 'compact' | 'sm';
+  size?: 'hero' | 'row' | 'compact' | 'sm' | 'go';
   chevron?: boolean;
   /** Petit compteur à droite du libellé (ex. « 3/9 »). */
   badge?: string;

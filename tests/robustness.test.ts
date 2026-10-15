@@ -218,11 +218,11 @@ describe('boutique : achats concurrents et états', () => {
       ['aurore', 'Équipé', true],
       ['glace', 'Médailles insuffisantes', true],
       ['neon', 'Bientôt disponible', true],
-      ['pack-neon', 'Bientôt disponible', true],
+      ['pack-neon', 'Bientôt', true],
     ];
     for (const [id, label, disabled] of cases) {
       const kind = catalogItem(id)!.kind;
-      const html = S.cosmeticsScreen(save, kind === 'ship' ? 'ships' : kind === 'trail' ? 'trails' : 'packs', 'all', id);
+      const html = S.cosmeticsScreen(save, kind === 'ship' ? 'ships' : kind === 'trail' ? 'trails' : 'prisms', 'all', id);
       expect(html, id).toContain(label);
       const btn = new RegExp(`<button[^>]*data-action="(buy|equip-item)"[^>]*>`, 'g');
       const buttons = [...html.matchAll(btn)].map((m) => m[0]);
@@ -280,10 +280,10 @@ describe('Prismes : sans service, jamais achetables ; avec un service, jamais d�
     for (const item of CATALOG.filter(isPremium)) {
       expect(itemState(save, item)).toBe('soon');
       expect(purchase(save, item.id)).toEqual({ ok: false, reason: 'unavailable' });
-      for (const tab of ['ships', 'trails', 'packs'] as const) {
-        if (!S.cosmeticItems(save, tab, 'all').includes(item)) continue;
+      for (const tab of ['ships', 'trails', 'prisms'] as const) {
+        if (tab !== 'prisms' && !S.cosmeticItems(save, tab, 'all').includes(item)) continue;
         const html = S.cosmeticsScreen(save, tab, 'all', item.id);
-        expect(html).toContain('Bientôt disponible');
+        expect(html).toContain('Bientôt');
         expect(html).not.toMatch(/data-action="buy"(?![^>]*disabled)/);
       }
     }
@@ -515,7 +515,7 @@ describe('classement hors ligne et honnêteté sur les données', () => {
   });
 
   it('aucune publicité ni achat intégré dans l’interface', () => {
-    const all = [S.homeScreen(defaultSave(), '2026-10-12'), S.cosmeticsScreen(rich(10), 'packs', 'all'), optionsScreen(defaultSave())].join('');
+    const all = [S.homeScreen(defaultSave(), '2026-10-12'), S.cosmeticsScreen(rich(10), 'prisms', 'all'), optionsScreen(defaultSave())].join('');
     expect(all).not.toMatch(/publicité|regarder une vidéo|acheter des prismes|achat intégré|abonnement/i);
   });
 });

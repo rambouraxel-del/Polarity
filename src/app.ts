@@ -1644,7 +1644,7 @@ export class App {
         const back = this.bonusOrder?.back ?? 'cosmetics';
         const res = buyBonus(this.save, target.dataset.bonus ?? '', Number(target.dataset.qty) || 0);
         const msg = res.ok
-          ? { kind: 'ok' as const, text: `${bonusDef(res.kind)?.name ?? ''} × ${res.quantity} ajouté à votre inventaire (−${formatScore(res.spent)} Éclats). Éclats restants : ${formatScore(res.balance)} · stock : ${formatScore(res.stock)}.` }
+          ? { kind: 'ok' as const, text: `${bonusDef(res.kind)?.name ?? ''} ×${res.quantity} ajouté (−${formatScore(res.spent)} Éclats). Stock : ${formatScore(res.stock)}.` }
           : { kind: 'error' as const, text: res.reason === 'stock_full' ? 'Inventaire plein pour ce bonus : rien n’a été débité.' : 'Éclats insuffisants : rien n’a été débité.' };
         if (res.ok) {
           this.persist();
@@ -1742,7 +1742,6 @@ export class App {
       case 'quit': this.showScreen(this.lastConfig?.mode === 'campaign' && this.session ? 'chapter' : 'home'); break;
       case 'cat-ships':
       case 'cat-trails':
-      case 'cat-packs':
       case 'cat-bonus':
       case 'cat-prisms':
         if (action === 'cat-prisms') {

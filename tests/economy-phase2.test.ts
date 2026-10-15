@@ -149,20 +149,24 @@ describe('écrans : préparation de la Survie, bonus, confirmations, notificatio
 
   it('préparation : stocks, solde d’Éclats, achats, limite de 3 activations, lancement sans bonus', () => {
     const html = S.prepScreen(save());
-    expect(html).toContain('Préparer la partie');
+    expect(html).toContain('Préparation');
     expect(html).toContain('data-stock="boost">2<');
     expect(html).toContain('data-stock="gel">1<');
     expect(html).toContain('data-wallet="shards"');
     expect(html).not.toContain('data-wallet="medals"');
-    expect(html).toContain('au plus 3 fois pendant la première vie');
+    expect(html).toContain('3 activations au plus par bonus en première vie');
     expect(html).toMatch(/data-action="bonus-ask"[^>]*data-bonus="boost"[^>]*data-qty="1"/);
     expect(html).toMatch(/data-action="bonus-ask"[^>]*data-bonus="gel"[^>]*data-qty="5"/);
     expect(html).toMatch(/data-action="survival-start"/);
     // Sans bonus : le lancement reste possible
-    expect(S.prepScreen(defaultSave())).toContain('Sans bonus');
+    // Écran compact : une seule ligne de lancement, pas de long texte de règles, pas de Médailles
+    expect(html).not.toMatch(/btn__sub[^<]*>Sans bonus|Vos charges sont conservées/);
+    expect(html).not.toContain('Médailles');
+    expect(html).not.toContain('Ces montants seront dépensables');
+    expect(html).toContain('btn--go');
     expect(S.prepScreen(defaultSave())).toContain('data-action="survival-start"');
     // Achat de 5 Gel (500 Éclats) impossible avec 380 : bouton inactif
-    expect(html).toMatch(/data-action="bonus-ask"[^>]*data-bonus="gel" data-qty="5" disabled/);
+    expect(html).toMatch(/data-action="bonus-ask"[^>]*data-bonus="gel" data-qty="5"[^>]*disabled/);
     expect(html).toContain('Boost');
     expect(html).toContain('Gel temporel');
     // Phase 3 : les effets sont actifs, plus aucune mention « à venir »
@@ -172,7 +176,7 @@ describe('écrans : préparation de la Survie, bonus, confirmations, notificatio
 
   it('onglet Bonus de la boutique : prix, quantités possédées, séparation Éclats / Médailles / Prismes', () => {
     const html = S.cosmeticsScreen(save(), 'bonus', 'all');
-    expect(html).toContain('Bonus · en Éclats');
+    expect(html).toContain('data-bonus-card="boost"');
     for (const b of BONUS_LIST) {
       expect(html).toContain(b.name);
       expect(html).toContain(`>${b.price}<`);
@@ -182,7 +186,7 @@ describe('écrans : préparation de la Survie, bonus, confirmations, notificatio
     const ships = S.cosmeticsScreen(save(), 'ships', 'all');
     expect(ships).toContain('En Médailles');
     expect(ships).toContain('Premium · en Prismes');
-    expect(ships).not.toContain('Bonus · en Éclats');
+    expect(ships).not.toContain('data-bonus-card');
   });
 
   it('confirmation d’un achat de bonus : prix, Éclats avant/après, stock avant/après ; refus sans bouton de confirmation', () => {
