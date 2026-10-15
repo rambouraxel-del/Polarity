@@ -4,7 +4,7 @@ import { GameSession } from '../src/game/session';
 import { BALANCE_VERSION } from '../src/config/version';
 import { ACHIEVEMENT_CONFIG } from '../src/config/achievements';
 import { LEVEL_REWARDS } from '../src/config/economy';
-import { REPLAY_FORMAT, type LeaderboardResponse, type RunSubmission, type Ticket, type TicketsResponse } from '../src/net/protocol';
+import { REPLAY_FORMAT, type LeaderboardResponse, type RunSubmission, type TicketsResponse } from '../src/net/protocol';
 import type { AuthResponse, ConflictResponse, EmailRequestResponse, NonceResponse, ProfileResponse, ProvidersResponse, SyncResponse } from '../src/net/accountProtocol';
 import { defaultSave } from '../src/save/save';
 import { SYNC_RULES } from '../src/economy/rules';
@@ -65,7 +65,7 @@ function ctx(opts: { google?: boolean; apple?: boolean; email?: boolean } = {}, 
       apple: opts.apple ? { audiences: ['fr.test.service'], web: 'fr.test.service' } : undefined,
       mailer: opts.email ? mailer : null,
       appUrl: 'https://exemple.github.io/Polarity/',
-      jwksFetcher: async () => ({ keys: [jwk] }),
+      jwksFetcher: async () => ({ keys: [jwk as never] }),
     },
   });
   const req = (method: string, path: string, o: { body?: unknown; auth?: string; ip?: string } = {}): HttpRequest => ({

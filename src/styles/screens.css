@@ -1134,3 +1134,14 @@
   border-color: rgb(var(--c-coral-rgb) / 0.8);
   background: rgb(var(--c-coral-rgb) / 0.1);
 }
+
+/* Écran Compte : bouton officiel du fournisseur dans une ligne de réglage empilée */
+.setting--stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.acct-google {
+  min-height: 44px;
+}

@@ -193,8 +193,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     }
     db.prepare('DELETE FROM bests WHERE player_id = ?').run(fromId);
     summary.runs = Number(db.prepare('UPDATE runs SET player_id = ? WHERE player_id = ?').run(intoId, fromId).changes);
-    // Tickets : la signature est liée au joueur ; les tickets non utilisés de l'ancien profil deviennent inutilisables (supprimés), les autres restent en historique
-    db.prepare('DELETE FROM tickets WHERE player_id = ? AND used_at IS NULL').run(fromId);
+    // Tickets : rattachés au profil absorbant ; leur signature reste valable (vérifiée contre l'ancien profil devenu alias)
     db.prepare('UPDATE tickets SET player_id = ? WHERE player_id = ?').run(intoId, fromId);
     db.prepare('UPDATE OR IGNORE reports SET reporter_id = ? WHERE reporter_id = ?').run(intoId, fromId);
     db.prepare('UPDATE OR IGNORE reports SET target_id = ? WHERE target_id = ?').run(intoId, fromId);

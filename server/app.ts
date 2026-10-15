@@ -316,7 +316,9 @@ export function createApp(db: Db, cfg: AppConfig): App {
     // Version d'équilibrage : seule la version courante peut être rejouée par ce code (les anciennes sont conservées en lecture)
     if (sub.client.balance !== balance) return reject('unsupported_balance');
     // Ticket : signature, propriétaire, expiration, usage unique
-    if (!verifyTicketSig(cfg.ticketSecret, t, me.id)) return reject('bad_ticket');
+    // La signature est liée au profil qui a reçu le ticket : celui-ci, ou un profil fusionné depuis (les parties en attente survivent à une fusion)
+    const signers = [me.id, ...(db.prepare('SELECT id FROM players WHERE merged_into = ?').all(me.id) as unknown as { id: string }[]).map((r) => r.id)];
+    if (!signers.some((id) => verifyTicketSig(cfg.ticketSecret, t, id))) return reject('bad_ticket');
     const row = q.ticket.get(t.id) as unknown as { id: string; player_id: string; seed: number; exp: number; used_at: number | null } | undefined;
     if (!row || row.player_id !== me.id || row.seed !== t.seed || row.exp !== t.exp) return reject('bad_ticket');
     if (row.used_at !== null) return reject('ticket_used');

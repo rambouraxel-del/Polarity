@@ -29,6 +29,10 @@ import { BrowserStore, SAVE_KEY, loadSave, parseSave, resetProgress, writeSave, 
 import { Bot } from './sim/bot';
 import { FAMILY_INTRO } from './sim/patterns';
 import type { SimEvent } from './sim/simulation';
+import { AccountService } from './account/AccountService';
+import { mountGoogleButton, signInNative, signInWithAppleWeb } from './account/providers';
+import { ensureInstallId } from './economy/ids';
+import { accountScreen } from './ui/accountScreens';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
 import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
 import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
@@ -40,7 +44,7 @@ import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 import * as C from './ui/campaignScreens';
 
-type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | null;
 
 /** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
 const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
@@ -49,6 +53,7 @@ const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
   mission: 'chapter',
   journal: 'campaign',
   levels: 'campaign',
+  account: 'options',
 };
 
 /** Scène en cours d'affichage : réplique courante, avancement du texte progressif et suite à donner. */
@@ -71,6 +76,20 @@ export class App {
   private readonly store: KeyValueStore = new BrowserStore();
   /** Classement mondial (service facultatif ; le jeu reste jouable hors ligne). */
   readonly lb = new LeaderboardClient({ baseUrl: LEADERBOARD_URL, store: this.store, balance: BALANCE_VERSION, build: __APP_VERSION__ });
+  /** Compte, synchronisation et migration (économie v3) : facultatifs, jamais bloquants ; inactifs si le service n'est pas configuré. */
+  readonly account = new AccountService({
+    lb: this.lb,
+    store: this.store,
+    getSave: () => this.save,
+    commit: (mutate) => {
+      mutate(this.save);
+      this.persist(false);
+    },
+    isPlaying: () => this.session !== null && this.session.phase !== 'over',
+    onChange: () => {
+      if (this.screen === 'account' && !this.session) this.rerenderAccount();
+    },
+  });
   /** ?demo (joueur automatique) ou ?debug : jamais éligible au classement. */
   private readonly devMode = new URLSearchParams(location.search).has('demo') || new URLSearchParams(location.search).has('debug');
   private nextTicket: Ticket | null = null;
@@ -149,6 +168,7 @@ export class App {
     this.save = res.data;
     this.applyAudioOptions();
     this.normalizeSave();
+    ensureInstallId(this.save);
     this.storageFailed = !storageWorks(this.store);
     // Sauvegarde modifiée par un AUTRE onglet : on adopte la plus récente (jamais d'écrasement silencieux, aucune récompense en double)
     window.addEventListener('storage', (e) => this.onRemoteSave(e));
@@ -237,14 +257,22 @@ export class App {
       const kind = (e.target as HTMLElement).dataset.form;
       if (kind === 'lb-register' || kind === 'lb-rename') void this.submitNickname(kind);
       else if (kind === 'lb-report') void this.submitReport();
+      else if (kind === 'acct-email') void this.account.emailRequest(((e.target as HTMLElement).querySelector('input') as HTMLInputElement | null)?.value.trim() ?? '');
+      else if (kind === 'acct-code') {
+        const st = this.account.state.email;
+        const code = (((e.target as HTMLElement).querySelector('input') as HTMLInputElement | null)?.value ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (st.requestId) void this.account.emailVerify(st.requestId, code, false);
+      }
     });
     // Retour en ligne : envoi des résultats en attente et renouvellement des tickets
     window.addEventListener('online', () => {
       void this.lb.flush();
       void this.lb.ensureTickets();
+      void this.account.syncNow(true);
     });
     void this.lb.flush();
     void this.lb.ensureTickets();
+    void this.account.start().then(() => this.cleanMagicLink());
     void this.checkForUpdate();
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) void this.checkForUpdate();
@@ -946,7 +974,8 @@ export class App {
       case 'achievements': html = S.achievementsScreen(this.save); break;
       case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
       case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? ''); break;
-      case 'options': html = S.optionsScreen(this.save); break;
+      case 'options': html = S.optionsScreen(this.save, this.lb.configured); break;
+      case 'account': html = accountScreen({ state: this.account.state, methods: this.account.availability() }); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
       case 'pause': html = S.pauseScreen(this.modeLabel(), this.session?.config.mode === 'campaign'); break;
       default: break;
@@ -960,6 +989,69 @@ export class App {
     const focus = this.screenEl.querySelector<HTMLElement>('[data-autofocus]');
     focus?.focus({ preventScroll: true });
     this.attachSkinPreview();
+    if (id === 'account') this.afterAccountRender();
+  }
+
+  /** Redessine l'écran Compte sans animation ni perte de saisie (l'adresse en cours est conservée). */
+  private rerenderAccount(): void {
+    const typed = (this.screenEl.querySelector('#acct-email') as HTMLInputElement | null)?.value;
+    this.showScreen('account', false);
+    const input = this.screenEl.querySelector('#acct-email') as HTMLInputElement | null;
+    if (input && typed) input.value = typed;
+  }
+
+  /** Après l'affichage de l'écran Compte : méthodes disponibles (chargées une fois) et bouton Google. */
+  private afterAccountRender(): void {
+    const acc = this.account;
+    if (!acc.state.configured) return;
+    if (!acc.state.providersLoaded) {
+      void acc.loadProviders();
+      void acc.loadProfile();
+      return;
+    }
+    const g = acc.availability().find((m) => m.provider === 'google');
+    const holder = this.screenEl.querySelector<HTMLElement>('#acct-google');
+    const cfg = acc.state.providers;
+    if (!g?.available || !holder || !cfg?.google.clientId) return;
+    if (g.via === 'native') {
+      holder.innerHTML = `<button class="btn btn--secondary btn--sm" data-action="acct-google-native" type="button">Continuer avec Google</button>`;
+      return;
+    }
+    void acc.fetchNonce().then((nonce) => {
+      if (!nonce || this.screen !== 'account') return;
+      return mountGoogleButton(holder, cfg.google.clientId!, nonce, (r) => void acc.loginOidc('google', r.idToken, nonce));
+    }).catch(() => {
+      holder.textContent = 'Google est injoignable pour le moment.';
+    });
+  }
+
+  /** Retire `?magic=…` de l'adresse après lecture (le code ne reste pas dans l'historique). */
+  private cleanMagicLink(): void {
+    try {
+      const u = new URL(location.href);
+      if (u.searchParams.has('magic')) {
+        u.searchParams.delete('magic');
+        history.replaceState(null, '', u.pathname + u.search + u.hash);
+      }
+    } catch {
+      /* sans conséquence */
+    }
+  }
+
+  private async socialLogin(provider: 'google' | 'apple'): Promise<void> {
+    const acc = this.account;
+    const cfg = acc.state.providers;
+    const m = acc.availability().find((x) => x.provider === provider);
+    if (!cfg || !m?.available) return;
+    const nonce = await acc.fetchNonce();
+    if (!nonce) return;
+    try {
+      const clientId = cfg[provider].clientId ?? '';
+      const r = m.via === 'native' ? await signInNative(provider, cfg, nonce) : await signInWithAppleWeb(clientId, nonce);
+      await acc.loginOidc(provider, r.idToken, nonce);
+    } catch {
+      /* fenêtre fermée ou connexion annulée : rien à faire */
+    }
   }
 
   /** Grand aperçu du menu Apparences : rotation lente et réacteur animé (figé en effets réduits). */
@@ -1032,6 +1124,18 @@ export class App {
       case 'lb-delete-confirm': void this.deleteLeaderboardProfile(); break;
       case 'lb-forget': this.lb.forgetProfile(); this.lbProfileLost = false; this.lbMe = null; this.lbNickMessage = null; this.rerenderLeaderboard(); break;
       case 'options': this.showScreen('options'); break;
+      case 'account': this.showScreen('account'); break;
+      case 'acct-sync': void this.account.syncNow(true); break;
+      case 'acct-apple': void this.socialLogin('apple'); break;
+      case 'acct-google-native': void this.socialLogin('google'); break;
+      case 'acct-merge-confirm': void this.account.confirmMerge(); break;
+      case 'acct-merge-cancel': this.account.cancelMerge(); break;
+      case 'acct-logout': void this.account.logout(); break;
+      case 'acct-unlink': void this.account.unlink(target.dataset.provider === 'google' ? 'google' : target.dataset.provider === 'apple' ? 'apple' : 'email'); break;
+      // Les formulaires du compte sont traités à l'envoi
+      case 'acct-email-send':
+      case 'acct-code':
+        break;
       case 'survival': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
       case 'play-daily': {
         const date = utcDateString();
@@ -1149,6 +1253,8 @@ export class App {
       case 'ask-reset': this.showScreen('confirm-reset'); break;
       case 'confirm-reset': {
         this.save = resetProgress(this.store, this.save);
+        ensureInstallId(this.save);
+        this.persist(false);
         if (this.store.failed === true) this.storageFailed = true;
         this.showScreen('home');
         break;
@@ -1346,9 +1452,11 @@ export class App {
     this.bannerEl.classList.add('hidden');
   }
 
-  private persist(): void {
+  private persist(schedule = true): void {
     writeSave(this.store, this.save);
     if (this.store.failed === true) this.storageFailed = true;
+    // Les gains et achats seront confirmés par le service (regroupés, jamais pendant une partie)
+    if (schedule) this.account.scheduleSync();
   }
 }
 

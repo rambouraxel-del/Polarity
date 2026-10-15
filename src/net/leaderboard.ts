@@ -22,6 +22,8 @@ export interface Identity {
   playerId: string;
   token: string;
   nickname: string;
+  /** Profil invité : pseudo non choisi (absent du classement public tant qu'un pseudo n'est pas choisi). */
+  guest?: boolean;
 }
 
 export type PendingStatus = 'pending' | 'accepted' | 'rejected';
@@ -41,7 +43,7 @@ export interface PendingRun {
   result?: { time: number; score: number; rank: number; personalBest: boolean };
 }
 
-export type NetResult<T> = { ok: true; data: T } | { ok: false; kind: 'offline' | 'unauthorized' | 'http'; status: number; message: string; reason?: RejectReason };
+export type NetResult<T> = { ok: true; data: T } | { ok: false; kind: 'offline' | 'unauthorized' | 'http'; status: number; message: string; reason?: RejectReason; /** Corps de l'erreur renvoyé par le service (ex. conflit de compte à confirmer). */ body?: unknown };
 
 export interface ClientOptions {
   baseUrl: string;
@@ -154,12 +156,34 @@ export class LeaderboardClient {
       }
       if (res.ok) return { ok: true, data: data as T };
       const body = data as { message?: string; reason?: RejectReason } | null;
-      return { ok: false, kind: res.status === 401 ? 'unauthorized' : 'http', status: res.status, message: body?.message ?? `Erreur ${res.status}`, reason: body?.reason };
+      return { ok: false, kind: res.status === 401 ? 'unauthorized' : 'http', status: res.status, message: body?.message ?? `Erreur ${res.status}`, reason: body?.reason, body: data };
     } catch {
       return { ok: false, kind: 'offline', status: 0, message: 'Service injoignable (hors ligne ?).' };
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Requête brute vers le service (comptes, synchronisation) : mêmes règles que le classement (https, délai, aucun secret hors de l'en-tête). */
+  api<T>(method: string, path: string, opts: { body?: unknown; auth?: boolean; query?: string } = {}): Promise<NetResult<T>> {
+    return this.request<T>(method, path, opts);
+  }
+
+  /** Remplace l'identité de cet appareil (connexion, fusion). Les tickets de l'ancien profil ne valent plus : ils sont écartés. */
+  adoptIdentity(id: Identity): void {
+    this.write(TICKETS_KEY, []);
+    this.write(IDENTITY_KEY, id);
+  }
+
+  /** Profil invité créé automatiquement, sans saisie : disponible tout de suite pour la synchronisation. Sans effet si un profil existe déjà. */
+  async registerGuest(): Promise<NetResult<Identity>> {
+    const existing = this.identity();
+    if (existing) return { ok: true, data: existing };
+    const res = await this.request<RegisterResponse & { guest?: boolean }>('POST', '/api/register', { body: {} });
+    if (!res.ok) return res;
+    const id: Identity = { playerId: res.data.playerId, token: res.data.token, nickname: res.data.nickname, guest: res.data.guest !== false };
+    this.adoptIdentity(id);
+    return { ok: true, data: id };
   }
 
   async register(nickname: string): Promise<NetResult<Identity>> {
@@ -181,7 +205,7 @@ export class LeaderboardClient {
     if (!res.ok) return res;
     const id = this.identity();
     if (!id) return { ok: false, kind: 'unauthorized', status: 401, message: 'Aucun profil.' };
-    const next = { ...id, nickname: res.data.nickname };
+    const next: Identity = { playerId: id.playerId, token: id.token, nickname: res.data.nickname, guest: false };
     this.write(IDENTITY_KEY, next);
     return { ok: true, data: next };
   }
