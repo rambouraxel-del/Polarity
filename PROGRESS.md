@@ -1,5 +1,11 @@
 # Suivi d'avancement
 
+## Économie v3 — phase 1 : comptes, migration, synchronisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`)
+- [x] Sauvegarde v7 (`economy`), migration locale idempotente des anciennes sauvegardes (copie conservée), règles et fusion partagées jeu/serveur
+- [x] Serveur : schéma v3 additif, profils invités, accès par appareil, Google/Apple (OIDC, nonce) et lien magique (désactivés sans configuration), registre `ledger`, `/api/migrate`, `/api/sync`, fusion confirmée sans double crédit (38 tests)
+- [x] Client : `AccountService` (invité automatique, migration, synchronisation hors ligne), écran Options → Compte, fournisseurs web / Capacitor (19 tests)
+- [ ] **À configurer par le propriétaire** : identifiants OAuth Google/Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL`, module natif de connexion sociale (non installé), redéploiement du service. Détail : `docs/COMPTES.md`, suivi : `docs/ETAT_MAJ_ECONOMIE.md`
+
 ## Consolidation V1 : progression, boutique et interfaces dépendant de la sauvegarde (branche `v1-finalisation-audiovisuelle`, non fusionnée)
 - [x] Succès (27) : conditions relues et testées contre la configuration (niveaux, multiplicateur), récompense unique (rechargements, appels répétés, deux onglets, sauvegarde incohérente), aucune dépense requise, campagne exclue
 - [x] Boutique : packs partiellement possédés facturés au prorata (plus de double paiement d'un article), refus expliqués, messages annoncés aux lecteurs d'écran, clics répétés sans double débit

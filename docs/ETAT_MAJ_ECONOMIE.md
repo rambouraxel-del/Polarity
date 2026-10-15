@@ -5,14 +5,15 @@
 > La version publique existante (GitHub Pages + éventuel service de classement déjà déployé) doit continuer à fonctionner : tout ce qui est ajouté est **additif et désactivé tant que le service n'est pas configuré**.
 
 ## Où reprendre
-**Phase 1, étape en cours : E4 — client** (`src/account/` : AccountClient, fournisseurs web/Capacitor, synchronisation hors ligne, écran « Compte »), puis E5 (documentation `docs/COMPTES.md`, tests client, build, commits).
-Déjà fait : sauvegarde v7 + règles partagées + fusion pure (E1) ; serveur complet avec tests (E2/E3 : `server/accounts.ts`, `oidc.ts`, `mailer.ts`, `profile.ts`, `tests/accounts-server.test.ts`).
-Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run tests/accounts-server.test.ts` (doit être vert), puis continuer à l'étape indiquée.
+**Phase 1 : TERMINÉE (code, tests, documentation, commits locaux sur `feat/polar-rift-economie-v3` ; rien poussé).** Vérifié : `npx tsc --noEmit`, `npm test` (515 tests dont 38 serveur + 19 client), `npm run build`, `npm run check:bundle`. Aucun test navigateur lancé (volontairement).
+**Prochaine étape : phase 2 (Médailles : réclamation rétroactive des anciens succès, registre serveur des récompenses)** — à lancer sur demande du propriétaire. Les succès anciens sont déjà importés (`achievements`, `rewarded`) et le registre `ledger` accepte de nouveaux types d'entrées.
+Reste à la charge du propriétaire (action externe, voir `docs/COMPTES.md`) : identifiants OAuth Google / Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL`, module natif de connexion sociale pour Android/iOS (non installé), redéploiement du service (schéma v3). Sans cela, les comptes restent désactivés sans rien casser.
+Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run tests/accounts-server.test.ts tests/accounts-client.test.ts` (doit être vert).
 
 ## Les six phases
 | # | Phase | État |
 |---|---|---|
-| **1** | **Fondations : profils invités, comptes (Google / Apple / lien magique e-mail), migration des anciennes sauvegardes, synchronisation, hors ligne, registre serveur** | **EN COURS** (cette session) |
+| **1** | **Fondations : profils invités, comptes (Google / Apple / lien magique e-mail), migration des anciennes sauvegardes, synchronisation, hors ligne, registre serveur** | **TERMINÉE** (configuration externe restante) |
 | 2 | Médailles : réclamation rétroactive des anciens succès (les succès déjà obtenus donnent droit à des Médailles) ; registre des récompenses côté serveur | à faire (annoncée par le propriétaire) |
 | 3 | Achats d'Éclats validés par le serveur (catalogue serveur, prix, packs au prorata) et réconciliation complète | à faire *(proposition de découpage)* |
 | 4 | Prismes : achats en argent réel (compte connecté obligatoire), reçus Apple / Google, remboursements | à faire *(proposition)* |
@@ -44,6 +45,7 @@ Solde serveur = Σ du **registre** (`ledger`) :
 Fusion de deux profils : registre dédupliqué **par clé** (récompense : on garde le plus petit montant ; dépense : le plus petit débit) → jamais de double crédit ; les filigranes d'installation changent de propriétaire.
 
 ## Journal des étapes (le plus récent en haut)
+- **E4/E5 terminés** — client : `src/account/{AccountService,providers}.ts`, `src/economy/reconcile.ts`, écran Options → Compte (`src/ui/accountScreens.ts`), câblage `src/app.ts` (invité automatique, synchronisation différée hors partie, retour en ligne, lien magique `?magic=`), 19 tests client ; docs `docs/COMPTES.md`, `CLASSEMENT.md`, `GUIDE_DEPLOIEMENT.md`, `deploy/env.example` + compose, `CLAUDE.md`, `PROGRESS.md`, `RESUME.md`. Limites connues : sur mobile, Google/Apple exigent le module natif (absent) ; la déconnexion d'un appareil oublie aussi les résultats classés en attente de l'ancien profil.
 - **E2/E3 terminés** — serveur : schéma v3, invités (`POST /api/register` sans pseudo), accès par appareil (sessions) et alias de fusion, `/api/auth/{providers,nonce,google,apple,email/request,email/verify,logout,unlink}`, `/api/profile`, `/api/migrate`, `/api/sync`, registre `ledger`, suppression RGPD complète ; 38 tests (`tests/accounts-server.test.ts`).
 - **E1 terminé** — sauvegarde v7 (`economy`), `src/economy/{rules,merge,local,ids}.ts`, points de crédit/dépense.
 - Création du document et de la branche.

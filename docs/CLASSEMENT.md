@@ -20,6 +20,7 @@ Top 100 public (`GET /api/leaderboard`), rang et meilleur résultat personnels (
 - À l'inscription (`POST /api/register`), le serveur crée un `playerId` (UUID) et un **secret aléatoire de 256 bits**, remis **une seule fois**. Le serveur ne garde que l'empreinte SHA-256 du secret.
 - Le navigateur conserve `playerId` + secret dans `localStorage` (clé `polarite.classement.identite`, séparée de la sauvegarde de progression) et les envoie en `Authorization: Bearer <playerId>.<secret>`.
 - Comparaisons en temps constant. **Aucune clé d'administration et aucune route d'administration HTTP** : la modération se fait en ligne de commande sur la machine (`server/admin.ts`). Le jeu n'embarque aucun secret : vérifié par `npm run check:bundle` (workflow Pages) et `npm run e2e:classement`.
+ - **Comptes (économie v3)** : un profil peut être *invité* (créé sans pseudo, masqué du classement public), puis relié à Google / Apple / courriel et synchronisé entre appareils ; l'ancienne API (pseudo + secret) reste compatible et les pseudos/records existants sont conservés. Voir `docs/COMPTES.md`.
 - Limite assumée : identité anonyme liée à un navigateur. Perdre le stockage du navigateur fait perdre le profil (pas de récupération par e-mail dans cette version).
 
 ## Validation des parties (rejeu côté serveur)

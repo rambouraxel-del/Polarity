@@ -28,6 +28,11 @@ Joueur ──▶ jeu sur GitHub Pages ──HTTPS──▶ Caddy (HTTPS auto) �
 | `ALLOWED_ORIGINS` | `deploy/.env` | l'origine du jeu : `https://<utilisateur>.github.io` (le domaine seulement, sans le nom du dépôt ni `/` final). **Si vous publiez les applications mobiles**, ajoutez exactement `https://localhost` (Android) et `capacitor://localhost` (iOS) : `https://<utilisateur>.github.io,https://localhost,capacitor://localhost` (voir `docs/BUILD_MOBILE.md`) | non |
 | `LEADERBOARD_URL` | **variable** du dépôt GitHub (*Settings → Secrets and variables → Actions → onglet Variables*) | `https://classement.mon-domaine.fr` | non (publique : visible dans le jeu). Un **préfixe de chemin** est accepté (`https://hôte/polarity`) à condition que votre reverse proxy le **retire** avant de transmettre au service (Caddy : `handle_path /polarity/* { reverse_proxy classement:8787 }`) ; l'origine CORS (`ALLOWED_ORIGINS`) ne contient jamais de chemin |
 
+| `RESEND_API_KEY`, `MAIL_FROM`, `APP_PUBLIC_URL` | `deploy/.env` | compte Resend (courriels de connexion) ; adresse publique du jeu | `RESEND_API_KEY` : **OUI** |
+| `GOOGLE_CLIENT_IDS`, `GOOGLE_WEB_CLIENT_ID`, `APPLE_CLIENT_IDS`, `APPLE_WEB_CLIENT_ID` | `deploy/.env` | consoles Google / Apple (voir `docs/COMPTES.md`) | non (identifiants clients publics) |
+
+Comptes joueurs (facultatifs, économie v3) : toute méthode sans valeur reste désactivée ; le service a besoin d'être redéployé (schéma v3 additif, sauvegarde automatique avant migration). Détail : `docs/COMPTES.md`.
+
 Règles : un secret **différent** par instance (bêta ≠ production) ; ne le réutilisez nulle part ; ne le collez jamais dans une conversation (y compris avec une IA).
 Perte ou fuite du `TICKET_SECRET` : générez-en un nouveau, mettez à jour `deploy/.env`, `docker compose up -d` — les tickets en cours deviennent invalides (les joueurs en reçoivent de nouveaux automatiquement) ; profils et records ne sont pas touchés.
 
