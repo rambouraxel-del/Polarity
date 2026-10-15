@@ -5,6 +5,11 @@
 > La version publique existante (GitHub Pages + éventuel service de classement déjà déployé) doit continuer à fonctionner : tout ce qui est ajouté est **additif et désactivé tant que le service n'est pas configuré**.
 
 ## Où reprendre
+**PHASE 6 EN COURS (finalisation, aucune publication).** Journal d'avancement (mis à jour à chaque étape) :
+- [x] 6.1 Sécurité serveur : réconciliation officielle des remboursements (Google « achats annulés », Apple « historique des notifications »), curseur en base (schéma **v8**), minuteur 15 min, notification = simple déclencheur ; clés de dette uniques à la fusion.
+- [ ] 6.2 Audit fonctionnel (économie, comptes, Survie, fidélité) · [ ] 6.3 Plugins natifs / confidentialité · [ ] 6.4 Tests + e2e modernisé + contrôle navigateur · [ ] 6.5 Plan de publication / retour arrière / rapport.
+Reprise : `git status`, `npx tsc --noEmit`, `npx vitest run`, puis reprendre à la première case non cochée.
+
 **Phases 1, 2, 3, 4 et 5 : TERMINÉES côté code et tests** (commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**). La phase 5 est testée **avec des fournisseurs simulés** ; **aucun paiement ni aucune publicité réels n'ont été essayés** (configuration externe : `docs/MONETISATION.md`).
 **Prochaine étape : phase 6 — intégration finale, essais réels, configuration de production, déploiement unique** — **À NE PAS COMMENCER sans demande du propriétaire.** À prévoir :
 - écrire/installer les plugins natifs `PolarRiftBilling` et `PolarRiftAds`, créer les produits (3 consommables) et blocs récompensés, renseigner les variables (`deploy/env.example`), essais en bac à sable puis en réel (achat, annulation, remboursement, restauration, publicité complète/interrompue) ;

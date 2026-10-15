@@ -88,6 +88,20 @@ setInterval(() => {
     console.error('Clôture des défis quotidiens :', e);
   }
 }, 60_000).unref();
+// Réconciliation des remboursements avec Apple / Google : 20 s après le démarrage puis toutes les 15 minutes (les notifications ne sont qu'un déclencheur : elles peuvent se perdre)
+const reconcileNow = (): void => {
+  app.reconcile().then(
+    (r) => {
+      if (r.google.error || r.apple.error) console.error('Réconciliation des paiements incomplète :', JSON.stringify({ google: r.google.error, apple: r.apple.error }));
+      else if (r.google.refunded + r.apple.refunded > 0) console.log(`Réconciliation : ${r.google.refunded + r.apple.refunded} remboursement(s) appliqué(s).`);
+    },
+    (e) => console.error('Réconciliation des paiements :', e),
+  );
+};
+if (applePay || googlePay) {
+  setTimeout(reconcileNow, 20_000).unref();
+  setInterval(reconcileNow, 15 * 60_000).unref();
+}
 const server = createHttpServer(app, { allowedOrigins: allowed, trustProxy, requireHttps });
 
 server.listen(port, host, () => {

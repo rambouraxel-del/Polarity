@@ -338,7 +338,25 @@ CREATE TABLE ad_sessions (
 );
 `;
 
-export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4, V5, V6, V7];
+/**
+ * Schéma v8 (phase 6 : réconciliation des paiements), ADDITIF :
+ * - `payments.token_hash` : empreinte du jeton d'achat Google (jamais le jeton) pour rapprocher la liste officielle des achats annulés ;
+ * - `provider_sync` : curseur et état de la dernière réconciliation par fournisseur (Google : achats annulés ; Apple : historique des notifications).
+ */
+const V8 = `
+ALTER TABLE payments ADD COLUMN token_hash TEXT;
+CREATE INDEX payments_token ON payments(token_hash);
+CREATE TABLE provider_sync (
+  provider TEXT PRIMARY KEY,
+  cursor INTEGER NOT NULL DEFAULT 0,
+  last_run INTEGER,
+  last_ok INTEGER,
+  last_error TEXT,
+  last_count INTEGER NOT NULL DEFAULT 0
+);
+`;
+
+export const MIGRATIONS: readonly string[] = [V1, V2, V3, V4, V5, V6, V7, V8];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 const userVersion = (db: Db): number => (db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }).user_version;

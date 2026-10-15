@@ -249,8 +249,8 @@ describe('base de données : schéma v4 additif', () => {
       old.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES ('p1', 'shards', 'earn', 42, 'earn:install-aaaa-1111:42', 1)").run();
       old.close();
       const db = openDb(path);
-      expect(SCHEMA_VERSION).toBe(7);
-      expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(7);
+      expect(SCHEMA_VERSION).toBe(8);
+      expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(8);
       const row = db.prepare('SELECT earned, bonus_boost, bonus_gel FROM installs').get();
       expect(row).toEqual({ earned: 42, bonus_boost: 0, bonus_gel: 0 });
       expect(db.prepare("SELECT amount FROM ledger WHERE ref = 'earn:install-aaaa-1111:42'").get()).toEqual({ amount: 42 });

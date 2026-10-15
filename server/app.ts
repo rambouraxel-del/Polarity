@@ -62,6 +62,8 @@ export type App = ((req: HttpRequest) => HttpResponse) & {
   async: (req: HttpRequest) => Promise<HttpResponse> | null;
   /** Clôture des défis quotidiens échus (minuteur du service ; rejouable après une panne). Renvoie le nombre de défis clos. */
   tick: (force?: boolean) => number;
+  /** Réconciliation des paiements avec Apple / Google (remboursements, annulations) : au démarrage puis périodiquement (voir server/index.ts). */
+  reconcile: () => ReturnType<ReturnType<typeof createPayments>['reconcile']>;
 };
 
 export interface HttpRequest {
@@ -503,6 +505,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
 
   const app = handler as App;
   app.tick = (force) => rewards.tick(force);
+  app.reconcile = () => payments.reconcile();
   app.async = (req) => {
     try {
       const p = accounts.handleAsync(req) ?? payments.handleAsync(req) ?? ads.handleAsync(req);

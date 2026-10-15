@@ -54,6 +54,13 @@ function providers() {
     appleSandbox: new Map<string, AppleTx>(),
     google: new Map<string, GoogleTx>(),
     consumed: [] as string[],
+    /** Achats annulés / remboursés / rétrofacturés (liste officielle « Voided Purchases »). */
+    voided: [] as { orderId: string; purchaseToken: string; voidedTimeMillis: number }[],
+    voidedPageSize: 100,
+    voidedQueries: [] as string[],
+    /** Notifications REFUND / REVOKE d'Apple (historique) : identifiants de transactions. */
+    appleHistory: [] as { type: 'REFUND' | 'REVOKE'; transactionId: string; bundleId?: string }[],
+    appleHistoryDown: false,
     consumeFails: false,
     down: false,
     calls: [] as string[],
@@ -79,6 +86,16 @@ function providers() {
       if (!tx) return ok({}, 404);
       return ok({ signedTransactionInfo: jws({ transactionId: tx.transactionId, originalTransactionId: tx.transactionId, bundleId: tx.bundleId ?? BUNDLE, productId: tx.productId, appAccountToken: tx.appAccountToken, environment: tx.environment ?? (appleLookup[2] ? 'Sandbox' : 'Production'), quantity: tx.quantity ?? 1, type: 'Consumable', ...(tx.revocationDate ? { revocationDate: tx.revocationDate } : {}) }) });
     }
+    if (u.endsWith('/inApps/v1/notifications/history') || /\/inApps\/v1\/notifications\/history\?paginationToken=/.test(u)) {
+      if (state.appleHistoryDown) return ok({}, 500);
+      const auth = String((init?.headers as Record<string, string>).Authorization).replace('Bearer ', '');
+      const { createVerify } = await import('node:crypto');
+      const [h, pp, sg] = auth.split('.');
+      if (!createVerify('SHA256').update(`${h}.${pp}`).verify({ key: appleKey.publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(sg, 'base64url'))) return ok({}, 401);
+      const body = JSON.parse(String(init?.body)) as { notificationType: string };
+      const items = state.appleHistory.filter((n) => n.type === body.notificationType).map((n) => ({ signedPayload: jws({ notificationType: n.type, data: { signedTransactionInfo: jws({ transactionId: n.transactionId, bundleId: n.bundleId ?? BUNDLE }) } }) }));
+      return ok({ notificationHistory: items, hasMore: false });
+    }
     if (u === 'https://oauth2.googleapis.com/token') {
       const assertion = new URLSearchParams(String(init?.body)).get('assertion') ?? '';
       const [h, p, s] = assertion.split('.');
@@ -87,6 +104,18 @@ function providers() {
       const c = JSON.parse(Buffer.from(p, 'base64url').toString());
       if (!good || c.iss !== 'play@test.iam' || c.scope !== 'https://www.googleapis.com/auth/androidpublisher') return ok({}, 400);
       return ok({ access_token: 'tok-google', expires_in: 3600 });
+    }
+    const vp = /androidpublisher\/v3\/applications\/([^/]+)\/purchases\/voidedpurchases\?(.*)$/.exec(u);
+    if (vp) {
+      if ((init?.headers as Record<string, string>)?.Authorization !== 'Bearer tok-google') return ok({}, 401);
+      state.voidedQueries.push(vp[2]);
+      const qs = new URLSearchParams(vp[2]);
+      const start = Number(qs.get('startTime'));
+      const end = Number(qs.get('endTime'));
+      const all = state.voided.filter((v) => v.voidedTimeMillis >= start && v.voidedTimeMillis <= end);
+      const from = Number(qs.get('token') ?? 0);
+      const slice = all.slice(from, from + state.voidedPageSize);
+      return ok({ voidedPurchases: slice.map((v) => ({ kind: 'androidpublisher#voidedPurchase', ...v, voidedTimeMillis: String(v.voidedTimeMillis) })), ...(from + state.voidedPageSize < all.length ? { tokenPagination: { nextPageToken: String(from + state.voidedPageSize) } } : {}) });
     }
     const g = /androidpublisher\/v3\/applications\/([^/]+)\/purchases\/products\/([^/]+)\/tokens\/([^/:]+)(:consume)?$/.exec(u);
     if (g) {
@@ -539,7 +568,7 @@ describe('Remboursements, révocations et dette (jamais de solde négatif)', () 
     expect(debtOf(c.db, p.id)).toBe(5);
   });
 
-  it('Google : remboursement (voided) confirmé par une nouvelle lecture ; jeton de notification obligatoire ; encore « acheté » : ignoré', async () => {
+  it('Google : notification « voided » = simple déclencheur ; le remboursement vient de la liste officielle des achats annulés ; jeton de notification obligatoire', async () => {
     const c = ctx();
     const p = c.account('Axel');
     google(c, p, TOKEN(50), 'polar_rift_prisms_380');
@@ -549,16 +578,27 @@ describe('Remboursements, révocations et dette (jamais de solde négatif)', () 
     const voided = push({ packageName: PACKAGE, voidedPurchaseNotification: { purchaseToken: TOKEN(50), orderId, productType: 1, refundType: 1 } });
     expect((await c.call('POST', '/api/payments/notify/google', { body: voided.body, query: 'token=faux' })).status).toBe(401);
     expect((await c.call('POST', '/api/payments/notify/google', { body: voided.body })).status).toBe(401);
-    // Google dit encore « acheté » : on n'agit pas
-    expect((await c.call('POST', '/api/payments/notify/google', voided)).body).toMatchObject({ ignored: 'still_purchased' });
+    // Notification FALSIFIÉE (rien dans la liste officielle, achat encore « acheté ») : aucun effet
+    expect((await c.call('POST', '/api/payments/notify/google', voided)).status).toBe(200);
     expect(prisms(c, p.id)).toBe(380);
-    c.pv.state.google.get(TOKEN(50))!.purchaseState = 1;
+    // Google publie l'achat dans la liste des achats annulés, MÊME si la lecture ponctuelle répond encore « acheté » (cas non couvert par une simple relecture)
+    c.pv.state.google.get(TOKEN(50))!.purchaseState = 0;
+    c.pv.state.voided.push({ orderId, purchaseToken: TOKEN(50), voidedTimeMillis: NOW0 - 1000 });
+    c.now.t += 60_000;
     expect((await c.call('POST', '/api/payments/notify/google', voided)).body).toMatchObject({ ok: true });
     expect(prisms(c, p.id)).toBe(0);
     expect((await verifyGoogle(c, p, TOKEN(50), 'polar_rift_prisms_380')).body).toMatchObject({ status: 'refunded' });
-    // Autre application ou remboursement avant tout crédit : consigné, le justificatif ne pourra plus créditer
+    expect(c.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE ref LIKE 'refund:google:%'").get()).toEqual({ n: 1 });
+    // Autre application : ignorée
     expect((await c.call('POST', '/api/payments/notify/google', push({ packageName: 'fr.autre', voidedPurchaseNotification: { purchaseToken: TOKEN(51), orderId: 'GPA.x' } }))).body).toMatchObject({ ignored: 'unrelated' });
-    expect((await c.call('POST', '/api/payments/notify/google', push({ packageName: PACKAGE, voidedPurchaseNotification: { purchaseToken: TOKEN(52), orderId: 'GPA.early' } }))).body).toMatchObject({ ok: true });
+  });
+
+  it('Google : annulation connue avant tout crédit (liste officielle) : consignée, le justificatif ne pourra plus jamais créditer', async () => {
+    const c = ctx();
+    const p = c.account('Axel');
+    c.pv.state.voided.push({ orderId: 'GPA.early', purchaseToken: TOKEN(52), voidedTimeMillis: NOW0 - 5000 });
+    const r = await c.app.reconcile();
+    expect(r.google).toMatchObject({ ran: true, voided: 1, refunded: 0 });
     google(c, p, TOKEN(52), 'polar_rift_prisms_30', { orderId: 'GPA.early' });
     expect((await verifyGoogle(c, p, TOKEN(52), 'polar_rift_prisms_30')).status).toBe(409);
     expect(prisms(c, p.id)).toBe(0);
@@ -768,14 +808,14 @@ describe('Publicités récompensées : seconde chance confirmée par le service'
   });
 });
 
-describe('Migration SQLite v7 : additive', () => {
+describe('Migration SQLite v7 puis v8 : additive', () => {
   it('tables de paiement et de publicité créées sans toucher aux données du schéma v6', async () => {
     const { MIGRATIONS, SCHEMA_VERSION } = await import('../server/db');
     const { DatabaseSync } = await import('node:sqlite');
     const { mkdtempSync, rmSync, existsSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
-    expect(SCHEMA_VERSION).toBe(7);
+    expect(SCHEMA_VERSION).toBe(8);
     const dir = mkdtempSync(join(tmpdir(), 'polar-rift-v7-'));
     try {
       const path = join(dir, 'c.sqlite');
@@ -787,14 +827,127 @@ describe('Migration SQLite v7 : additive', () => {
       old.prepare("INSERT INTO daily_attempts (id, player_id, date, started_at) VALUES ('a1', 'p1', '2026-10-14', 5)").run();
       old.close();
       const db = openDb(path);
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 7 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 8 });
       expect(existsSync(`${path}.avant-v6.bak`)).toBe(true);
       expect(db.prepare('SELECT amount FROM ledger').all()).toEqual([{ amount: 15 }]);
       expect(db.prepare('SELECT id, commit_digest, committed_at FROM daily_attempts').all()).toEqual([{ id: 'a1', commit_digest: null, committed_at: null }]);
-      for (const t of ['payments', 'payment_events', 'payment_debts', 'ad_sessions']) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()).toEqual({ n: 0 });
+      for (const t of ['payments', 'payment_events', 'payment_debts', 'ad_sessions', 'provider_sync']) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()).toEqual({ n: 0 });
       db.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
+
+describe('Réconciliation avec les fournisseurs (phase 6) : remboursements, annulations, rétrofacturations', () => {
+  const credit = async (c: Ctx, p: { id: string; auth: string }, n: number, pack = 'polar_rift_prisms_100'): Promise<string> => {
+    google(c, p, TOKEN(n), pack);
+    await verifyGoogle(c, p, TOKEN(n), pack);
+    return c.pv.state.google.get(TOKEN(n))!.orderId;
+  };
+
+  it('Google : la liste officielle est la source (pas de notification reçue), recouvrement de fenêtres, curseur conservé, idempotent', async () => {
+    const c = ctx();
+    const p = c.account('Axel');
+    const order = await credit(c, p, 100);
+    expect(prisms(c, p.id)).toBe(100);
+    // Premier passage : rien d'annulé, le curseur avance
+    expect(await c.app.reconcile()).toMatchObject({ google: { ran: true, voided: 0, refunded: 0 } });
+    expect(c.db.prepare("SELECT cursor, last_ok, last_error FROM provider_sync WHERE provider = 'google'").get()).toEqual({ cursor: NOW0, last_ok: NOW0, last_error: null });
+    // Google annule l'achat TROIS jours plus tard (rétrofacturation) : le passage suivant le retrouve grâce au recouvrement des fenêtres
+    c.now.t += 2 * 86_400_000;
+    c.pv.state.voided.push({ orderId: order, purchaseToken: TOKEN(100), voidedTimeMillis: NOW0 - 3_600_000 });
+    const r = await c.app.reconcile();
+    expect(r.google).toMatchObject({ voided: 1, refunded: 1 });
+    expect(prisms(c, p.id)).toBe(0);
+    // Idempotent : repasser n'ajoute rien
+    for (let i = 0; i < 3; i++) expect((await c.app.reconcile()).google.refunded).toBe(0);
+    expect(c.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE ref LIKE 'refund:%'").get()).toEqual({ n: 1 });
+    // Fenêtre de lecture : jamais plus de 29 jours en arrière (limite de l'API), cursor − 3 jours ensuite
+    const q = c.pv.state.voidedQueries.map((x) => new URLSearchParams(x));
+    expect(Number(q[0].get('startTime'))).toBe(NOW0 - 29 * 86_400_000);
+    expect(Number(q[1].get('startTime'))).toBe(NOW0 - 3 * 86_400_000);
+    expect(q[0].get('type')).toBe('0');
+  });
+
+  it('Google : correspondance par jeton (empreinte) même sans identifiant de commande ; pagination complète ; achat déjà remboursé ignoré', async () => {
+    const c = ctx();
+    c.pv.state.voidedPageSize = 2;
+    const p = c.account('Axel');
+    const orders: string[] = [];
+    for (let n = 110; n < 115; n++) orders.push(await credit(c, p, n, 'polar_rift_prisms_30'));
+    expect(prisms(c, p.id)).toBe(150);
+    // Entrées sans orderId (jeton seul) pour deux achats, avec orderId pour deux autres ; le dernier reste valide
+    c.pv.state.voided.push({ orderId: '', purchaseToken: TOKEN(110), voidedTimeMillis: NOW0 - 10 });
+    c.pv.state.voided.push({ orderId: '', purchaseToken: TOKEN(111), voidedTimeMillis: NOW0 - 9 });
+    c.pv.state.voided.push({ orderId: orders[2], purchaseToken: '', voidedTimeMillis: NOW0 - 8 });
+    c.pv.state.voided.push({ orderId: orders[3], purchaseToken: TOKEN(113), voidedTimeMillis: NOW0 - 7 });
+    const r = await c.app.reconcile();
+    expect(r.google).toMatchObject({ voided: 4, refunded: 4 });
+    expect(prisms(c, p.id)).toBe(30);
+    expect(c.pv.state.voidedQueries.length).toBe(2);
+  });
+
+  it('Google : Prismes déjà dépensés → dette (jamais de solde négatif) ; panne du fournisseur : rien d\'appliqué, curseur conservé, retenté ensuite', async () => {
+    const c = ctx();
+    const p = c.account('Axel');
+    const order = await credit(c, p, 120, 'polar_rift_prisms_100');
+    c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, 'prisms', 'spend', -90, 'spend:test', 1)").run(p.id);
+    c.pv.state.voided.push({ orderId: order, purchaseToken: TOKEN(120), voidedTimeMillis: NOW0 - 1 });
+    c.pv.state.down = true;
+    const down = await c.app.reconcile();
+    expect(down.google.error).toBe('provider_error');
+    expect(down.google.ran).toBe(false);
+    expect(prisms(c, p.id)).toBe(10);
+    expect(c.db.prepare("SELECT cursor, last_error FROM provider_sync WHERE provider = 'google'").get()).toEqual({ cursor: 0, last_error: 'provider_error' });
+    c.pv.state.down = false;
+    const up = await c.app.reconcile();
+    expect(up.google.refunded).toBe(1);
+    expect(prisms(c, p.id)).toBe(0);
+    expect(debtOf(c.db, p.id)).toBe(90);
+  });
+
+  it('Apple : historique des notifications REFUND / REVOKE rattrape une notification perdue ; chaque transaction est REVÉRIFIÉE par l\'API avant tout débit', async () => {
+    const c = ctx();
+    const p = c.account('Axel');
+    apple(c, p, '9301', 'polar_rift_prisms_100');
+    apple(c, p, '9302', 'polar_rift_prisms_30');
+    apple(c, p, '9303', 'polar_rift_prisms_30');
+    for (const id of ['9301', '9302', '9303']) await verifyApple(c, p, id, apple_product(c, id));
+    expect(prisms(c, p.id)).toBe(160);
+    // Apple a émis un REFUND pour 9301 et un REVOKE pour 9302 ; 9303 : historique mensonger (l'API ne confirme pas)
+    c.pv.state.apple.get('9301')!.revocationDate = NOW0;
+    c.pv.state.apple.get('9302')!.revocationDate = NOW0;
+    c.pv.state.appleHistory.push({ type: 'REFUND', transactionId: '9301' }, { type: 'REVOKE', transactionId: '9302' }, { type: 'REFUND', transactionId: '9303' }, { type: 'REFUND', transactionId: '9304', bundleId: 'fr.autre' });
+    const r = await c.app.reconcile();
+    expect(r.apple).toMatchObject({ ran: true, checked: 3, refunded: 2 });
+    expect(prisms(c, p.id)).toBe(30);
+    expect((await c.app.reconcile()).apple.refunded).toBe(0);
+    c.pv.state.appleHistoryDown = true;
+    c.now.t += 1000;
+    expect((await c.app.reconcile()).apple.error).toBe('provider_error');
+    expect(prisms(c, p.id)).toBe(30);
+  });
+
+  it('fournisseurs non configurés : réconciliation sans appel ni effet', async () => {
+    const c = ctx({ apple: false, google: false });
+    const r = await c.app.reconcile();
+    expect(r).toEqual({ google: { ran: false, voided: 0, refunded: 0 }, apple: { ran: false, checked: 0, refunded: 0 } });
+    expect(c.pv.state.calls).toEqual([]);
+  });
+
+  it('fusion de profils : deux recouvrements de dette distincts ne se confondent jamais (clés uniques par profil)', () => {
+    const c = ctx();
+    const a = c.account('Alpha');
+    const b = c.account('Bravo');
+    for (const [pl, amount] of [[a.id, 5], [b.id, 7]] as const) {
+      c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, 'prisms', 'daily', 50, ?, 1)").run(pl, `daily:x-${pl}`);
+      c.db.prepare('INSERT INTO payment_debts (player_id, amount) VALUES (?, ?)').run(pl, amount);
+      expect(settleDebt(c.db, pl, 2)).toBe(amount);
+    }
+    const refs = (c.db.prepare("SELECT ref FROM ledger WHERE ref LIKE 'debt:%'").all() as { ref: string }[]).map((r) => r.ref);
+    expect(new Set(refs).size).toBe(2);
+  });
+});
+
+const apple_product = (c: Ctx, id: string): string => c.pv.state.apple.get(id)!.productId;

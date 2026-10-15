@@ -88,6 +88,8 @@ export interface VerifiedTx {
   /** Compte acheteur transmis à l'achat (appAccountToken, obfuscatedExternalAccountId, référence web). */
   binding: string | null;
   quantity: number;
+  /** Empreinte SHA-256 du jeton d'achat (Google) : permet de rapprocher un remboursement (liste des achats annulés) d'un justificatif, sans conserver le jeton. */
+  tokenHash?: string;
 }
 
 export class VerifyError extends Error {
@@ -95,6 +97,20 @@ export class VerifyError extends Error {
     super(message);
   }
 }
+
+export interface VoidedPurchase {
+  orderId: string;
+  tokenHash: string;
+  voidedAt: number;
+}
+
+/** Réconciliation : nombre maximal de pages lues par exécution, recouvrement des fenêtres (un remboursement tardif n'échappe jamais), période. */
+const RECONCILE_MAX_PAGES = 50;
+export const RECONCILE_OVERLAP_MS = 3 * 86_400_000;
+const GOOGLE_VOID_WINDOW_MS = 29 * 86_400_000;
+const APPLE_HISTORY_WINDOW_MS = 30 * 86_400_000;
+
+export const tokenHash = (purchaseToken: string): string => createHash('sha256').update(`iap-token|${purchaseToken}`).digest('hex');
 
 const b64u = (b: Buffer | string): string => Buffer.from(b).toString('base64url');
 const fromB64u = (s: string): string => Buffer.from(s, 'base64url').toString('utf8');
@@ -151,6 +167,34 @@ class AppleVerifier {
   }
 }
 
+/** Historique des notifications de remboursement / révocation d'Apple (rattrape les notifications perdues) : identifiants de transactions à revérifier. */
+async function appleRefundHistory(cfg: AppleConfig, f: typeof fetch, now: () => number, startMs: number, endMs: number, base: string): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const type of ['REFUND', 'REVOKE']) {
+    let token = '';
+    for (let i = 0; i < RECONCILE_MAX_PAGES; i++) {
+      const res = await f(`${base}/inApps/v1/notifications/history${token ? `?paginationToken=${encodeURIComponent(token)}` : ''}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${appleJwt(cfg, Math.floor(now() / 1000))}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate: Math.floor(startMs), endDate: Math.floor(endMs), notificationType: type }),
+      });
+      if (res.status === 401 || res.status === 403) throw new VerifyError('bad_config', 'Accès refusé par le fournisseur (identifiants du service).');
+      if (!res.ok) throw new VerifyError('provider_error', `Fournisseur indisponible (${res.status}).`);
+      const j = (await res.json()) as { notificationHistory?: { signedPayload?: unknown }[]; hasMore?: boolean; paginationToken?: string };
+      for (const n of j.notificationHistory ?? []) {
+        const outer = jwsPayload(n.signedPayload);
+        const data = outer && typeof outer.data === 'object' && outer.data ? (outer.data as Record<string, unknown>) : null;
+        const inner = jwsPayload(data?.signedTransactionInfo);
+        if (inner && inner.bundleId === cfg.bundleId && /^[0-9]{1,24}$/.test(String(inner.transactionId))) ids.add(String(inner.transactionId));
+      }
+      if (!j.hasMore || !j.paginationToken) break;
+      token = j.paginationToken;
+      if (i === RECONCILE_MAX_PAGES - 1) throw new VerifyError('provider_error', 'Historique trop long : réconciliation incomplète.');
+    }
+  }
+  return [...ids];
+}
+
 class GoogleVerifier {
   private token: { value: string; exp: number } | null = null;
   constructor(private readonly cfg: GoogleConfig, private readonly f: typeof fetch, private readonly now: () => number) {}
@@ -197,7 +241,35 @@ class GoogleVerifier {
       environment: j.purchaseType === 0 ? 'sandbox' : 'production',
       binding: typeof j.obfuscatedExternalAccountId === 'string' ? j.obfuscatedExternalAccountId : null,
       quantity: Number.isInteger(j.quantity) && (j.quantity as number) > 0 ? (j.quantity as number) : 1,
+      tokenHash: tokenHash(purchaseToken),
     };
+  }
+
+  /**
+   * Achats ANNULÉS, remboursés ou rétrofacturés (API officielle « Voided Purchases », seule source exhaustive : une lecture ponctuelle de l'état d'un
+   * achat ne l'est pas). Paginée ; fenêtre de 30 jours au plus côté Google. Erreur d'accès ou réseau : exception (la réconciliation sera retentée).
+   */
+  async listVoided(startMs: number, endMs: number): Promise<VoidedPurchase[]> {
+    const out: VoidedPurchase[] = [];
+    let page = '';
+    for (let i = 0; i < RECONCILE_MAX_PAGES; i++) {
+      const qs = new URLSearchParams({ startTime: String(Math.floor(startMs)), endTime: String(Math.floor(endMs)), maxResults: '100', type: '0' });
+      if (page) qs.set('token', page);
+      const res = await this.f(`https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(this.cfg.packageName)}/purchases/voidedpurchases?${qs.toString()}`, { headers: { Authorization: `Bearer ${await this.accessToken()}` } });
+      if (res.status === 401 || res.status === 403) throw new VerifyError('bad_config', 'Accès refusé par le fournisseur (compte de service).');
+      if (!res.ok) throw new VerifyError('provider_error', `Fournisseur indisponible (${res.status}).`);
+      const j = (await res.json()) as { voidedPurchases?: { purchaseToken?: unknown; orderId?: unknown; voidedTimeMillis?: unknown }[]; tokenPagination?: { nextPageToken?: string } };
+      for (const v of j.voidedPurchases ?? []) {
+        const orderId = typeof v.orderId === 'string' ? v.orderId : '';
+        const token = typeof v.purchaseToken === 'string' ? v.purchaseToken : '';
+        if (!orderId && !token) continue;
+        out.push({ orderId, tokenHash: token ? tokenHash(token) : '', voidedAt: Number(v.voidedTimeMillis) || endMs });
+      }
+      page = j.tokenPagination?.nextPageToken ?? '';
+      if (!page) return out;
+    }
+    // Trop de pages : la fenêtre est incomplète, on ne marque PAS la réconciliation comme réussie
+    throw new VerifyError('provider_error', 'Liste des achats annulés trop longue : réconciliation incomplète.');
   }
 
   /** Consomme l'achat (consommable) : sans cela, le même produit ne peut plus être racheté et Google rembourse au bout de 3 jours sans accusé. */
@@ -234,8 +306,9 @@ export function settleDebt(db: Db, playerId: string, at: number): number {
   if (!row || row.amount <= 0) return 0;
   const take = Math.min(row.amount, balancesOf(db, playerId).prisms);
   if (take <= 0) return 0;
+  // Clé unique GLOBALEMENT (contient l'identifiant du profil d'origine) : une fusion de profils ne peut jamais confondre deux recouvrements différents
   const n = (db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE player_id = ? AND ref LIKE 'debt:%'").get(playerId) as unknown as { n: number }).n;
-  db.prepare("INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, 'prisms', 'debt', ?, ?, ?, NULL)").run(playerId, -take, `debt:${n + 1}`, at);
+  db.prepare("INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, 'prisms', 'debt', ?, ?, ?, NULL)").run(playerId, -take, `debt:${playerId}:${n + 1}`, at);
   db.prepare('UPDATE payment_debts SET amount = amount - ? WHERE player_id = ?').run(take, playerId);
   return take;
 }
@@ -258,6 +331,16 @@ export interface Payments {
   handleAsync(req: HttpRequest): Promise<HttpResponse> | null;
   /** Fournisseurs activés (identifiants présents). */
   providers(): Record<StoreId, boolean>;
+  /**
+   * Réconciliation avec les fournisseurs (remboursements, annulations, rétrofacturations) : Google « achats annulés » et Apple « historique des notifications »,
+   * fenêtres recouvrantes, curseur conservé en base. À appeler au démarrage puis périodiquement (les notifications ne sont qu'un déclencheur : elles peuvent se perdre).
+   */
+  reconcile(): Promise<ReconcileReport>;
+}
+
+export interface ReconcileReport {
+  google: { ran: boolean; voided: number; refunded: number; error?: string };
+  apple: { ran: boolean; checked: number; refunded: number; error?: string };
 }
 
 export const PAYMENT_ASYNC_ROUTES: ReadonlySet<string> = new Set([
@@ -306,7 +389,7 @@ export function createPayments(deps: PaymentsDeps): Payments {
 
   const q = {
     row: db.prepare('SELECT id, provider, provider_ref, player_id, product_id, prisms, state, consumed, unrecovered FROM payments WHERE provider = ? AND provider_ref = ?'),
-    insert: db.prepare('INSERT INTO payments (provider, provider_ref, player_id, product_id, prisms, state, environment, consumed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    insert: db.prepare('INSERT INTO payments (provider, provider_ref, player_id, product_id, prisms, state, environment, consumed, created_at, updated_at, token_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     setState: db.prepare('UPDATE payments SET state = ?, player_id = COALESCE(player_id, ?), prisms = ?, updated_at = ? WHERE id = ?'),
     setConsumed: db.prepare('UPDATE payments SET consumed = 1, updated_at = ? WHERE id = ?'),
     setRefund: db.prepare("UPDATE payments SET state = 'refunded', unrecovered = ?, updated_at = ? WHERE id = ?"),
@@ -315,6 +398,12 @@ export function createPayments(deps: PaymentsDeps): Payments {
     identities: db.prepare('SELECT COUNT(*) AS n FROM identities WHERE player_id = ?'),
     history: db.prepare('SELECT provider, product_id, prisms, state, created_at, updated_at FROM payments WHERE player_id = ? ORDER BY id DESC LIMIT 50'),
     owner: db.prepare('SELECT player_id FROM payments WHERE provider = ? AND provider_ref = ?'),
+    byToken: db.prepare("SELECT id, provider, provider_ref, player_id, product_id, prisms, state, consumed, unrecovered FROM payments WHERE provider = 'google' AND token_hash = ?"),
+    syncGet: db.prepare('SELECT cursor FROM provider_sync WHERE provider = ?'),
+    syncOk: db.prepare(
+      'INSERT INTO provider_sync (provider, cursor, last_run, last_ok, last_error, last_count) VALUES (?, ?, ?, ?, NULL, ?) ON CONFLICT(provider) DO UPDATE SET cursor = excluded.cursor, last_run = excluded.last_run, last_ok = excluded.last_ok, last_error = NULL, last_count = excluded.last_count',
+    ),
+    syncFail: db.prepare('INSERT INTO provider_sync (provider, cursor, last_run, last_error, last_count) VALUES (?, 0, ?, ?, 0) ON CONFLICT(provider) DO UPDATE SET last_run = excluded.last_run, last_error = excluded.last_error'),
   };
 
   /** Journal d'audit : jamais de justificatif brut, de jeton ni de clé ; seulement l'identifiant public de la transaction et des états. */
@@ -354,14 +443,14 @@ export function createPayments(deps: PaymentsDeps): Payments {
       }
       if (tx.state === 'cancelled') {
         if (row?.state === 'refunded') return out('refunded', 0);
-        if (!row) q.insert.run(tx.provider, tx.ref, owner, pack.productId, pack.prisms, 'cancelled', tx.environment, 0, t, t);
+        if (!row) q.insert.run(tx.provider, tx.ref, owner, pack.productId, pack.prisms, 'cancelled', tx.environment, 0, t, t, tx.tokenHash ?? null);
         else if (row.state === 'pending') q.setState.run('cancelled', owner, pack.prisms, t, row.id);
         event(tx.provider, tx.ref, owner, 'cancelled', { product: pack.productId });
         return out('cancelled', 0);
       }
       if (tx.state === 'pending') {
         if (!owner) return out('pending', 0);
-        if (!row) q.insert.run(tx.provider, tx.ref, owner, pack.productId, pack.prisms, 'pending', tx.environment, 0, t, t);
+        if (!row) q.insert.run(tx.provider, tx.ref, owner, pack.productId, pack.prisms, 'pending', tx.environment, 0, t, t, tx.tokenHash ?? null);
         event(tx.provider, tx.ref, owner, 'pending', { product: pack.productId });
         return out('pending', 0);
       }
@@ -369,7 +458,7 @@ export function createPayments(deps: PaymentsDeps): Payments {
       if (!owner) return refuse(404, 'unclaimed', 'Achat non encore associé à un profil : il sera crédité à la vérification par le joueur.', tx, null);
       if (row?.state === 'refunded') return out('refunded', 0);
       if (row?.state === 'credited') return out('already_credited', 0, row.consumed === 0);
-      if (!row) q.insert.run(tx.provider, tx.ref, owner, pack.productId, pack.prisms, 'credited', tx.environment, 0, t, t);
+      if (!row) q.insert.run(tx.provider, tx.ref, owner, pack.productId, pack.prisms, 'credited', tx.environment, 0, t, t, tx.tokenHash ?? null);
       else q.setState.run('credited', owner, pack.prisms, t, row.id);
       q.ledgerAdd.run(owner, 'purchase', pack.prisms, `iap:${tx.provider}:${tx.ref}`, t, JSON.stringify({ product: pack.productId }));
       settleDebt(db, owner, t);
@@ -383,7 +472,7 @@ export function createPayments(deps: PaymentsDeps): Payments {
     const t = now();
     if (!row) {
       // Remboursement reçu avant tout justificatif : on le consigne ; le justificatif ne pourra plus créditer
-      q.insert.run(tx.provider, tx.ref, null, tx.productId, 0, 'refunded', tx.environment, 1, t, t);
+      q.insert.run(tx.provider, tx.ref, null, tx.productId, 0, 'refunded', tx.environment, 1, t, t, tx.tokenHash ?? null);
       event(tx.provider, tx.ref, null, 'refunded_before_credit');
       return;
     }
@@ -556,18 +645,16 @@ export function createPayments(deps: PaymentsDeps): Payments {
     if (!msg || msg.packageName !== cfg.google!.packageName) return json(200, { ignored: 'unrelated' });
     try {
       const voided = msg.voidedPurchaseNotification as { purchaseToken?: string; orderId?: string } | undefined;
-      if (voided?.purchaseToken && voided.orderId) {
-        const row = q.row.get('google', voided.orderId) as unknown as PayRow | undefined;
-        if (!row) {
-          refund({ provider: 'google', ref: voided.orderId, productId: 'unknown', state: 'refunded', environment: 'production', binding: null, quantity: 1 }, undefined);
-          return json(200, { ok: true });
+      if (voided?.purchaseToken || voided?.orderId) {
+        // La notification n'est qu'un DÉCLENCHEUR : l'état « remboursé / annulé / rétrofacturé » vient de la liste officielle des achats annulés (Google Play
+        // Developer API), jamais du contenu du message. Échec du fournisseur : réponse d'échec, Pub/Sub renvoie le message ; le passage périodique rattrape de toute façon.
+        await runGoogleReconcile(30_000);
+        // Complément (ne remplace pas la liste) : relecture ponctuelle de l'achat concerné s'il est connu
+        const row = (voided.orderId ? (q.row.get('google', voided.orderId) as unknown as PayRow | undefined) : undefined) ?? (voided.purchaseToken ? ((q.byToken.all(tokenHash(voided.purchaseToken)) as unknown as PayRow[])[0]) : undefined);
+        if (row && row.state === 'credited' && voided.purchaseToken) {
+          const tx = await google.fetchTx(row.product_id, voided.purchaseToken);
+          if (tx.state !== 'purchased') applyTx({ ...tx, state: 'refunded' }, null);
         }
-        const tx = await google.fetchTx(row.product_id, voided.purchaseToken);
-        if (tx.state === 'purchased') {
-          event('google', row.provider_ref, row.player_id, 'refund_unconfirmed');
-          return json(200, { ignored: 'still_purchased' });
-        }
-        applyTx({ ...tx, state: 'refunded' }, null);
         return json(200, { ok: true });
       }
       const one = msg.oneTimeProductNotification as { purchaseToken?: string; sku?: string; notificationType?: number } | undefined;
@@ -600,10 +687,104 @@ export function createPayments(deps: PaymentsDeps): Payments {
     return applied.ok ? json(200, { ok: true }) : err(applied.status, applied.error, applied.message);
   }
 
+  // ————————————————————————— réconciliation avec les fournisseurs
+
+  const cursorOf = (provider: string): number => Number((q.syncGet.get(provider) as unknown as { cursor: number } | undefined)?.cursor ?? 0);
+  const lastRun = { google: 0, apple: 0 };
+
+  /** Google : achats annulés (liste officielle) → remboursement des justificatifs connus ; un annulé inconnu est consigné (il ne pourra plus jamais créditer). Lève en cas d'échec. */
+  async function runGoogleReconcile(minGapMs = 0): Promise<ReconcileReport['google']> {
+    if (!google) return { ran: false, voided: 0, refunded: 0 };
+    const end = now();
+    if (minGapMs > 0 && end - lastRun.google < minGapMs) return { ran: false, voided: 0, refunded: 0 };
+    lastRun.google = end;
+    const cursor = cursorOf('google');
+    const start = Math.max(end - GOOGLE_VOID_WINDOW_MS, cursor > 0 ? cursor - RECONCILE_OVERLAP_MS : 0);
+    const list = await google.listVoided(start, end);
+    let refunded = 0;
+    transaction(db, () => {
+      for (const v of list) {
+        const rows = new Map<number, PayRow>();
+        if (v.orderId) {
+          const r = q.row.get('google', v.orderId) as unknown as PayRow | undefined;
+          if (r) rows.set(r.id, r);
+        }
+        if (v.tokenHash) for (const r of q.byToken.all(v.tokenHash) as unknown as PayRow[]) rows.set(r.id, r);
+        if (rows.size === 0) {
+          refund({ provider: 'google', ref: v.orderId || `tok-${v.tokenHash.slice(0, 40)}`, productId: 'unknown', state: 'refunded', environment: 'production', binding: null, quantity: 1, tokenHash: v.tokenHash || undefined }, undefined);
+          continue;
+        }
+        for (const r of rows.values()) {
+          if (r.state === 'refunded') continue;
+          refund({ provider: 'google', ref: r.provider_ref, productId: r.product_id, state: 'refunded', environment: 'production', binding: null, quantity: 1 }, r);
+          refunded++;
+        }
+      }
+      q.syncOk.run('google', end, end, end, list.length);
+    });
+    return { ran: true, voided: list.length, refunded };
+  }
+
+  /** Apple : historique des notifications REFUND / REVOKE → chaque transaction est REVÉRIFIÉE par l'API avant tout débit. Lève en cas d'échec. */
+  async function runAppleReconcile(): Promise<ReconcileReport['apple']> {
+    if (!apple || !cfg.apple) return { ran: false, checked: 0, refunded: 0 };
+    const end = now();
+    lastRun.apple = end;
+    const cursor = cursorOf('apple');
+    const start = Math.max(end - APPLE_HISTORY_WINDOW_MS, cursor > 0 ? cursor - RECONCILE_OVERLAP_MS : 0);
+    const ids = new Set<string>();
+    for (const base of [APPLE_PROD, ...(cfg.apple.acceptSandbox ? [APPLE_SANDBOX] : [])]) for (const id of await appleRefundHistory(cfg.apple, f, now, start, end, base)) ids.add(id);
+    let refunded = 0;
+    for (const id of ids) {
+      const before = (q.row.get('apple', id) as unknown as PayRow | undefined)?.state;
+      let tx: VerifiedTx;
+      try {
+        tx = await apple.fetchTx(id);
+      } catch (e) {
+        if (e instanceof VerifyError && e.code === 'not_found') continue;
+        throw e;
+      }
+      if (tx.state !== 'refunded') continue;
+      applyTx(tx, null);
+      if (before !== 'refunded') refunded++;
+    }
+    q.syncOk.run('apple', end, end, end, ids.size);
+    return { ran: true, checked: ids.size, refunded };
+  }
+
+  let reconciling: Promise<ReconcileReport> | null = null;
+  async function reconcile(): Promise<ReconcileReport> {
+    if (reconciling) return reconciling;
+    reconciling = (async (): Promise<ReconcileReport> => {
+      const report: ReconcileReport = { google: { ran: false, voided: 0, refunded: 0 }, apple: { ran: false, checked: 0, refunded: 0 } };
+      const fail = (provider: 'google' | 'apple', e: unknown): string => {
+        const code = e instanceof VerifyError ? e.code : 'provider_error';
+        q.syncFail.run(provider, now(), code);
+        event(provider, null, null, 'reconcile_failed', { code });
+        return code;
+      };
+      try {
+        report.google = await runGoogleReconcile();
+      } catch (e) {
+        report.google.error = fail('google', e);
+      }
+      try {
+        report.apple = await runAppleReconcile();
+      } catch (e) {
+        report.apple.error = fail('apple', e);
+      }
+      return report;
+    })().finally(() => {
+      reconciling = null;
+    });
+    return reconciling;
+  }
+
   const bodyText = (req: HttpRequest): string => req.raw ?? JSON.stringify(req.body ?? {});
 
   return {
     providers,
+    reconcile,
     handle(req) {
       const route = `${req.method} ${req.path}`;
       const withAuth = (fn: (me: PlayerRow) => HttpResponse): HttpResponse => {
