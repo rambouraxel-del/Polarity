@@ -344,8 +344,8 @@ const submit = (c: Ctx, p: { auth: string }, t: Ticket, r: { flips: number[]; ti
 
 describe('Drop rare de Prismes : crédit par le service à la validation', () => {
   /** Cherche un identifiant de ticket dont le tirage gagne (ou perd) pour ce nombre de balises. */
-  const findId = (beacons: number, wins: boolean): string => {
-    for (let k = 0; k < 400_000; k++) if ((rollDrop(SECRET, `drop-${wins ? 'w' : 'l'}-${k}`, beacons) > 0) === wins) return `drop-${wins ? 'w' : 'l'}-${k}`;
+  const findId = (beacons: number, wins: boolean, not = ''): string => {
+    for (let k = 0; k < 400_000; k++) if ((rollDrop(SECRET, `drop-${wins ? 'w' : 'l'}-${k}`, beacons) > 0) === wins && `drop-${wins ? 'w' : 'l'}-${k}` !== not) return `drop-${wins ? 'w' : 'l'}-${k}`;
     throw new Error('aucun identifiant');
   };
   const seed = 31;
@@ -368,6 +368,23 @@ describe('Drop rare de Prismes : crédit par le service à la validation', () =>
     expect(balancesOf(c.db, p.id).prisms).toBe(1);
     expect(c.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE ref LIKE 'drop:%'").get()).toEqual({ n: 1 });
     expect(c.db.prepare('SELECT drop_prisms FROM runs').get()).toEqual({ drop_prisms: 1 });
+  });
+
+  it('profil invité (sans pseudo ni compte) : jamais de drop, même avec un ticket gagnant ; avec un pseudo, le même ticket gagne', () => {
+    const c = ctx();
+    const g = guest(c);
+    const t = giveTicket(c, g, findId(game.beacons, true), seed);
+    c.call('POST', '/api/tickets/start', { auth: g.auth, body: { ticketId: t.id } });
+    c.now.t += (game.time + 5) * 1000;
+    const r = submit(c, g, t, game);
+    expect(r.status).toBe(200);
+    expect((r.body as { drop?: unknown }).drop).toBeUndefined();
+    expect(balancesOf(c.db, g.id).prisms).toBe(0);
+    const p = player(c, 'Axel');
+    const t2 = giveTicket(c, p, findId(game.beacons, true, t.id), seed);
+    c.call('POST', '/api/tickets/start', { auth: p.auth, body: { ticketId: t2.id } });
+    c.now.t += (game.time + 5) * 1000;
+    expect((submit(c, p, t2, game).body as { drop?: unknown }).drop).toEqual({ prisms: 1 });
   });
 
   it('partie entièrement hors ligne (aucun démarrage enregistré) : aucun tirage, même avec un ticket « gagnant » ; démarrage tardif refusé', () => {

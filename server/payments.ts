@@ -604,7 +604,7 @@ export function createPayments(deps: PaymentsDeps): Payments {
 
   /** Notification Apple (App Store Server Notifications V2) : la charge utile n'est PAS crue ; on s'en sert pour savoir QUOI revérifier auprès de l'API. */
   async function notifyApple(req: HttpRequest): Promise<HttpResponse> {
-    if (!allow('notify:apple', 600, 60_000)) return err(429, 'rate_limited', RATE);
+    if (!allow('notify:apple', 120, 60_000)) return err(429, 'rate_limited', RATE);
     if (!apple) return json(200, { ignored: 'unconfigured' });
     const outer = jwsPayload((req.body as { signedPayload?: unknown } | undefined)?.signedPayload);
     const data = outer && typeof outer.data === 'object' && outer.data ? (outer.data as Record<string, unknown>) : null;
@@ -630,7 +630,7 @@ export function createPayments(deps: PaymentsDeps): Payments {
 
   /** Notification Google Play (Pub/Sub push, adresse secrète) : remboursements (voided) et achats en attente devenus valides. */
   async function notifyGoogle(req: HttpRequest): Promise<HttpResponse> {
-    if (!allow('notify:google', 600, 60_000)) return err(429, 'rate_limited', RATE);
+    if (!allow('notify:google', 120, 60_000)) return err(429, 'rate_limited', RATE);
     if (!google || !cfg.playNotifyToken) return json(200, { ignored: 'unconfigured' });
     const given = Buffer.from(req.query.get('token') ?? '');
     const want = Buffer.from(cfg.playNotifyToken);

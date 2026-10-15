@@ -175,6 +175,54 @@ const simState = (page) =>
     return { phase: s.phase, life: sim.life, state: sim.state, boost: st('boost'), gel: st('gel'), shield: st('shield'), used: { ...sim.powers.used }, stock: { ...sim.powers.stock }, free: sim.powers.free, flips: sim.flips };
   });
 
+// ═════════════════════════════════════════════ 0. Migration d'une ANCIENNE sauvegarde (format 6, produite par le code de `main`)
+{
+  const legacy = readFileSync('tests/fixtures/save-main-v6.json', 'utf8');
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  await context.addInitScript((raw) => {
+    if (!localStorage.getItem('polarite.save') && !localStorage.getItem('e2e.legacy.done')) {
+      localStorage.setItem('polarite.save', raw);
+      localStorage.setItem('e2e.legacy.done', '1');
+    }
+  }, legacy);
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  page.on('console', (mm) => {
+    if ((mm.type() === 'error' || mm.type() === 'warning') && !IGNORED.test(mm.text())) errors.push(`${mm.type()}: ${mm.text()}`);
+  });
+  await page.goto(GAME);
+  await page.waitForFunction(() => !!window.__polarite && document.querySelector('#screen [data-action="campaign"]'));
+  await waitFor(page, () => !!JSON.parse(localStorage.getItem('polarite.classement.identite') || 'null')?.playerId);
+  const lid = (await identity(page)).playerId;
+  await sync(page);
+  await waitFor(page, () => window.__polarite.save.wallet.shards >= 500, null, 20000);
+  check(Number(dbw.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM ledger WHERE player_id = ? AND kind = 'import'").get(lid).s) === 500, 'Migration : 500 Éclats de l’ancienne sauvegarde importés par le service, une seule fois');
+  check(ledgerSum(lid, 'prisms') === 0, 'Migration : les 7 Prismes locaux ne sont JAMAIS repris (le service seul crée des Prismes)');
+  await sync(page);
+  await sync(page);
+  check(Number(dbw.prepare("SELECT COUNT(*) AS n FROM ledger WHERE player_id = ? AND kind = 'import'").get(lid).n) === 1, 'Migration : idempotente (synchroniser à nouveau n’importe rien)');
+  const kept = await page.evaluate(() => {
+    const a = window.__polarite.save;
+    return { owned: a.owned, survival: a.survival.bestTime, levels: Object.keys(a.levels).length, ach: Object.keys(a.achievements).length, wallet: a.wallet, backup: Object.keys(localStorage).some((k) => k.startsWith('polarite.save.avant-v')) };
+  });
+  check(kept.owned.includes('aurore') && kept.owned.includes('emeraude'), 'Migration : cosmétiques achetés conservés');
+  check(!kept.owned.includes('neon'), 'Migration : un article premium « possédé » sans achat vérifié n’est pas importé');
+  if (process.env.E2E_DEBUG || kept.levels !== 2 || kept.ach !== 5) console.log('  sauvegarde migrée :', JSON.stringify(kept));
+  check(kept.survival === 95.5 && kept.levels === 2 && kept.ach === 5, 'Migration : record de Survie, niveaux et succès conservés (+ 2 succès déduits des records : « survive_60 », « three_stars »)');
+  check(kept.wallet.prisms === 0 && kept.wallet.shards === 500, 'Migration : soldes = vérité du service (500 Éclats, 0 Prisme)');
+  check(kept.backup, 'Migration : copie de l’ancienne sauvegarde conservée dans le navigateur');
+  // Succès accomplis avant la mise à jour : Médailles récupérables rétroactivement (3 × 20), crédit unique
+  await go(page, 'achievements');
+  const claimAll = page.locator('[data-action="claim-all"]');
+  if ((await claimAll.count()) > 0) await claimAll.first().click();
+  await waitFor(page, () => (window.__polarite.save.wallet.medals ?? 0) >= 100, null, 20000).catch(async () => console.log('  médailles :', await page.evaluate(() => JSON.stringify({ w: window.__polarite.save.wallet, ach: window.__polarite.save.achievements, claimed: window.__polarite.save.medals }))));
+  if (ledgerSum(lid, 'medals') !== 100) console.log('  médailles (service) :', ledgerSum(lid, 'medals'), JSON.stringify(dbw.prepare("SELECT ref, amount FROM ledger WHERE player_id = ? AND currency = 'medals'").all(lid)));
+  check(ledgerSum(lid, 'medals') === 100, 'Migration : 5 succès (3 anciens + 2 déduits des records) → 100 Médailles réclamées rétroactivement, une fois');
+  check(errors.length === 0, `Migration : aucune erreur console${errors.length ? ` — ${errors.join(' | ').slice(0, 300)}` : ''}`);
+  await context.close();
+}
+
 // ═════════════════════════════════════════════ 1. Mobile portrait 390 × 844 : connexion, boutique, succès, préparation, Survie, reprise
 const m = await newPage({ width: 390, height: 844 }, { touch: true });
 {

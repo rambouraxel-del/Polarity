@@ -401,7 +401,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
       // Drop rare de Prismes : seulement si la partie a DÉMARRÉ en ligne (heure de début enregistrée par le service, jamais rétroactive) et que la durée
       // rejouée est compatible avec cette heure ; tirage dérivé du secret du service + ticket + index de balise ; un Prisme au plus par partie
       let dropped = 0;
-      if (row.started_at !== null && row.started_at <= at && at - row.started_at >= rep.time * 1000 - 2000 && rollDrop(cfg.ticketSecret, row.id, rep.beacons) > 0) dropped = DROPS.prism.amount;
+      if (me.guest === 0 && row.started_at !== null && row.started_at <= at && at - row.started_at >= rep.time * 1000 - 2000 && rollDrop(cfg.ticketSecret, row.id, rep.beacons) > 0) dropped = DROPS.prism.amount;
       const runId = Number(
         (q.insertRun.run(me.id, balance, row.id, row.seed, rep.steps, rep.score, JSON.stringify(sub.replay!.flips), String(sub.client!.build ?? '').slice(0, 40), at, category, acts.length > 0 ? JSON.stringify(acts) : null, JSON.stringify(rep.powers), fmt, dropped) as unknown as { lastInsertRowid: number | bigint }).lastInsertRowid,
       );
