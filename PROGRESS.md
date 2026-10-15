@@ -1,5 +1,11 @@
 # Suivi d'avancement
 
+## Économie v3 — phase 3 : pouvoirs, deux classements, reprises (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
+- [x] Simulation : Boost (×1,5, 5 s, recharge 10 s), Gel (menaces à 40 %, 6 s, recharge 20 s, par décalage des frises — physique sans bonus identique, `BALANCE_VERSION` inchangée), Bouclier gratuit (18 balises, 8 s, un impact), exclusivité, plafond 3, vies et reprise sécurisée (3 s d'invulnérabilité)
+- [x] Protocole de rejeu 2 (activations en pas de simulation), rejeu serveur, catégories `plain` / `bonus` déduites par le service, stocks consommés dans le registre (`use:`), usage déclaré (`bonusUsed`), SQLite v5 additif (anciens records → « Sans bonus »), `POST /api/revive` (5 / 10 Prismes, idempotent)
+- [x] Jeu : première mort figée et soumise avant toute reprise, écran de reprise (publicité désactivée honnêtement, Prismes via le service), survie libre non classée, commandes tactiles/clavier, rendu, deux onglets de classement, sauvegarde 9
+- [x] 628 tests, build, `check:bundle`, contrôle navigateur léger (390×844, 844×390, 1280×720) ; **non fait** : E2E complet (à réécrire en phase 6), publicité réelle (aucun fournisseur)
+
 ## Économie v3 — phase 2 : trois monnaies, Médailles, cosmétiques, bonus (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`)
 - [x] Correctif phase 1 : parties classées en attente conservées après déconnexion (rattachées à leur profil, jamais envoyées avec une autre identité, sans doublon) ; plantage de démarrage de la phase 1 corrigé
 - [x] Médailles : 27 succès = 1 650, à réclamer (« Récupérer »), rétroactif, anciens Éclats et cosmétiques conservés ; cosmétiques non premium en Médailles (1 640), premium en Prismes (Néon 150, Nébuleuse 75, pack 200) ; anciens packs supprimés

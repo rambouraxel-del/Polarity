@@ -65,7 +65,7 @@ export function runAdmin(db: Db, args: string[], now: () => number = Date.now): 
       return [
         `Joueurs : ${n('SELECT COUNT(*) AS n FROM players')} (masqués : ${n('SELECT COUNT(*) AS n FROM players WHERE moderation = 1')}, exclus : ${n('SELECT COUNT(*) AS n FROM players WHERE moderation = 2')})`,
         `Parties enregistrées : ${n('SELECT COUNT(*) AS n FROM runs')} (journaux d'entrées : ${Math.round(n('SELECT COALESCE(SUM(LENGTH(flips)), 0) AS n FROM runs') / 1024)} Ko)`,
-        `Records : ${n('SELECT COUNT(*) AS n FROM bests')} ; versions d'équilibrage : ${n('SELECT COUNT(DISTINCT balance) AS n FROM bests')}`,
+        `Records : ${n('SELECT COUNT(*) AS n FROM bests')} (sans bonus : ${n("SELECT COUNT(*) AS n FROM bests WHERE category = 'plain'")}, avec bonus : ${n("SELECT COUNT(*) AS n FROM bests WHERE category = 'bonus'")}) ; versions d'équilibrage : ${n('SELECT COUNT(DISTINCT balance) AS n FROM bests')}`,
         `Tickets : ${n('SELECT COUNT(*) AS n FROM tickets')} (non utilisés : ${n('SELECT COUNT(*) AS n FROM tickets WHERE used_at IS NULL')})`,
         `Signalements ouverts : ${n('SELECT COUNT(*) AS n FROM reports WHERE handled_at IS NULL')}`,
         `Comptes : ${n('SELECT COUNT(DISTINCT player_id) AS n FROM identities')} profils avec méthode de connexion, ${n('SELECT COUNT(*) AS n FROM players WHERE guest = 1')} invités, ${n('SELECT COUNT(*) AS n FROM merges')} fusions`,
@@ -114,7 +114,7 @@ export function runAdmin(db: Db, args: string[], now: () => number = Date.now): 
       const p = findPlayer(db, pos[0]);
       const data = {
         profil: { id: p.id, pseudo: p.nickname, moderation: p.moderation, cree_le: iso(p.created_at) },
-        records: db.prepare('SELECT balance, steps, score, achieved_at FROM bests WHERE player_id = ?').all(p.id),
+        records: db.prepare('SELECT balance, category, steps, score, achieved_at FROM bests WHERE player_id = ?').all(p.id),
         parties: db.prepare('SELECT id, balance, seed, steps, score, client_build, created_at FROM runs WHERE player_id = ? ORDER BY id').all(p.id),
         signalements_emis: db.prepare('SELECT target_nickname, reason, created_at FROM reports WHERE reporter_id = ?').all(p.id),
         signalements_recus: db.prepare('SELECT reason, created_at FROM reports WHERE target_id = ?').all(p.id),
