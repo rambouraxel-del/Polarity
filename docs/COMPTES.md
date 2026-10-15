@@ -82,3 +82,6 @@ Migration v<8 : les cosmétiques que les succès débloquaient directement (glac
 - **Calendrier** : `POST /api/loyalty/checkin` (présence du jour UTC du service), `POST /api/loyalty/claim` (atomique, idempotent, clé `loy:<cycle>:<jour>`), `GET /api/loyalty`. Boost/Gel respectent le plafond de 99 (`stock_full`, la récompense reste disponible) ; les Prismes exigent un pseudo ou un compte (`account_required`).
 - **Fusion de profils** : cycles déplacés vers le profil conservé (un seul cycle courant, les autres restent récupérables), récompenses déjà réclamées jamais recréditées (clés du registre), meilleur résultat quotidien par date, résultats de classement figés dédupliqués (`daily:<date>`).
 - **Effacement du profil** : cycles, tentatives, parties, records et résultats quotidiens supprimés avec le reste.
+
+## Achats de Prismes (phase 5)
+Un **compte connecté** est obligatoire pour acheter (l'invité joue sans paiement). Le service lie chaque achat au profil (identifiant de compte dérivé par HMAC transmis à Apple / Google) : un reçu n'est jamais réutilisable sur un autre profil. Voir `docs/MONETISATION.md`.

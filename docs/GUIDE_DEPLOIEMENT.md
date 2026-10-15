@@ -127,3 +127,6 @@ puis le même avec `--yes`. Les parties qui sont des records en cours, tous les 
 | Erreur CORS dans la console du navigateur | `ALLOWED_ORIGINS` ne correspond pas exactement à l'origine du jeu | corriger `.env`, `docker compose up -d` |
 | Joueurs bloqués derrière la même adresse (réseau d'école…) | limites par adresse IP : 5 inscriptions/h | normal ; réessayer plus tard |
 | Parties refusées avec « Trop de requêtes : réessayez plus tard. » pour tout le monde | plafond global de rejeux atteint | attendre 1 minute ; augmenter `MAX_REPLAYS_PER_MINUTE` si la machine le permet |
+
+## Achats et publicités récompensées (phase 5, facultatif)
+Schéma SQLite **v7** (migration additive automatique, copie `.avant-v7.bak`). Variables : `deploy/env.example` (section phase 5) ; chaque fournisseur reste désactivé si une variable manque. Adresses à déclarer chez les fournisseurs : `/api/payments/notify/apple`, `/api/payments/notify/google?token=<PLAY_NOTIFY_TOKEN>`, `/api/ads/ssv`. Le service doit rester joignable en HTTPS et en continu. Détail et liste complète : `docs/MONETISATION.md`.

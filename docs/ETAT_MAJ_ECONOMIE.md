@@ -5,14 +5,14 @@
 > La version publique existante (GitHub Pages + éventuel service de classement déjà déployé) doit continuer à fonctionner : tout ce qui est ajouté est **additif et désactivé tant que le service n'est pas configuré**.
 
 ## Où reprendre
-**Phases 1, 2, 3 et 4 : TERMINÉES** (code, tests, documentation, commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**).
-**Prochaine étape : phase 5 — achats réels (Prismes en argent) et publicités récompensées** — **À NE PAS COMMENCER sans demande du propriétaire.** Pré-requis en place :
-- le service est la seule source des Prismes (registre `ledger`, monnaie `prisms`) ; sources déjà actives : calendrier jour 10 (`loy:<cycle>:10`), Top 10 quotidien (`daily:<date>`), drop rare (`drop:<ticket>`) ; dépenses : cosmétiques premium (`spend:`), reprises (`revive:`). La phase 5 ajoutera les crédits d'achat (`iap:<reçu>`), la vérification des reçus Apple / Google et les remboursements ;
-- `config/rewards.ts › PRISM_SOURCES` : sources futures déclarées, **désactivées** (clé de registre `<préfixe>:<occurrence>`) ;
-- publicité récompensée : `monetization/ads.ts` (`NoAdProvider`), la 2ᵉ chance par publicité reste « Indisponible dans cette version » tant qu'aucun fournisseur réel n'est validé ; `monetization/payments.ts` = interface prévue, aucun paiement actif ;
-- anti-abus des profils invités : les Prismes (jour 10, Top 10) exigent un pseudo ou un compte ; la phase 5 devra exiger un compte connecté pour tout achat réel.
-Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run` (**689 tests verts attendus**, 35 fichiers).
-Reste à la charge du propriétaire (action externe, voir `docs/COMPTES.md`) : identifiants OAuth Google / Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL`, module natif de connexion sociale, redéploiement du service (**schéma SQLite v6**, une fois toute la mise à jour prête ; le service doit tourner en continu ou être relancé : la clôture des défis est rejouable au démarrage).
+**Phases 1, 2, 3, 4 et 5 : TERMINÉES côté code et tests** (commits locaux sur `feat/polar-rift-economie-v3` ; **rien poussé**, `main` intacte, **rien déployé**). La phase 5 est testée **avec des fournisseurs simulés** ; **aucun paiement ni aucune publicité réels n'ont été essayés** (configuration externe : `docs/MONETISATION.md`).
+**Prochaine étape : phase 6 — intégration finale, essais réels, configuration de production, déploiement unique** — **À NE PAS COMMENCER sans demande du propriétaire.** À prévoir :
+- écrire/installer les plugins natifs `PolarRiftBilling` et `PolarRiftAds`, créer les produits (3 consommables) et blocs récompensés, renseigner les variables (`deploy/env.example`), essais en bac à sable puis en réel (achat, annulation, remboursement, restauration, publicité complète/interrompue) ;
+- choisir (ou non) un prestataire de paiement web (`WebProvider`) ; identifiant d'application définitif ; politique de confidentialité ;
+- réécrire et rejouer l'E2E complet (obsolète depuis la phase 2), redéployer le service (**schéma SQLite v7**, sauvegarde préalable) ;
+- limite connue : détection d'un remboursement Google seulement si l'API répond « annulé » à la re-vérification.
+Reprise après une coupure : `git status`, `npx tsc --noEmit`, `npx vitest run` (**746 tests verts attendus**, 37 fichiers).
+Reste à la charge du propriétaire (action externe) : OAuth Google / Apple, `RESEND_API_KEY` + `MAIL_FROM` + `APP_PUBLIC_URL` (`docs/COMPTES.md`) et tout ce qui figure dans `docs/MONETISATION.md`.
 
 ## Les six phases
 | # | Phase | État |
@@ -21,7 +21,7 @@ Reste à la charge du propriétaire (action externe, voir `docs/COMPTES.md`) : i
 | **2** | **Nouvelle économie : 3 monnaies (Éclats / Médailles / Prismes), Médailles des 27 succès (1 650) réclamables rétroactivement, cosmétiques en Médailles (1 640) ou Prismes, inventaire de bonus (Boost 50 / Gel 100 Éclats), boutique et écran de préparation de la Survie, registre serveur** | **TERMINÉE** |
 | **3** | **Effets de gameplay : Boost, Gel temporel, Bouclier gratuit ; deux classements mondiaux (Sans bonus / Avec bonus) ; première mort = résultat classé figé ; deuxième et troisième chances ; survie libre non classée ; rejeu serveur étendu** | **TERMINÉE** (publicité récompensée : interface seulement, aucun fournisseur) |
 | **4** | **Récompenses gratuites : calendrier de connexion (10 jours), classement mondial du Défi quotidien (Top 10 récompensé en Prismes), drop rare de Prismes en Survie** | **TERMINÉE** |
-| 5 | Achats réels de Prismes (compte obligatoire, reçus Apple / Google, remboursements) et publicités récompensées | à faire *(annoncée par le propriétaire)* |
+| **5** | **Monétisation : packs de Prismes (30/100/380), achats Apple / Google / web modulaire vérifiés par le service, remboursements, publicité récompensée pour la 2ᵉ chance** | **TERMINÉE (code + tests simulés ; rien d'essayé en réel)** |
 | 6 | Intégration finale, essais, configuration de production (OAuth, e-mail), **déploiement unique** | à faire *(proposition)* |
 
 Les phases 3 à 6 sont un découpage **proposé** (le propriétaire n'a fixé explicitement que la phase 2 : les Médailles) ; à confirmer ou corriger.
@@ -47,6 +47,13 @@ Solde serveur = Σ du **registre** (`ledger`) :
 | (phase 2+) Médailles, Prismes | à définir | **serveur uniquement** |
 
 Fusion de deux profils : registre dédupliqué **par clé** (récompense : on garde le plus petit montant ; dépense : le plus petit débit) → jamais de double crédit ; les filigranes d'installation changent de propriétaire.
+
+## Phase 5 — ce qui a été fait (commits `15a9e28`, `784b650` + dernier)
+- **Vérifs phase 4** : un invité obtient ses récompenses avec un simple pseudo ; une soumission tardive du Défi quotidien exige un engagement SHA-256 reçu avant minuit (début serveur + durée simulée ne suffisaient pas), grâce de 15 min inchangée.
+- **Serveur** : `server/payments.ts` (Apple, Google, web modulaire ; crédit idempotent ; remboursement + dette ; notifications re-vérifiées), `server/ads.ts` (session, SSV AdMob, usage unique), schéma **SQLite v7** additif (`payments`, `payment_events`, `payment_debts`, `ad_sessions`, empreinte d'engagement), variables d'environnement dans `deploy/env.example`.
+- **Client** : boutique → onglet Prismes (3 packs, solde confirmé, états, restauration, confidentialité), confirmation avant dépense de Prismes en reprise, reprise par publicité (`monetization/adReward.ts`), contrats de plugins natifs `PolarRiftBilling` / `PolarRiftAds` (aucun SDK), `config/monetization.ts` (packs).
+- **Tests** : 746 verts (37 fichiers), `tsc`, build, `check:bundle` ; contrôle navigateur léger (390×844) : onglet Prismes présent, 3 packs, boutons désactivés avec explication quand le service n'est pas configuré.
+- **Implémenté / testé simulé / réellement activable** : tout est implémenté et testé avec des simulateurs ; **rien n'est activable** sans plugins natifs, produits des magasins, clés serveur, blocs AdMob (voir `docs/MONETISATION.md`).
 
 ## Phase 4 — ce qui a été fait (commits `de9d5c7`, `419f1f1` + derniers)
 ### Vérifications de la phase 3 (aucune lacune trouvée) — `tests/phase4-verify.test.ts`
@@ -130,6 +137,7 @@ Reprise : menaces écartées, 3 s d'invulnérabilité sans entrée, vaisseau res
 - Les achats de Prismes réels, remboursements et le calendrier de connexion n'existent pas encore.
 
 ## Journal des étapes (le plus récent en haut)
+- **Phase 5 terminée** — monétisation, schéma v7 (voir ci-dessus).
 - **Phase 4 terminée** — calendrier, Défi quotidien mondial, drop rare, schéma v6, sauvegarde 10 (voir ci-dessus).
 - **Phase 3 terminée** — pouvoirs, classements, reprises, protocole v2, SQLite v5 (voir ci-dessus).
 - **Phase 2 terminée** — voir ci-dessus ; commits de la phase : `f5a66ea` (correctif parties en attente) → … → dernier commit de la branche (voir `git log`).

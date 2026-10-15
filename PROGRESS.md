@@ -1,5 +1,11 @@
 # Suivi d'avancement
 
+## Économie v3 — phase 5 : monétisation (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
+- [x] Vérifs phase 4 (pseudo suffit pour les récompenses ; preuve de fin des scores quotidiens tardifs par engagement horodaté)
+- [x] Serveur : achats Apple / Google / web modulaire, crédit idempotent, remboursement + dette, notifications re-vérifiées, publicité récompensée (SSV), SQLite v7
+- [x] Client : onglet Prismes, confirmation de dépense en reprise, reprise par publicité, contrats de plugins natifs (aucun SDK)
+- [x] 746 tests (fournisseurs simulés), typecheck, build, `check:bundle`, contrôle navigateur léger ; **non fait** : paiement/publicité réels (configuration externe, `docs/MONETISATION.md`), E2E complet, phase 6
+
 ## Économie v3 — phase 4 : récompenses gratuites (branche `feat/polar-rift-economie-v3`, non poussée, rien sur `main`, rien déployé)
 - [x] Vérifications phase 3 : reprise sûre, pas de 4ᵉ vie, rejeu exact du Bouclier (tests)
 - [x] Calendrier de connexion (10 jours, UTC service, absences, réclamation idempotente, stock plein, Prismes avec pseudo), écran néon + accueil + ouverture quotidienne
