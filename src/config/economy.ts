@@ -61,8 +61,8 @@ export interface BonusDef {
 }
 
 export const BONUS_LIST: readonly BonusDef[] = [
-  { id: 'boost', name: 'Boost', price: 50, blurb: 'Une impulsion de vitesse, activée en partie.' },
-  { id: 'gel', name: 'Gel temporel', price: 100, blurb: 'Ralentit brièvement les menaces, activé en partie.' },
+  { id: 'boost', name: 'Boost', price: 50, blurb: 'Vitesse du vaisseau +50 % pendant 5 s, recharge 10 s.' },
+  { id: 'gel', name: 'Gel temporel', price: 100, blurb: 'Menaces ralenties de 60 % pendant 6 s, recharge 20 s.' },
 ];
 
 export const BONUS = {

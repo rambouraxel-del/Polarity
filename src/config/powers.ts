@@ -47,4 +47,5 @@ export const REVIVE = {
 
 /** Codes compacts des pouvoirs dans le journal de rejeu (protocole v2). */
 export const POWER_CODES: Record<PowerKind, number> = { boost: 0, gel: 1, shield: 2 };
+export const POWER_KINDS: readonly PowerKind[] = ['boost', 'gel', 'shield'];
 export const POWER_BY_CODE: readonly PowerKind[] = ['boost', 'gel', 'shield'];

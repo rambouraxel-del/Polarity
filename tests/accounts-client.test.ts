@@ -102,7 +102,7 @@ describe('compte : profil invité, migration et synchronisation', () => {
   it('ancienne sauvegarde : importée intégralement UNE fois ; les Prismes locaux ne sont jamais repris', async () => {
     const w = world();
     const d = w.device(oldSave());
-    expect(SAVE_VERSION).toBe(8);
+    expect(SAVE_VERSION).toBe(9);
     expect(d.save.economy.legacy).toEqual({ shards: 340, imported: false });
     expect(d.account.state.pending.legacy).toBe(true);
     await d.account.start('');
@@ -392,7 +392,7 @@ describe('correctif phase 1 : parties classées en attente et déconnexion', () 
     const ticket = d.lb.takeTicket()!;
     const run = playRun(ticket.seed);
     d.online.value = false;
-    d.lb.recordRun(ticket, run.flips, { time: run.time, score: run.score });
+    d.lb.recordRun(ticket, { flips: run.flips, acts: [] }, { time: run.time, score: run.score });
     await d.lb.flush();
     d.online.value = true;
     return { ticket, run };
@@ -493,7 +493,7 @@ describe('correctif phase 1 : parties classées en attente et déconnexion', () 
     d.store.set(PENDING_KEY, JSON.stringify(list));
     d.lb.forgetProfile('drop');
     expect(d.lb.pending().map((p) => p.id)).toEqual(['autre']);
-    expect(d.lb.recordRun({ id: 'x', seed: 1, exp: 9e9, sig: 's' }, [], { time: 1, score: 1 })).toBeNull();
+    expect(d.lb.recordRun({ id: 'x', seed: 1, exp: 9e9, sig: 's' }, { flips: [], acts: [] }, { time: 1, score: 1 })).toBeNull();
   });
 });
 

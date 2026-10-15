@@ -70,6 +70,7 @@ export function mergeSaves(a: SaveData, b: SaveData): SaveData {
   const out: SaveData = structuredClone(a);
   out.levels = mergeLevels(a.levels, b.levels);
   out.survival = betterRun(a.survival, b.survival);
+  out.survivalBonus = betterRun(a.survivalBonus, b.survivalBonus);
   out.daily = mergeDaily(a.daily, b.daily);
   out.archive = mergeArchive(a.archive, b.archive);
   out.achievements = {};

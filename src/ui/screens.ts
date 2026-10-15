@@ -1,6 +1,7 @@
 import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
 import { ACHIEVEMENT_CATEGORIES, type MetricKey } from '../config/achievements';
+import { POWERS } from '../config/powers';
 import { BONUS, BONUS_LIST, bonusDef, type BonusKind } from '../config/economy';
 import { bonusStock, maxAffordable } from '../economy/bonus';
 import { chargeProvenance, provisional, spendable } from '../economy/funds';
@@ -310,8 +311,8 @@ const BONUS_ICON: Record<BonusKind, IconName> = { boost: 'bolt', gel: 'snow' };
 
 /** Règles des bonus, répétées là où l'on achète. */
 export function bonusRules(): string {
-  const effect = BONUS.activationEnabled ? '' : ' Les effets s’activeront en partie dans une prochaine mise à jour : vos charges sont conservées d’ici là.';
-  return `Les charges achetées sont conservées entre les parties et ne disparaissent jamais. Chaque bonus peut être activé au plus ${BONUS.maxActivationsPerRun} fois pendant la première vie d’une partie de Survie (ce plafond ne limite pas votre stock, au maximum ${BONUS.maxStock} charges par bonus). Acheter ne consomme aucune charge.${effect}`;
+  const effect = BONUS.activationEnabled ? '' : ' Les effets ne sont pas activés dans cette version : vos charges sont conservées.';
+  return `Les charges achetées sont conservées entre les parties et ne disparaissent jamais ; Acheter ne consomme aucune charge. Une charge est consommée à chaque activation réussie ; chaque bonus peut être activé au plus ${BONUS.maxActivationsPerRun} fois pendant la première vie d’une partie de Survie (ce plafond ne limite pas votre stock, au maximum ${BONUS.maxStock} charges par bonus). Boost et Gel ne s’activent pas en même temps. Le <strong>Bouclier</strong> est gratuit : il se charge en collectant ${POWERS.shield.beacons} balises et absorbe un impact. Une partie où vous activez un pouvoir est classée « Avec bonus » ; sans aucune activation, elle reste classée « Sans bonus ».${effect}`;
 }
 
 /** Cartes de bonus : stock, prix, achat par lots (Éclats uniquement). */
@@ -576,6 +577,8 @@ export interface LeaderboardView {
   balances: BalancesResponse | null;
   /** Version d'équilibrage affichée. */
   balance: number;
+  /** Classement affiché : « Sans bonus » (aucune activation de Boost, Gel ou Bouclier en première vie) ou « Avec bonus ». */
+  category: 'plain' | 'bonus';
   pending: PendingRun[];
   /** Résultats en attente appartenant à un autre profil de cet appareil (conservés, envoyés à sa reconnexion). */
   foreignPending?: number;
@@ -596,7 +599,7 @@ function pendingRow(p: PendingRun): string {
   let label: string;
   let cls: string;
   if (p.status === 'accepted') {
-    label = `Validé par le serveur${p.result ? ` — rang ${p.result.rank}${p.result.personalBest ? ' (nouveau meilleur)' : ''}` : ''}`;
+    label = `Validé par le serveur${p.result ? ` — ${p.result.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'}, rang ${p.result.rank}${p.result.personalBest ? ' (nouveau meilleur)' : ''}` : ''}`;
     cls = 'lb-pending--ok';
   } else if (p.status === 'rejected') {
     label = `Non validé — ${p.message ?? 'refusé par le serveur'}`;
@@ -611,6 +614,7 @@ function pendingRow(p: PendingRun): string {
 export function leaderboardScreen(v: LeaderboardView): string {
   const head = screenHead('Classement');
   const rules = `<p class="small" style="margin-top:12px">Survie, version d’équilibrage ${v.balance}. Critère principal : durée de survie ; le score départage. Seules les parties <strong>rejouées et validées par le serveur</strong> sont classées ; les parties de démonstration ou de test n’en font jamais partie.</p>
+    <p class="small"><strong>Sans bonus</strong> : aucune activation de Boost, Gel ou Bouclier pendant la première vie (c’est le classement historique). <strong>Avec bonus</strong> : au moins un pouvoir activé avec succès. Seule la <strong>première vie</strong> compte : une reprise (deuxième ou troisième chance) n’est jamais classée et ne change jamais votre record.</p>
     <p class="small">Votre profil de classement (pseudo et identifiant) est enregistré dans <strong>ce navigateur</strong> : un autre navigateur, un autre appareil ou une version installée du jeu aura un autre profil. Hors connexion, le jeu reste jouable et vos résultats sont envoyés plus tard.</p>`;
   const local = v.localBest ? `<div class="stats">${stat('Votre record sur cet appareil', formatTime(v.localBest.time))}${stat('Score associé', formatScore(v.localBest.score))}</div>` : '';
   if (!v.configured) {
@@ -647,10 +651,14 @@ export function leaderboardScreen(v: LeaderboardView): string {
           : button({ action: 'lb-delete-ask', label: 'Supprimer mon profil du classement', icon: 'trash', variant: 'ghost', size: 'sm' })
       }`
     : '';
+  const catName = v.category === 'bonus' ? 'Avec bonus' : 'Sans bonus';
+  const tabs = `<div class="filters" role="tablist" aria-label="Classement">${(['plain', 'bonus'] as const)
+    .map((c) => `<button class="filter${c === v.category ? ' filter--on' : ''}" role="tab" data-action="lb-category" data-category="${c}" aria-selected="${c === v.category}">${c === 'bonus' ? 'Avec bonus' : 'Sans bonus'}</button>`)
+    .join('')}</div>`;
   const me = v.me
     ? v.me.best
-      ? `<div class="stats">${stat('Votre rang', `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
-      : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé pour la version ${v.balance} : jouez une partie de Survie.</p>`
+      ? `<div class="stats">${stat(`Votre rang · ${catName}`, `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
+      : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé « ${catName} » pour la version ${v.balance} : jouez une partie de Survie${v.category === 'bonus' ? ' en activant un pouvoir' : ' sans activer de pouvoir'}.</p>`
     : '';
   const versions =
     v.balances && v.balances.versions.length > 0
@@ -662,7 +670,7 @@ export function leaderboardScreen(v: LeaderboardView): string {
   let table: string;
   if (v.loading) table = '<p class="sub" role="status" style="margin:16px 0">Chargement du classement…</p>';
   else if (v.error) table = `<div role="alert" class="notice">Classement indisponible : ${escapeHtml(v.error)} ${button({ action: 'lb-refresh', label: 'Réessayer', variant: 'secondary', size: 'sm' })}</div>`;
-  else if (!v.top || v.top.entries.length === 0) table = '<p class="sub" style="margin:16px 0">Aucun résultat validé pour cette version pour le moment.</p>';
+  else if (!v.top || v.top.entries.length === 0) table = `<p class="sub" style="margin:16px 0">Aucun résultat validé « ${catName} » pour cette version pour le moment.</p>`;
   else {
     table = `<div class="lb-table" role="table" aria-label="Top ${v.top.entries.length}">
       <div class="lb-row lb-row--head" role="row"><span role="columnheader">#</span><span role="columnheader">Pseudo</span><span role="columnheader">Durée</span><span role="columnheader">Score</span></div>
@@ -677,7 +685,7 @@ export function leaderboardScreen(v: LeaderboardView): string {
     : '';
   const foreign = v.foreignPending ? `<p class="small">${v.foreignPending} résultat${v.foreignPending > 1 ? 's' : ''} en attente d’un autre profil de cet appareil : conservé${v.foreignPending > 1 ? 's' : ''}, envoyé${v.foreignPending > 1 ? 's' : ''} quand ce profil se reconnecte.</p>` : '';
   return `<div class="panel panel--wide">${head}
-    ${lost}${identity}${msg}${me}${versions}${table}${pending}${foreign}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
+    ${lost}${identity}${msg}${tabs}${me}${versions}${table}${pending}${foreign}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
   </div>`;
 }
 
@@ -689,7 +697,7 @@ export type RunLbStatus =
   | { kind: 'assisted' }
   | { kind: 'sending' }
   | { kind: 'pending'; offline: boolean }
-  | { kind: 'accepted'; rank: number; best: boolean }
+  | { kind: 'accepted'; rank: number; best: boolean; category?: 'plain' | 'bonus' }
   | { kind: 'rejected'; message: string };
 
 export function runLbStatusHtml(st: RunLbStatus): string {
@@ -700,9 +708,59 @@ export function runLbStatusHtml(st: RunLbStatus): string {
     case 'assisted': return '<p class="lb-status lb-status--info">Classement mondial : partie de démonstration ou de test, non éligible.</p>';
     case 'sending': return '<p class="lb-status lb-status--wait" role="status">Classement mondial : envoi et validation en cours…</p>';
     case 'pending': return `<p class="lb-status lb-status--wait" role="status">Classement mondial : <strong>en attente</strong> — ${st.offline ? 'hors connexion, nouvel essai automatique' : 'à envoyer'} (pas encore validé).</p>`;
-    case 'accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial : <strong>validé</strong> — rang ${st.rank}${st.best ? ' (nouveau meilleur résultat)' : ' (votre meilleur reste en place)'}.</p>`;
+    case 'accepted': return `<p class="lb-status lb-status--ok" role="status">Classement mondial : <strong>validé</strong>${st.category ? ` (classement ${st.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'})` : ''} — rang ${st.rank}${st.best ? ' (nouveau meilleur résultat)' : ' (votre meilleur reste en place)'}.</p>`;
     case 'rejected': return `<p class="lb-status lb-status--bad" role="alert">Classement mondial : <strong>non validé</strong> — ${escapeHtml(st.message)}</p>`;
   }
+}
+
+// ————————————————————————————————————————————— Reprise (deuxième / troisième chance)
+
+export interface ReviveView {
+  /** Vie proposée : 2 ou 3. */
+  life: 2 | 3;
+  /** Résultat CLASSÉ de la première vie (figé à la première mort). */
+  time: number;
+  score: number;
+  category: 'plain' | 'bonus';
+  /** Publicité récompensée (deuxième chance seulement) : disponible seulement si un fournisseur réel est enregistré et prêt. */
+  ad: { offered: boolean; available: boolean };
+  prisms: { price: number; balance: number | null; /** Raison pour laquelle le paiement est impossible maintenant (null = possible). */ blocked: string | null };
+  busy: boolean;
+  message: { kind: 'ok' | 'error'; text: string } | null;
+  lb: RunLbStatus;
+}
+
+/**
+ * Écran de reprise : propose une chance supplémentaire (facultative). Le résultat classé est déjà enregistré ; la suite est une survie libre non
+ * classée. La publicité n'est proposée que si un vrai fournisseur est prêt ; le paiement en Prismes est vérifié et débité par le service.
+ */
+export function reviveScreen(v: ReviveView): string {
+  const ordinal = v.life === 2 ? 'Deuxième' : 'Troisième';
+  const msg = v.message ? `<div role="${v.message.kind === 'error' ? 'alert' : 'status'}" class="notice${v.message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(v.message.text)}</div>` : '';
+  const ad = v.ad.offered
+    ? button({ action: 'revive-ad', label: 'Regarder une publicité', sub: v.ad.available ? 'Reprendre gratuitement' : 'Indisponible dans cette version', icon: 'play', variant: 'secondary', attrs: v.ad.available && !v.busy ? '' : 'disabled' })
+    : '';
+  const pay = button({
+    action: 'revive-prisms',
+    label: `Reprendre — ${v.prisms.price} Prismes`,
+    sub: v.prisms.blocked ?? (v.prisms.balance !== null ? `Solde confirmé : ${formatScore(v.prisms.balance)} Prismes` : 'Paiement vérifié par le service'),
+    icon: 'play',
+    variant: 'primary',
+    attrs: `${v.prisms.blocked || v.busy ? 'disabled' : 'data-autofocus'}`,
+  });
+  return `<div class="panel panel--pause revive">
+    <h2 class="title title--cyan">${ordinal} chance</h2>
+    <p class="sub">Votre résultat classé est enregistré : <strong>${formatTime(v.time)}</strong> · ${formatScore(v.score)} points · ${v.category === 'bonus' ? 'classement Avec bonus' : 'classement Sans bonus'}.</p>
+    <div id="lb-status">${runLbStatusHtml(v.lb)}</div>
+    ${msg}
+    <p class="small">La suite est une <strong>survie libre</strong> : non classée, sans Éclats, sans progression de succès. Boost et Gel y sont gratuits, avec leurs temps de recharge, et vous restez invulnérable 3 secondes après la reprise.</p>
+    <div class="btn-stack">
+      ${ad}
+      ${pay}
+      ${button({ action: 'revive-decline', label: 'Terminer la partie', icon: 'home', variant: 'ghost', attrs: v.busy ? 'disabled' : '' })}
+    </div>
+    ${v.busy ? '<p class="small" role="status">Paiement en cours de vérification par le service… Aucune reprise n’est accordée tant qu’il n’est pas confirmé.</p>' : ''}
+  </div>`;
 }
 
 // ————————————————————————————————————————————— Options
@@ -848,7 +906,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean, lb: RunLb
     : '<h2 class="title title--coral">Collision</h2>';
   return `<div class="panel">
     ${heading}
-    <p class="sub">${isDaily && r.date ? `Défi du ${escapeHtml(formatDateFr(r.date))} (UTC)` : 'Survie'}</p>
+    <p class="sub">${isDaily && r.date ? `Défi du ${escapeHtml(formatDateFr(r.date))} (UTC)` : r.category ? `Survie · ${r.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'}` : 'Survie'}</p>
     <div class="result__hero${report.newRecord ? ' result__hero--gold' : ''}">${formatTime(r.time)}</div>
     <p class="result__score">score<strong>${formatScore(r.score)}</strong></p>
     <div class="stats">
@@ -856,6 +914,7 @@ export function resultScreen(report: RunReport, hasNextLevel: boolean, lb: RunLb
       ${stat('Écart avec le record précédent', report.previousBestTime > 0 ? formatDelta(diff) : '—')}
     </div>
     <div id="lb-status">${runLbStatusHtml(lb)}</div>
+    ${r.free ? `<p class="small" role="status">Survie libre après reprise (non classée, sans gain ni progression) : <strong>${formatTime(r.free.time)}</strong> · ${formatScore(r.free.score)} points · ${r.free.lives} vies utilisées.</p>` : ''}
     ${rewardsBlock(report)}
     ${report.legacyBestTime > 0 ? `<p class="small" style="margin-top:8px">Ancien équilibrage : ${formatTime(report.legacyBestTime)} (non comparable)</p>` : ''}
     ${achievementsNotice(report)}

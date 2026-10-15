@@ -1,6 +1,6 @@
 import { applyPremiumPurchase, applySyncResult, buildMigrateBody, buildSyncBody, pendingSummary } from '../economy/reconcile';
 import { ensureInstallId } from '../economy/ids';
-import type { AuthResponse, ConflictResponse, EmailRequestResponse, NonceResponse, PremiumPurchaseResponse, ProfileResponse, ProviderId, ProvidersResponse, SyncResponse } from '../net/accountProtocol';
+import type { AuthResponse, ConflictResponse, EmailRequestResponse, NonceResponse, PremiumPurchaseResponse, ProfileResponse, ReviveResponse, ProviderId, ProvidersResponse, SyncResponse } from '../net/accountProtocol';
 import type { Identity, LeaderboardClient, NetResult } from '../net/leaderboard';
 import type { KeyValueStore, SaveData } from '../save/save';
 import { availability, type Availability } from './providers';
@@ -327,14 +327,14 @@ export class AccountService {
       if (!res.ok) return this.fail(res);
       this.h.commit((s) => {
         if (s.economy.legacy) s.economy.legacy.imported = true;
-        applySyncResult(s, res.data, sent, { wallet: false });
+        applySyncResult(s, res.data, sent, { wallet: false, pendingUse: lb.pendingBonusUse() });
       });
     }
     // 2. Synchronisation : Médailles réclamées, gains, achats, bonus, progression
     const sent = structuredClone(this.h.getSave());
     const res = await lb.api<SyncResponse>('POST', '/api/sync', { auth: true, body: buildSyncBody(sent) });
     if (!res.ok) return this.fail(res);
-    this.h.commit((s) => applySyncResult(s, res.data, sent));
+    this.h.commit((s) => applySyncResult(s, res.data, sent, { pendingUse: lb.pendingBonusUse() }));
     const refused = res.data.rejected.length + res.data.bonusRejected.boost + res.data.bonusRejected.gel;
     this.setSync('ok', refused > 0 ? `${refused} achat${refused > 1 ? 's' : ''} non confirmé${refused > 1 ? 's' : ''} par le service (fonds insuffisants ou stock plein) : annulé${refused > 1 ? 's' : ''}, rien n’a été débité.` : res.data.capped ? 'Une partie de vos gains sera confirmée aux prochaines synchronisations.' : null);
   }
@@ -355,6 +355,25 @@ export class AccountService {
       return { ok: false, message: res.status === 409 ? 'Prismes insuffisants.' : res.message };
     }
     this.h.commit((s) => applyPremiumPurchase(s, res.data));
+    this.notify();
+    return { ok: true, charged: res.data.charged, price: res.data.price };
+  }
+
+  /**
+   * Deuxième / troisième chance payée en Prismes : le service débite (idempotent par partie et par vie : une requête rejouée après une coupure ne
+   * débite jamais deux fois). Rien n'est débité localement avant sa réponse ; en cas d'échec ou de réponse perdue, AUCUNE reprise n'est accordée.
+   */
+  async payRevive(runId: string, life: 2 | 3): Promise<{ ok: true; charged: boolean; price: number } | { ok: false; offline: boolean; insufficient: boolean; message: string }> {
+    if (!this.h.lb.configured || !this.h.lb.identity()) return { ok: false, offline: false, insufficient: false, message: 'Reprise en Prismes indisponible : aucun profil connecté au service.' };
+    const res = await this.h.lb.api<ReviveResponse>('POST', '/api/revive', { auth: true, body: { runId, life } });
+    if (!res.ok) {
+      if (res.kind === 'offline') return { ok: false, offline: true, insufficient: false, message: 'Connexion requise : le paiement en Prismes est vérifié par le service. Rien n’a été débité.' };
+      return { ok: false, offline: false, insufficient: res.status === 409, message: res.status === 409 ? 'Prismes insuffisants.' : res.message };
+    }
+    this.h.commit((s) => {
+      s.wallet.prisms = res.data.balance.prisms;
+      if (s.economy.confirmed) s.economy.confirmed.prisms = res.data.balance.prisms;
+    });
     this.notify();
     return { ok: true, charged: res.data.charged, price: res.data.price };
   }

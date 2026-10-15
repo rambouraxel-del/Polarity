@@ -2,9 +2,11 @@ import { SIM, UI } from '../config/balance';
 import { CampaignSimulation, NO_UPGRADES, type CampaignEvent } from '../campaign/simulation';
 import { createSimulation, type RunConfig } from '../modes/run';
 import type { RunSummary } from '../progression/progress';
+import type { PowerKind } from '../config/powers';
 import type { SimEvent, Simulation } from '../sim/simulation';
 
-export type Phase = 'running' | 'paused' | 'countdown' | 'ending' | 'over';
+/** `offer` : la première (ou deuxième) mort a eu lieu, une reprise est proposée (le temps n'avance pas). */
+export type Phase = 'running' | 'paused' | 'countdown' | 'ending' | 'offer' | 'over';
 
 export interface SessionHooks {
   /** Appelé avant chaque pas de simulation (outil de démonstration). */
@@ -15,6 +17,12 @@ export interface SessionHooks {
   onPhase?(phase: Phase, session: GameSession): void;
   /** Appelé une seule fois, à la fin de la partie (mort ou réussite). */
   onEnd?(summary: RunSummary, session: GameSession): void;
+  /** Survie : PREMIÈRE mort. La tentative classée est figée (résumé de la première vie) ; elle ne changera plus, quelles que soient les reprises. */
+  onFirstDeath?(summary: RunSummary, session: GameSession): void;
+  /** Une reprise est-elle proposable après cette mort ? (absent ou faux : la partie se termine directement) */
+  canOffer?(session: GameSession): boolean;
+  /** Phase « offer » atteinte : l'application affiche l'écran de reprise. */
+  onOffer?(life: number, session: GameSession): void;
 }
 
 /**
@@ -33,6 +41,7 @@ export class GameSession {
   countdown = 0;
   private endTimer = 0;
   private ended = false;
+  private firstDeathDone = false;
 
   constructor(readonly config: RunConfig, private readonly hooks: SessionHooks = {}) {
     if (config.mode === 'campaign') {
@@ -59,6 +68,11 @@ export class GameSession {
         }
         if (this.sim.state !== 'running') {
           this.acc = 0;
+          // Première mort de Survie : le résultat classé est figé et traité tout de suite (jamais attendre une éventuelle reprise)
+          if (this.config.mode === 'survival' && this.sim.state === 'dead' && !this.firstDeathDone) {
+            this.firstDeathDone = true;
+            this.hooks.onFirstDeath?.(this.summary(), this);
+          }
           this.endTimer = this.sim.state === 'dead' ? UI.deathScreenDelay : 0.5;
           this.setPhase('ending');
         }
@@ -73,7 +87,12 @@ export class GameSession {
         break;
       case 'ending':
         this.endTimer -= dt;
-        if (this.endTimer <= 0) this.finish();
+        if (this.endTimer <= 0) {
+          if (this.offerable()) {
+            this.setPhase('offer');
+            this.hooks.onOffer?.(this.sim.life + 1, this);
+          } else this.finish();
+        }
         break;
       default:
         break;
@@ -85,6 +104,33 @@ export class GameSession {
     if (this.phase !== 'running') return false;
     this.sim.flip();
     return true;
+  }
+
+  /** Une reprise peut-elle être proposée ? (Survie, première ou deuxième mort, jamais de quatrième vie) */
+  private offerable(): boolean {
+    return this.config.mode === 'survival' && this.sim.canRevive && this.hooks.canOffer?.(this) === true;
+  }
+
+  /** Activation d'un pouvoir (Boost, Gel, Bouclier) : jamais une inversion. Appliquée au début du prochain pas, seulement en jeu. */
+  power(kind: PowerKind): boolean {
+    if (this.phase !== 'running') return false;
+    this.sim.power(kind);
+    return true;
+  }
+
+  /** REPRISE acceptée (paiement confirmé ailleurs) : la partie continue, NON CLASSÉE, après le bref compte à rebours. */
+  revive(): boolean {
+    if (this.phase !== 'offer' || !this.sim.revive()) return false;
+    this.ended = false;
+    this.acc = 0;
+    this.countdown = UI.resumeCountdown * UI.resumeStep;
+    this.setPhase('countdown');
+    return true;
+  }
+
+  /** Reprise refusée : fin définitive (le résultat classé a déjà été figé à la première mort). */
+  decline(): void {
+    if (this.phase === 'offer') this.finish();
   }
 
   pause(): void {
@@ -111,19 +157,27 @@ export class GameSession {
     return this.phase === 'running' || this.phase === 'countdown';
   }
 
+  /**
+   * Résumé de la partie. En Survie, c'est celui de la PREMIÈRE VIE (figé à la première mort) : les reprises ne le modifient jamais ;
+   * la survie libre qui suit est indiquée à part (`free`).
+   */
   summary(): RunSummary {
     const s = this.sim;
+    const f = this.config.mode === 'survival' ? s.firstLife : null;
+    const used = f?.used ?? s.powers.used;
     return {
       mode: this.config.mode,
       levelId: this.config.level?.id,
       date: this.config.date,
-      time: s.time,
-      score: s.scoring.score,
-      cycles: s.scoring.cycles,
-      bestMultiplier: s.scoring.bestMultiplier,
+      time: f?.time ?? s.time,
+      score: f?.score ?? s.scoring.score,
+      cycles: f?.cycles ?? s.scoring.cycles,
+      bestMultiplier: f?.bestMultiplier ?? s.scoring.bestMultiplier,
       outcome: this.campaign ? (this.campaign.outcome === 'success' ? 'complete' : 'dead') : s.state === 'complete' ? 'complete' : 'dead',
-      shards: s.shards?.income ?? 0,
-      events: s.director.eventCount,
+      shards: f?.shards ?? s.shards?.income ?? 0,
+      events: f?.events ?? s.director.eventCount,
+      category: this.config.mode === 'survival' ? (used.boost + used.gel + used.shield > 0 ? 'bonus' : 'plain') : undefined,
+      free: this.config.mode === 'survival' && s.life > 1 ? { time: s.time, score: s.scoring.score, lives: s.life } : undefined,
       missionId: this.config.mission?.id,
       report: this.campaign?.report(),
     };

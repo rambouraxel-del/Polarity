@@ -321,3 +321,59 @@ describe('migration SQLite v4 → v5 : les anciens records rejoignent « sans bo
     }
   });
 });
+
+describe('usage déclaré (parties non classées) et reprises payées en Prismes', () => {
+  const sync = (c: Ctx, auth: string, used: { boost: number; gel: number }, bought = { boost: 3, gel: 3 }): HttpResponse =>
+    c.call('POST', '/api/sync', { token: auth, body: { installId: INSTALL, earned: 1500, purchases: {}, claims: [], bonusBought: bought, bonusUsed: used, save: defaultSave() } });
+
+  it('seul l’écart du compteur monotone consomme des charges, une fois, sans jamais passer sous zéro', () => {
+    const c = ctx();
+    const p = player(c, 'Axel');
+    stockUp(c, p.auth, 3, 3);
+    expect(sync(c, p.auth, { boost: 1, gel: 0 }).status).toBe(200);
+    expect(inventoryOf(c.db, p.id)).toEqual({ boost: 2, gel: 3 });
+    // Requête rejouée (réponse perdue) : rien de plus
+    sync(c, p.auth, { boost: 1, gel: 0 });
+    expect(inventoryOf(c.db, p.id)).toEqual({ boost: 2, gel: 3 });
+    // Compteur plus bas (sauvegarde ancienne) : ignoré
+    sync(c, p.auth, { boost: 0, gel: 0 });
+    expect(inventoryOf(c.db, p.id)).toEqual({ boost: 2, gel: 3 });
+    // Déclaration excessive : plafonnée à l'inventaire réel
+    sync(c, p.auth, { boost: 50, gel: 1 });
+    expect(inventoryOf(c.db, p.id)).toEqual({ boost: 0, gel: 2 });
+  });
+
+  const prisms = (c: Ctx, id: string, n: number): void => {
+    c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, 'prisms', 'grant', ?, ?, 1)").run(id, n, `test:${id}:${n}:${Math.random()}`);
+  };
+  const revive = (c: Ctx, auth: string | undefined, body: unknown): HttpResponse => c.call('POST', '/api/revive', { token: auth, body });
+
+  it('deuxième chance 5 Prismes, troisième 10 : débit par le service, idempotent par (partie, vie), jamais négatif', () => {
+    const c = ctx();
+    const p = player(c, 'Axel');
+    const bal = (): number => (c.call('GET', '/api/profile', { token: p.auth }).body as { balance: { prisms: number } }).balance.prisms;
+    expect(revive(c, p.auth, { runId: 'run-abcdef01', life: 2 }).status).toBe(409); // aucun Prisme
+    prisms(c, p.id, 20);
+    const r2 = revive(c, p.auth, { runId: 'run-abcdef01', life: 2 });
+    expect(r2.body).toMatchObject({ life: 2, charged: true, price: 5, balance: { prisms: 15 } });
+    // Même requête rejouée (coupure réseau) : « déjà payée », aucun second débit
+    expect(revive(c, p.auth, { runId: 'run-abcdef01', life: 2 }).body).toMatchObject({ charged: false, price: 5, balance: { prisms: 15 } });
+    expect(revive(c, p.auth, { runId: 'run-abcdef01', life: 3 }).body).toMatchObject({ charged: true, price: 10, balance: { prisms: 5 } });
+    expect(bal()).toBe(5);
+    // Une autre partie : prix plein, refus faute de solde, rien n'est débité
+    expect(revive(c, p.auth, { runId: 'run-abcdef02', life: 3 }).status).toBe(409);
+    expect(bal()).toBe(5);
+  });
+
+  it('requêtes invalides : authentification requise, vie 1 ou 4 refusées, identifiant mal formé, prix imposé par le service', () => {
+    const c = ctx();
+    const p = player(c, 'Axel');
+    prisms(c, p.id, 50);
+    expect(revive(c, undefined, { runId: 'run-abcdef01', life: 2 }).status).toBe(401);
+    for (const life of [1, 4, 0, '2', null]) expect(revive(c, p.auth, { runId: 'run-abcdef01', life }).status).toBe(400);
+    for (const runId of ['', 'x', 'a b c d e f g h', 'é'.repeat(10), 'a'.repeat(65), 42]) expect(revive(c, p.auth, { runId, life: 2 }).status).toBe(400);
+    // Le client ne fixe jamais le prix
+    const res = revive(c, p.auth, { runId: 'run-abcdef03', life: 2, price: 0, prisms: 999 });
+    expect(res.body).toMatchObject({ price: 5, balance: { prisms: 45 } });
+  });
+});

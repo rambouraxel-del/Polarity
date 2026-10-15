@@ -4,6 +4,7 @@ import { mergeSaves } from '../src/economy/merge';
 import { ACHIEVEMENT_CONFIG } from '../src/config/achievements';
 import { CATALOG, catalogItem } from '../src/config/catalog';
 import { BONUS, BONUS_LIST, WALLET_MAX, type BonusKind } from '../src/config/economy';
+import { REVIVE } from '../src/config/powers';
 import { effectivePrice } from '../src/progression/shop';
 import type {
   AuthResponse,
@@ -16,6 +17,7 @@ import type {
   ProvidersResponse,
   ProviderId,
   PurchaseRejection,
+  ReviveResponse,
   SyncResponse,
 } from '../src/net/accountProtocol';
 import { nicknameKey } from '../src/net/protocol';
@@ -119,9 +121,9 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     save: db.prepare('SELECT rev, data FROM saves WHERE player_id = ?'),
     upsertSave: db.prepare('INSERT INTO saves (player_id, rev, data, updated_at, device) VALUES (?, ?, ?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET rev = excluded.rev, data = excluded.data, updated_at = excluded.updated_at, device = excluded.device'),
     delSave: db.prepare('DELETE FROM saves WHERE player_id = ?'),
-    install: db.prepare('SELECT install_id, player_id, earned, bucket, legacy_imported, last_sync, bonus_boost, bonus_gel FROM installs WHERE install_id = ?'),
+    install: db.prepare('SELECT install_id, player_id, earned, bucket, legacy_imported, last_sync, bonus_boost, bonus_gel, used_boost, used_gel FROM installs WHERE install_id = ?'),
     insertInstall: db.prepare('INSERT INTO installs (install_id, player_id, earned, bucket, legacy_imported, first_seen, last_sync) VALUES (?, ?, 0, ?, 0, ?, ?)'),
-    updateInstall: db.prepare('UPDATE installs SET earned = ?, bucket = ?, legacy_imported = ?, last_sync = ?, bonus_boost = ?, bonus_gel = ? WHERE install_id = ?'),
+    updateInstall: db.prepare('UPDATE installs SET earned = ?, bucket = ?, legacy_imported = ?, last_sync = ?, bonus_boost = ?, bonus_gel = ?, used_boost = ?, used_gel = ? WHERE install_id = ?'),
     legacyCount: db.prepare('SELECT COUNT(*) AS n FROM installs WHERE player_id = ? AND legacy_imported = 1'),
     ledgerInsert: db.prepare('INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     ledgerHas: db.prepare('SELECT amount FROM ledger WHERE player_id = ? AND ref = ?'),
@@ -436,22 +438,24 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     legacyImported: boolean;
     lastSync: number;
     bonus: Counters;
+    /** Charges déjà déclarées comme utilisées (parties non classées). */
+    used: Counters;
   }
 
   /** Installation connue : créée au premier contact ; appartient à UN profil (jamais partagée). */
   function installOf(installId: string, playerId: string): InstallState | null {
-    const r = q.install.get(installId) as unknown as { player_id: string; earned: number; bucket: number; legacy_imported: number; last_sync: number; bonus_boost: number; bonus_gel: number } | undefined;
+    const r = q.install.get(installId) as unknown as { player_id: string; earned: number; bucket: number; legacy_imported: number; last_sync: number; bonus_boost: number; bonus_gel: number; used_boost: number; used_gel: number } | undefined;
     if (!r) {
       // Première rencontre : seau plein (rafale acceptée une fois)
       q.insertInstall.run(installId, playerId, SYNC_RULES.earnBucketCap, now(), now());
-      return { earned: 0, bucket: SYNC_RULES.earnBucketCap, legacyImported: false, lastSync: now(), bonus: { boost: 0, gel: 0 } };
+      return { earned: 0, bucket: SYNC_RULES.earnBucketCap, legacyImported: false, lastSync: now(), bonus: { boost: 0, gel: 0 }, used: { boost: 0, gel: 0 } };
     }
     if (r.player_id !== playerId) return null;
-    return { earned: r.earned, bucket: r.bucket, legacyImported: r.legacy_imported === 1, lastSync: r.last_sync, bonus: { boost: r.bonus_boost, gel: r.bonus_gel } };
+    return { earned: r.earned, bucket: r.bucket, legacyImported: r.legacy_imported === 1, lastSync: r.last_sync, bonus: { boost: r.bonus_boost, gel: r.bonus_gel }, used: { boost: r.used_boost, gel: r.used_gel } };
   }
 
   const saveInstall = (installId: string, i: InstallState, watermark: number, bucket: number): void => {
-    q.updateInstall.run(watermark, bucket, i.legacyImported ? 1 : 0, now(), i.bonus.boost, i.bonus.gel, installId);
+    q.updateInstall.run(watermark, bucket, i.legacyImported ? 1 : 0, now(), i.bonus.boost, i.bonus.gel, i.used.boost, i.used.gel, installId);
   };
 
   /** Réponse commune : le serveur répond avec SA vérité (soldes, inventaire et Médailles réclamées issus du registre). */
@@ -541,7 +545,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
    */
   function sync(req: HttpRequest, me: PlayerRow): HttpResponse {
     if (!allow(`sync:${me.id}`, 120, HOUR)) return err(429, 'rate_limited', 'Trop de requêtes : réessayez plus tard.');
-    const body = req.body as { installId?: unknown; earned?: unknown; purchases?: unknown; claims?: unknown; bonusBought?: unknown; save?: unknown } | undefined;
+    const body = req.body as { installId?: unknown; earned?: unknown; purchases?: unknown; claims?: unknown; bonusBought?: unknown; bonusUsed?: unknown; save?: unknown } | undefined;
     if (!isInstallId(body?.installId) || !isRecord(body?.save) || typeof body.earned !== 'number' || !Number.isInteger(body.earned) || body.earned < 0 || body.earned > 1e12) return err(400, 'bad_request', 'Requête invalide.');
     const text = JSON.stringify(body.save);
     if (text.length > SYNC_RULES.maxSaveBytes) return err(413, 'too_large', 'Sauvegarde trop volumineuse.');
@@ -551,6 +555,8 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     const claims: string[] = Array.isArray(body.claims) ? body.claims.filter((c): c is string => typeof c === 'string').slice(0, ACHIEVEMENT_CONFIG.length * 2) : [];
     const bb = isRecord(body.bonusBought) ? body.bonusBought : {};
     const bought: Counters = { boost: intIn(bb.boost, 1e9) ?? 0, gel: intIn(bb.gel, 1e9) ?? 0 };
+    const bu = isRecord(body.bonusUsed) ? body.bonusUsed : {};
+    const declared: Counters = { boost: intIn(bu.boost, 1e9) ?? 0, gel: intIn(bu.gel, 1e9) ?? 0 };
     const installId = body.installId;
     const earned = body.earned;
 
@@ -631,6 +637,17 @@ export function createAccounts(deps: AccountsDeps): Accounts {
         bonus[kind] = bought[kind];
       }
 
+      // 5 bis. Usage DÉCLARÉ (parties non classées ou abandonnées) : compteur monotone par installation ; seul l'écart consomme des charges, une fois
+      // (clé = nouveau total), sans jamais rendre l'inventaire négatif. Les charges des parties classées passent par leur rejeu, jamais par ici.
+      const used: Counters = { ...inst.used };
+      for (const def of BONUS_LIST) {
+        const kind: BonusKind = def.id;
+        if (declared[kind] <= used[kind]) continue;
+        const take = Math.min(declared[kind] - used[kind], inventoryOf(db, me.id)[kind]);
+        if (take > 0) ledger(me.id, 'use', -take, `use:decl:${installId}:${kind}:${declared[kind]}`, { kind, installId }, kind);
+        used[kind] = declared[kind];
+      }
+
       // 6. Progression : jamais d'article possédé que le serveur n'a pas vérifié (importé, déjà possédé ou acheté ci-dessus)
       incoming.owned = incoming.owned.filter((id) => owned.has(id));
       const merged = mergeSaves(cur.save, incoming);
@@ -638,7 +655,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       const changed = JSON.stringify(merged) !== JSON.stringify(cur.save);
       const rev = changed ? cur.rev + 1 : cur.rev;
       if (changed || cur.rev === 0) writeSnapshot(me.id, merged, rev === 0 ? 1 : rev, 'sync');
-      saveInstall(installId, { ...inst, bonus }, watermark, bucket);
+      saveInstall(installId, { ...inst, bonus, used }, watermark, bucket);
       return respond(me.id, rev === 0 ? 1 : rev, merged, { watermark, capped, acknowledged, rejected, bonus, bonusRejected, rejectedClaims });
     });
   }
@@ -678,6 +695,30 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     });
   }
 
+  /**
+   * DEUXIÈME / TROISIÈME CHANCE payée en Prismes : requête directe EN LIGNE ; prix de la configuration (5 puis 10), jamais celui du client. Débit
+   * atomique et idempotent (clé `revive:<partie>:<vie>` : rejouer la requête, après une coupure réseau par exemple, ne débite jamais deux fois et
+   * répond « déjà payée »). Jamais de solde négatif. La reprise elle-même est jouée côté client, hors classement : ce paiement n'a aucun effet sur
+   * les records.
+   */
+  function reviveRoute(req: HttpRequest, me: PlayerRow): HttpResponse {
+    if (!allow(`revive:${me.id}`, 60, HOUR)) return err(429, 'rate_limited', 'Trop de requêtes : réessayez plus tard.');
+    const b = req.body as { runId?: unknown; life?: unknown } | undefined;
+    if (typeof b?.runId !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(b.runId) || (b.life !== 2 && b.life !== 3)) return err(400, 'bad_request', 'Requête invalide.');
+    const life: 2 | 3 = b.life;
+    const runId = b.runId;
+    const price = REVIVE.prisms[life];
+    const ref = `revive:${runId}:${life}`;
+    return transaction(db, () => {
+      const prior = q.ledgerHas.get(me.id, ref) as unknown as { amount: number } | undefined;
+      if (!prior) {
+        if (balancesOf(db, me.id).prisms < price) return err(409, 'insufficient', 'Prismes insuffisants.');
+        ledger(me.id, 'spend', -price, ref, { revive: true, life }, 'prisms');
+      }
+      return json(200, { life, charged: !prior, price: prior ? Math.abs(prior.amount) : price, balance: balancesOf(db, me.id) } satisfies ReviveResponse);
+    });
+  }
+
   // ————————————————————————— aiguillage
 
   const withAuth = (req: HttpRequest, fn: (me: PlayerRow) => HttpResponse): HttpResponse => {
@@ -697,6 +738,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
         case 'POST /api/migrate': return withAuth(req, (me) => migrate(req, me));
         case 'POST /api/sync': return withAuth(req, (me) => sync(req, me));
         case 'POST /api/shop/prisms': return withAuth(req, (me) => buyPremium(req, me));
+        case 'POST /api/revive': return withAuth(req, (me) => reviveRoute(req, me));
         default: return null;
       }
     },

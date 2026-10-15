@@ -30,6 +30,7 @@ export const ICONS = {
   medal: svg('<path d="M8 3l3.4 6.4M16 3l-3.4 6.4"/><circle cx="12" cy="15" r="5.4" fill="currentColor" fill-opacity="0.22"/><path d="M12 12.1l.95 1.95 2.15.3-1.55 1.5.37 2.15L12 16.9l-1.92 1.1.37-2.15-1.55-1.5 2.15-.3z" fill="currentColor" stroke="none"/>'),
   bolt: svg('<path d="M13.2 3L5.5 13.4h5.7L10.2 21l8.3-10.8h-5.8z" fill="currentColor" fill-opacity="0.2"/>'),
   snow: svg('<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/><path d="M9.7 4.9L12 6.7l2.3-1.8M9.7 19.1L12 17.3l2.3 1.8M3.9 10.4l2.9-.3-.5-2.8M20.1 13.6l-2.9.3.5 2.8"/>'),
+  shield: svg('<path d="M12 3l7 2.8v5.6c0 4.4-3 7.6-7 9.6-4-2-7-5.2-7-9.6V5.8z" fill="currentColor" fill-opacity="0.2"/><path d="M9 11.8l2.1 2.1 3.9-4"/>'),
   replay: svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.6-5.7M4.5 4.5v4h4"/>'),
   signal: svg('<circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2"/>'),
   /** Étoile pleine (progression, record). */

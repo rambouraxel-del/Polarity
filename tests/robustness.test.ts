@@ -377,7 +377,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
   it('espace de noms, clés, identifiants de scènes et d’apparences inchangés', () => {
     expect(STORAGE_NAMESPACE).toBe('polarite');
     expect(SAVE_KEY).toBe('polarite.save');
-    expect(SAVE_VERSION).toBe(8);
+    expect(SAVE_VERSION).toBe(9);
     expect(SKINS.map((s) => s.id)).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme', 'spectre', 'neon']);
     expect(STORY.map((s) => s.id)).toEqual(Array.from({ length: 10 }, (_, i) => [`n${i + 1}-before`, `n${i + 1}-after`]).flat());
     expect(MISSIONS.map((m) => `n${m.id}`)).toEqual(Array.from({ length: 10 }, (_, i) => `n${i + 1}`));
@@ -487,7 +487,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
 });
 
 describe('classement hors ligne et honnêteté sur les données', () => {
-  const view = (over: Partial<S.LeaderboardView> = {}): S.LeaderboardView => ({ configured: true, identity: null, loading: false, error: null, top: null, me: null, balances: null, balance: 3, pending: [], nickMessage: null, localBest: { time: 90, score: 1234 }, ...over });
+  const view = (over: Partial<S.LeaderboardView> = {}): S.LeaderboardView => ({ configured: true, identity: null, loading: false, error: null, top: null, me: null, balances: null, balance: 3, category: 'plain', pending: [], nickMessage: null, localBest: { time: 90, score: 1234 }, ...over });
 
   it('service non configuré : message clair, sans jargon technique, sans faux bouton, record local visible', () => {
     const html = S.leaderboardScreen(view({ configured: false }));

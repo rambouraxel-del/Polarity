@@ -4,6 +4,7 @@ import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
 import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import { TAU } from '../core/math';
 import type { CampaignSimulation } from '../campaign/simulation';
+import type { Simulation } from '../sim/simulation';
 import type { GameSession } from '../game/session';
 import { SHARDS } from '../config/economy';
 import { trailById } from '../config/trails';
@@ -26,6 +27,7 @@ export const COLORS = {
   shard: hexNum(THEME.color.shard),
   signal: hexNum(THEME.color.signal),
   shield: hexNum(THEME.color.shield),
+  cyan: hexNum(THEME.color.cyan),
 };
 
 /** Rotation lente (rad) d'un objet de mission. */
@@ -363,6 +365,7 @@ export class ArenaRenderer {
       this.drawTrail(skin);
       this.drawShip(angle, dir, skin, clock, emitting);
       if (camp) this.drawShield(camp, angle, t, clock);
+      else if (sim) this.drawPowers(sim, angle, clock);
     } else {
       this.shipSprite.setVisible(false);
       this.shipGlow.setVisible(false);
@@ -498,6 +501,37 @@ export class ArenaRenderer {
       this.shipG.fillStyle(0xffffff, 0.5 + 0.15 * pulse);
       this.shipG.fillCircle(x, y, r * 0.28);
     }
+  }
+
+  /**
+   * Pouvoirs de la Survie (purement visuel) : anneau doré (Boost), anneau glacé (Gel), anneau du Bouclier (clignote pendant ses 2 dernières secondes),
+   * vaisseau clignotant pendant l'invulnérabilité de reprise (sans anneau : distincte du Bouclier). Effets réduits : anneaux fixes, pas de clignotement.
+   */
+  private drawPowers(sim: Simulation, angle: number, clock: number): void {
+    const pw = sim.powers;
+    if (!pw.enabled) return;
+    const step = sim.stepIndex;
+    const x = this.sx(R * Math.cos(angle));
+    const y = this.sy(R * Math.sin(angle));
+    const r = shipRadius() * this.scale;
+    const calm = this.reducedEffects;
+    const g = this.shipG;
+    const lw = Math.max(1.5 * this.dpr, 2 * this.scale);
+    if (pw.boostActive(step)) {
+      g.lineStyle(lw, COLORS.gold, calm ? 0.7 : 0.55 + 0.35 * Math.sin(TAU * 6 * clock));
+      g.strokeCircle(x, y, r * 1.25);
+    }
+    if (pw.gelActive(step)) {
+      g.lineStyle(lw, COLORS.cyan, 0.85);
+      g.strokeCircle(x, y, r * 1.5);
+    }
+    if (pw.shieldActive(step)) {
+      const left = pw.remaining('shield', step, 'active');
+      const fading = !calm && left < 2 && Math.sin(TAU * 5 * clock) < 0;
+      g.lineStyle(lw * 1.4, COLORS.shield, fading ? 0.3 : 0.9);
+      g.strokeCircle(x, y, r * 1.75);
+    }
+    this.shipSprite.setAlpha(sim.reviveProtected ? (calm ? 0.7 : Math.sin(TAU * 8 * clock) > 0 ? 1 : 0.3) : 1);
   }
 
   /** Bouclier de secours : anneau discret tant qu'il est chargé ; anneau vif et vaisseau clignotant pendant l'invulnérabilité. */

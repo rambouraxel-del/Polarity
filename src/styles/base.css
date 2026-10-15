@@ -67,9 +67,9 @@ body {
 #arena-box {
   position: absolute;
   top: calc(var(--sat) + var(--hud-h));
-  bottom: calc(var(--sab) + 10px);
+  bottom: calc(var(--sab) + 10px + var(--powers-b, 0px));
   left: calc(var(--sal) + 6px);
-  right: calc(var(--sar) + 6px);
+  right: calc(var(--sar) + 6px + var(--powers-r, 0px));
   pointer-events: none;
   visibility: hidden;
 }

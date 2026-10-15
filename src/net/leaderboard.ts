@@ -1,4 +1,4 @@
-import { REPLAY_FORMAT, validNickname, normalizeNickname, type BalancesResponse, type LeaderboardResponse, type MeResponse, type RegisterResponse, type RejectReason, type Replay, type RunResponse, type RunSubmission, type Ticket, type TicketsResponse } from './protocol';
+import { REPLAY_FORMAT_POWERS, validNickname, normalizeNickname, type BalancesResponse, type Category, type LeaderboardResponse, type MeResponse, type RegisterResponse, type RejectReason, type Replay, type RunResponse, type RunSubmission, type Ticket, type TicketsResponse } from './protocol';
 import type { KeyValueStore } from '../save/save';
 import { sanitizeBaseUrl } from './baseUrl';
 
@@ -47,7 +47,11 @@ export interface PendingRun {
   lastError?: string;
   reason?: RejectReason;
   message?: string;
-  result?: { time: number; score: number; rank: number; personalBest: boolean };
+  result?: { time: number; score: number; rank: number; personalBest: boolean; category?: Category };
+  /** Charges de Boost/Gel consommées pendant cette partie : déduites de l'inventaire local tant que le service ne l'a pas validée (voir economy/reconcile.ts). */
+  bonusUse?: { boost: number; gel: number };
+  /** Le service demande de synchroniser d'abord les achats de bonus (la partie reste en attente, ticket conservé). */
+  needsSync?: boolean;
 }
 
 export type NetResult<T> = { ok: true; data: T } | { ok: false; kind: 'offline' | 'unauthorized' | 'http'; status: number; message: string; reason?: RejectReason; /** Corps de l'erreur renvoyé par le service (ex. conflit de compte à confirmer). */ body?: unknown };
@@ -61,6 +65,8 @@ export interface ClientOptions {
   now?: () => number;
   /** Durée maximale d'une requête (ms). */
   timeoutMs?: number;
+  /** Installation et compteur d'achats de bonus à joindre à une partie (le service s'en sert seulement pour décider « réessayer » ou « refus définitif »). */
+  clientInfo?: () => { installId?: string; bonusBought?: { boost: number; gel: number } };
 }
 
 /** Résultats en attente conservés PAR profil (le plus récent remplace le plus ancien au-delà). */
@@ -305,12 +311,17 @@ export class LeaderboardClient {
     return this.request('POST', '/api/report', { body: { nickname: nick }, auth: true });
   }
 
-  top(balance?: number): Promise<NetResult<LeaderboardResponse>> {
-    return this.request('GET', '/api/leaderboard', { auth: !!this.identity(), query: balance ? `balance=${balance}` : '' });
+  private query(balance: number | undefined, category: Category): string {
+    return [balance ? `balance=${balance}` : '', `category=${category}`].filter(Boolean).join('&');
   }
 
-  me(balance?: number): Promise<NetResult<MeResponse>> {
-    return this.request('GET', '/api/me', { auth: true, query: balance ? `balance=${balance}` : '' });
+  /** Classement mondial d'une catégorie (« sans bonus » par défaut). */
+  top(balance?: number, category: Category = 'plain'): Promise<NetResult<LeaderboardResponse>> {
+    return this.request('GET', '/api/leaderboard', { auth: !!this.identity(), query: this.query(balance, category) });
+  }
+
+  me(balance?: number, category: Category = 'plain'): Promise<NetResult<MeResponse>> {
+    return this.request('GET', '/api/me', { auth: true, query: this.query(balance, category) });
   }
 
   balances(): Promise<NetResult<BalancesResponse>> {
@@ -327,15 +338,16 @@ export class LeaderboardClient {
   // ————————————————————————— parties
 
   /** Enregistre une partie de Survie éligible : conservée localement jusqu'à validation par le serveur. */
-  recordRun(ticket: Ticket, flips: readonly number[], claimed: { time: number; score: number }): PendingRun | null {
+  recordRun(ticket: Ticket, log: { flips: readonly number[]; acts: readonly (readonly [number, number])[] }, claimed: { time: number; score: number }, bonusUse: { boost: number; gel: number } = { boost: 0, gel: 0 }): PendingRun | null {
     // Le ticket est signé pour le profil qui l'a reçu : le résultat lui est rattaché définitivement
     const owner = this.identity()?.playerId;
     if (!owner) return null;
-    const replay: Replay = { v: REPLAY_FORMAT, flips: [...flips] };
+    const replay: Replay = { v: REPLAY_FORMAT_POWERS, flips: [...log.flips], acts: log.acts.map((a) => [a[0], a[1]] as [number, number]) };
     const run: PendingRun = {
       id: ticket.id,
       owner,
-      submission: { ticket, replay, claimed, client: { balance: this.o.balance, build: this.o.build } },
+      submission: { ticket, replay, claimed, client: { balance: this.o.balance, build: this.o.build, ...this.o.clientInfo?.() } },
+      bonusUse: bonusUse.boost + bonusUse.gel > 0 ? bonusUse : undefined,
       createdAt: this.now(),
       status: 'pending',
       attempts: 0,
@@ -364,8 +376,9 @@ export class LeaderboardClient {
       cur.attempts++;
       if (res.ok && res.data.status === 'accepted') {
         cur.status = 'accepted';
-        cur.result = { time: res.data.time, score: res.data.score, rank: res.data.rank, personalBest: res.data.personalBest };
+        cur.result = { time: res.data.time, score: res.data.score, rank: res.data.rank, personalBest: res.data.personalBest, category: res.data.category };
         delete cur.lastError;
+        delete cur.needsSync;
       } else if (!res.ok && res.kind === 'http' && res.status === 422) {
         // Refus définitif du serveur : le résultat n'est pas validé
         cur.status = 'rejected';
@@ -374,6 +387,12 @@ export class LeaderboardClient {
       } else if (!res.ok && res.kind === 'http' && res.status === 400) {
         cur.status = 'rejected';
         cur.message = res.message;
+      } else if (!res.ok && res.kind === 'http' && res.status === 409 && res.reason === 'bonus_sync_required') {
+        // Les achats de bonus de cette partie ne sont pas encore traités par le service : la partie reste en attente (ticket conservé)
+        cur.needsSync = true;
+        cur.lastError = 'Achats de bonus à synchroniser';
+        this.savePending(list);
+        continue;
       } else if (!res.ok) {
         // Hors ligne, limite de débit ou authentification : on réessaiera
         cur.lastError = res.kind === 'offline' ? 'Hors ligne' : res.message;
@@ -385,6 +404,17 @@ export class LeaderboardClient {
       this.savePending(list);
     }
     return this.pendingOwn();
+  }
+
+  /** Charges de bonus consommées par les parties du profil actuel encore en attente de validation. */
+  pendingBonusUse(): { boost: number; gel: number } {
+    const out = { boost: 0, gel: 0 };
+    for (const p of this.pendingOwn()) {
+      if (p.status !== 'pending' || !p.bonusUse) continue;
+      out.boost += p.bonusUse.boost;
+      out.gel += p.bonusUse.gel;
+    }
+    return out;
   }
 
   /** Supprime les résultats déjà traités (validés ou refusés) du profil actuel ; ceux des autres profils ne sont pas touchés. */

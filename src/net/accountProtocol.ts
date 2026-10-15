@@ -102,6 +102,8 @@ export interface SyncBody {
   claims: string[];
   /** Compteurs monotones des charges de bonus achetées par cette installation (idempotence : seul l'écart avec le traité compte). */
   bonusBought: { boost: number; gel: number };
+  /** Compteurs monotones des charges UTILISÉES hors parties classées (le service en déduit l'écart de l'inventaire ; idempotent). */
+  bonusUsed?: { boost: number; gel: number };
   save: unknown;
 }
 
@@ -121,6 +123,21 @@ export interface PremiumPurchaseResponse {
   balance: { shards: number; medals: number; prisms: number };
   /** Cosmétiques possédés selon le service (après l'achat). */
   owned: string[];
+}
+
+/** Reprise payée en Prismes (deuxième ou troisième chance) : requête directe, en ligne ; débit idempotent par (partie, vie). */
+export interface ReviveBody {
+  /** Identifiant aléatoire de la partie (le même pour les deux vies d'une partie). */
+  runId: string;
+  life: 2 | 3;
+}
+
+export interface ReviveResponse {
+  life: 2 | 3;
+  /** Faux : cette reprise avait déjà été payée (rejeu de la requête), aucun Prisme débité de plus. */
+  charged: boolean;
+  price: number;
+  balance: { shards: number; medals: number; prisms: number };
 }
 
 /** Résultat d'une migration ou d'une synchronisation. Le serveur est la source de vérité : le client s'aligne dessus (src/economy/reconcile.ts). */

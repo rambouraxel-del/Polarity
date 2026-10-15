@@ -37,7 +37,7 @@ import { BALANCE_VERSION } from '../config/version';
  *      `rewarded` (anciens Éclats déjà versés) et le portefeuille d'Éclats sont inchangés (aucun second versement). Nouveaux joueurs : aucun
  *      cosmétique direct par succès.
  */
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 export const SAVE_KEY = 'polarite.save';
 export const CORRUPT_KEY = 'polarite.save.corrompue';
 /** Copie de la sauvegarde telle qu'elle était avant migration (clé : préfixe + version d'origine). */
@@ -169,6 +169,13 @@ export interface EconomySave {
   bonusBought: Inventory;
   /** Part de `bonusBought` déjà traitée par le service (acceptée ou refusée). L'écart = charges PROVISOIRES (achetées hors ligne). */
   bonusProcessed: Inventory;
+  /**
+   * Charges consommées par des activations (compteur monotone). Les charges d'une partie classée envoyée avec son ticket en sont retirées (le service les
+   * consomme par le rejeu) ; le reste est DÉCLARÉ au service à la synchronisation (parties non classées ou abandonnées).
+   */
+  bonusUsed: Inventory;
+  /** Part de `bonusUsed` consommée par la partie EN COURS (pas encore tranchée : envoyée avec son ticket ou déclarée). Jamais envoyée telle quelle. */
+  liveUse: Inventory;
 }
 
 export function defaultEconomy(): EconomySave {
@@ -184,6 +191,8 @@ export function defaultEconomy(): EconomySave {
     managed: false,
     bonusBought: { boost: 0, gel: 0 },
     bonusProcessed: { boost: 0, gel: 0 },
+    bonusUsed: { boost: 0, gel: 0 },
+    liveUse: { boost: 0, gel: 0 },
   };
 }
 
@@ -196,6 +205,8 @@ export interface SaveData {
   survival: RunRecord;
   /** Records du défi quotidien, par date UTC, sous l'équilibrage actuel. */
   daily: Record<string, RunRecord>;
+  /** Records de Survie « avec bonus » (Boost, Gel ou Bouclier activés pendant la première vie), sous l'équilibrage actuel. Distincts de `survival` (sans bonus). */
+  survivalBonus: RunRecord;
   /** Anciens équilibrages, par numéro de version : conservés à titre indicatif, non comparables. */
   archive: Record<string, ArchivedRecords>;
   /** Dernière version d'équilibrage dont le joueur a lu l'information. */
@@ -254,6 +265,7 @@ export function defaultSave(): SaveData {
     balance: BALANCE_VERSION,
     levels: {},
     survival: { bestTime: 0, bestScore: 0, runs: 0 },
+    survivalBonus: { bestTime: 0, bestScore: 0, runs: 0 },
     daily: {},
     archive: {},
     balanceNoticeSeen: BALANCE_VERSION,
@@ -360,6 +372,7 @@ export function sanitize(raw: unknown): SaveData {
     }
   }
   out.survival = sanitizeRun(raw.survival);
+  out.survivalBonus = sanitizeRun(raw.survivalBonus);
   if (isObj(raw.daily)) out.daily = sanitizeDaily(raw.daily);
   if (isObj(raw.archive)) {
     for (const [k, v] of Object.entries(raw.archive)) {
@@ -374,6 +387,7 @@ export function sanitize(raw: unknown): SaveData {
     const key = String(balance);
     if (!out.archive[key]) out.archive[key] = { survival: out.survival, daily: out.daily };
     out.survival = defaultSave().survival;
+    out.survivalBonus = defaultSave().survivalBonus;
     out.daily = {};
     out.balanceNoticeSeen = Math.min(out.balanceNoticeSeen, balance);
   }
@@ -476,6 +490,9 @@ function sanitizeEconomy(raw: Record<string, unknown>): EconomySave {
   // Une charge ne peut pas avoir été traitée sans avoir été achetée
   out.bonusProcessed.boost = Math.min(out.bonusProcessed.boost, out.bonusBought.boost);
   out.bonusProcessed.gel = Math.min(out.bonusProcessed.gel, out.bonusBought.gel);
+  if (isObj(raw.bonusUsed)) out.bonusUsed = sanitizeCounts(raw.bonusUsed, 1e9);
+  // Une partie en cours au moment d'une fermeture brutale est abandonnée : ses charges consommées sont déclarées comme un usage non classé
+  out.liveUse = { boost: 0, gel: 0 };
   return out;
 }
 

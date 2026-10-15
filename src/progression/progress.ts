@@ -26,6 +26,10 @@ export interface RunSummary {
   /** Campagne : mission jouée et bilan détaillé (voir campaign/progress.ts). */
   missionId?: number;
   report?: MissionReport;
+  /** Survie : catégorie de classement de la PREMIÈRE vie (déduite des activations réussies). */
+  category?: 'plain' | 'bonus';
+  /** Survie : survie libre après reprise (partie non classée) — durée, score et nombre de vies utilisées. Jamais enregistrée comme record. */
+  free?: { time: number; score: number; lives: number };
 }
 
 /** Récompenses d'un niveau réussi (Éclats). */
@@ -173,7 +177,7 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
       if (wasNextLocked && LEVELS.some((l) => l.id === next)) report.unlockedLevel = next;
     }
   } else if (run.mode === 'survival') {
-    const rec = save.survival;
+    const rec = run.category === 'bonus' ? save.survivalBonus : save.survival;
     report.legacyBestTime = legacySurvivalBest(save)?.time ?? 0;
     report.previousBestTime = rec.bestTime;
     report.previousBestScore = rec.bestScore;

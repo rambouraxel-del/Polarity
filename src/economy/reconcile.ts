@@ -32,6 +32,8 @@ export function buildSyncBody(save: SaveData): SyncBody {
     purchases: unconfirmedPurchases(save),
     claims: [...save.medals.claimed],
     bonusBought: { ...save.economy.bonusBought },
+    // Usage non classé déclaré : sans la partie EN COURS (tranchée à sa première mort : envoyée avec son ticket ou déclarée)
+    bonusUsed: { boost: Math.max(0, save.economy.bonusUsed.boost - save.economy.liveUse.boost), gel: Math.max(0, save.economy.bonusUsed.gel - save.economy.liveUse.gel) },
     save: payload(save),
   };
 }
@@ -53,7 +55,7 @@ export function pendingSummary(save: SaveData): { earned: number; purchases: num
 }
 
 /** Champs de progression repris de la fusion (jamais les options, le portefeuille ni le bloc de comptabilité). */
-const CONTENT_KEYS = ['levels', 'survival', 'daily', 'archive', 'achievements', 'rewarded', 'owned', 'paid', 'seenIntros', 'stats', 'campaign', 'balanceNoticeSeen', 'skin', 'trail'] as const;
+const CONTENT_KEYS = ['levels', 'survival', 'survivalBonus', 'daily', 'archive', 'achievements', 'rewarded', 'owned', 'paid', 'seenIntros', 'stats', 'campaign', 'balanceNoticeSeen', 'skin', 'trail'] as const;
 
 /**
  * Aligne la sauvegarde LOCALE (modifiée sur place) sur la réponse du serveur. `sent` = INSTANTANÉ de la sauvegarde au moment de l'envoi (pas la
@@ -64,7 +66,7 @@ const CONTENT_KEYS = ['levels', 'survival', 'daily', 'archive', 'achievements', 
  * - progression : fusion (union / meilleur / maximum) ; soldes confirmés mémorisés ;
  * - portefeuille : solde du serveur + écart local depuis l'envoi ; Prismes = solde du serveur (jamais créés localement).
  */
-export function applySyncResult(local: SaveData, res: SyncResponse, sent: SaveData, opts: { wallet?: boolean } = {}): void {
+export function applySyncResult(local: SaveData, res: SyncResponse, sent: SaveData, opts: { wallet?: boolean; /** Charges consommées par des parties classées encore en attente d'envoi (le service ne les a pas encore déduites). */ pendingUse?: { boost: number; gel: number } } = {}): void {
   const serverOwned = new Set(res.save.owned);
   for (const r of res.rejected) {
     const item = catalogItem(r.item);
@@ -103,8 +105,8 @@ export function applySyncResult(local: SaveData, res: SyncResponse, sent: SaveDa
 
   local.economy.bonusProcessed = { boost: Math.min(res.bonus.boost, local.economy.bonusBought.boost), gel: Math.min(res.bonus.gel, local.economy.bonusBought.gel) };
   local.inventory = {
-    boost: clamp(res.inventory.boost + (local.inventory.boost - sent.inventory.boost)),
-    gel: clamp(res.inventory.gel + (local.inventory.gel - sent.inventory.gel)),
+    boost: clamp(res.inventory.boost - (opts.pendingUse?.boost ?? 0) + (local.inventory.boost - sent.inventory.boost)),
+    gel: clamp(res.inventory.gel - (opts.pendingUse?.gel ?? 0) + (local.inventory.gel - sent.inventory.gel)),
   };
   local.wallet.shards = Math.max(0, res.balance.shards + (local.wallet.shards - sent.wallet.shards));
   local.wallet.medals = Math.max(0, res.balance.medals + (local.wallet.medals - sent.wallet.medals));

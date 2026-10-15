@@ -20,9 +20,9 @@ export function metricValue(save: SaveData, key: MetricKey, run?: RunSummary): n
     case 'levelsCompleted': return levels(save).filter((l) => l.completed).length;
     case 'totalStars': return levels(save).reduce((t, l) => t + l.stars, 0);
     case 'threeStarLevels': return levels(save).filter((l) => l.stars >= 3).length;
-    case 'survivalRuns': return save.survival.runs + Object.values(save.archive).reduce((t, a) => t + a.survival.runs, 0);
+    case 'survivalRuns': return save.survival.runs + save.survivalBonus.runs + Object.values(save.archive).reduce((t, a) => t + a.survival.runs, 0);
     case 'bestSurvival': {
-      let best = Math.max(save.survival.bestTime, ...Object.values(save.archive).map((a) => a.survival.bestTime));
+      let best = Math.max(save.survival.bestTime, save.survivalBonus.bestTime, ...Object.values(save.archive).map((a) => a.survival.bestTime));
       if (run?.mode === 'survival') best = Math.max(best, run.time);
       return best;
     }

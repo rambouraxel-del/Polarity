@@ -14,6 +14,9 @@ import { eventDef } from './config/events';
 import { BALANCE_VERSION } from './config/version';
 import { randomSeed } from './core/rng';
 import { InputController } from './game/input';
+import { POWER_CODES, REVIVE, type PowerKind } from './config/powers';
+import { getAdProvider } from './monetization/ads';
+import { PowersBar, POWER_KEYS } from './ui/powers';
 import { GameSession, type Phase } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
@@ -39,7 +42,7 @@ import { ensureInstallId } from './economy/ids';
 import { accountScreen } from './ui/accountScreens';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
 import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
-import type { BalancesResponse, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
+import type { BalancesResponse, Category, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
 import { CURRENCY_NAME } from './ui/components';
 import { escapeHtml, formatScore, formatTime } from './ui/format';
 import { Hud } from './ui/hud';
@@ -49,7 +52,7 @@ import { SpaceBackground } from './ui/space';
 import * as S from './ui/screens';
 import * as C from './ui/campaignScreens';
 
-type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | null;
+type ScreenId = 'home' | 'campaign' | 'chapter' | 'mission' | 'journal' | 'story' | 'campaign-result' | 'levels' | 'daily' | 'cosmetics' | 'achievements' | 'leaderboard' | 'confirm-purchase' | 'prep' | 'confirm-bonus' | 'options' | 'account' | 'confirm-reset' | 'pause' | 'result' | 'revive' | null;
 
 /** Écran parent (touche Échap) : on remonte d'un niveau plutôt que de retourner à l'accueil. */
 const PARENT: Partial<Record<NonNullable<ScreenId>, NonNullable<ScreenId>>> = {
@@ -81,7 +84,7 @@ interface StoryState {
 export class App {
   private readonly store: KeyValueStore = new BrowserStore();
   /** Classement mondial (service facultatif ; le jeu reste jouable hors ligne). */
-  readonly lb = new LeaderboardClient({ baseUrl: LEADERBOARD_URL, store: this.store, balance: BALANCE_VERSION, build: __APP_VERSION__ });
+  readonly lb = new LeaderboardClient({ baseUrl: LEADERBOARD_URL, store: this.store, balance: BALANCE_VERSION, build: __APP_VERSION__, clientInfo: () => ({ installId: this.save.economy.installId || undefined, bonusBought: { ...this.save.economy.bonusBought } }) });
   /** Compte, synchronisation et migration (économie v3) : facultatifs, jamais bloquants ; inactifs si le service n'est pas configuré. */
   readonly account: AccountService;
   /** ?demo (joueur automatique) ou ?debug : jamais éligible au classement. */
@@ -90,6 +93,8 @@ export class App {
   private runTicket: Ticket | null = null;
   private runLb: S.RunLbStatus = { kind: 'hidden' };
   private lbBalance = BALANCE_VERSION;
+  /** Classement affiché : « Sans bonus » par défaut. */
+  private lbCategory: Category = 'plain';
   private lbLoading = false;
   private lbError: string | null = null;
   private lbTop: LeaderboardResponse | null = null;
@@ -163,6 +168,15 @@ export class App {
   private tutorialActive = false;
   private lastCountdownShown = -1;
   private demoBot: Bot | null = null;
+  /** Commandes Boost / Gel / Bouclier (hors de l'aire de jeu). */
+  private readonly powersBar = new PowersBar((k) => this.onPower(k));
+  /** Résultat CLASSÉ de la partie de Survie en cours (figé à la première mort ; les reprises ne le modifient jamais). */
+  private firstReport: RunReport | null = null;
+  /** Identifiant aléatoire de la partie : clé d'idempotence du paiement des reprises en Prismes. */
+  private runId = '';
+  /** Paiement d'une reprise en cours de vérification par le service (boutons neutralisés). */
+  private reviveBusy = false;
+  private reviveMessage: { kind: 'ok' | 'error'; text: string } | null = null;
 
   constructor() {
     const res = loadSave(this.store);
@@ -248,6 +262,10 @@ export class App {
       pauseKey: () => this.onPauseKey(),
       inGame: () => this.session !== null && ['running', 'countdown', 'ending'].includes(this.session.phase),
       firstInteraction: () => this.unlockAudio(),
+      power: (key) => {
+        const kind = POWER_KEYS[key];
+        if (kind) this.onPower(kind);
+      },
     }).attach();
     // Scène illustrée : Entrée ou Espace = révéler / avancer (mêmes règles que le toucher) ; un bouton focalisé garde son propre rôle
     document.addEventListener('keydown', (e) => {
@@ -472,10 +490,11 @@ export class App {
     }
     if (cfg.mode === 'campaign') {
       this.hud.updateCampaign(session);
-    } else if (this.hud.update(session, label, cfg.mode === 'level' ? null : this.bestAtStart, !eventActive)) {
+    } else if (this.hud.update(session, session.sim.life > 1 ? 'Survie libre · non classée' : label, cfg.mode === 'level' ? null : session.sim.life > 1 ? 0 : this.bestAtStart, !eventActive)) {
       this.sfx.play('record');
       this.renderer?.ring(COLORS.gold);
     }
+    if (cfg.mode === 'survival') this.powersBar.update(session);
     if (session.phase === 'countdown') {
       const n = Math.ceil(session.countdown / UI.resumeStep);
       if (n !== this.lastCountdownShown) {
@@ -495,6 +514,12 @@ export class App {
 
   startRun(cfg: RunConfig): void {
     this.endSession();
+    // Survie : les charges de l'inventaire sont le stock de la partie (le service vérifie ensuite chaque activation par rejeu)
+    if (cfg.mode === 'survival') cfg = { ...cfg, stock: { boost: this.save.inventory.boost, gel: this.save.inventory.gel } };
+    this.firstReport = null;
+    this.runId = randomRunId();
+    this.reviveBusy = false;
+    this.reviveMessage = null;
     this.lastConfig = cfg;
     this.runTicket = cfg.mode === 'survival' ? this.nextTicket : null;
     this.nextTicket = null;
@@ -508,6 +533,7 @@ export class App {
     this.eventKey = '';
     this.creditedShards.clear();
     this.hud.show(true);
+    this.setPowersVisible(cfg.mode === 'survival');
     if (cfg.mode === 'survival') this.bestAtStart = this.save.survival.bestTime;
     else if (cfg.mode === 'daily') this.bestAtStart = this.save.daily[cfg.date ?? '']?.bestTime ?? 0;
     else this.bestAtStart = 0;
@@ -520,6 +546,9 @@ export class App {
       onPhase: (p, s) => this.onSessionPhase(p, s),
       onCampaignEvent: (e, s) => this.onCampaignEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
+      onFirstDeath: (summary, s) => this.onFirstDeath(summary, s),
+      canOffer: (s) => !this.devMode && !s.sim.assisted && this.lb.configured,
+      onOffer: (life, s) => this.showRevive(life === 3 ? 3 : 2, s),
     });
     this.session = session;
     this.music.startGame();
@@ -574,12 +603,26 @@ export class App {
     if (this.session && ['running', 'paused', 'countdown'].includes(this.session.phase)) this.music.stop();
     if (this.session) this.session.abort();
     this.session = null;
+    // Partie abandonnée avant sa première mort : ses charges consommées sont DÉCLARÉES au service (usage non classé)
+    const live = this.save.economy.liveUse;
+    if (live.boost > 0 || live.gel > 0) {
+      this.save.economy.liveUse = { boost: 0, gel: 0 };
+      this.persist();
+    }
+    this.setPowersVisible(false);
     this.countdownEl.classList.add('hidden');
     this.lastCountdownShown = -1;
   }
 
   private onAction(): void {
     if (this.session?.action()) this.sfx.play('flip');
+  }
+
+  /** Activation d'un pouvoir (bouton ou raccourci) : jamais une inversion ; la simulation juge la demande au prochain pas. */
+  private onPower(kind: PowerKind): void {
+    const s = this.session;
+    if (!s || s.config.mode !== 'survival') return;
+    s.power(kind);
   }
 
   private onPauseKey(): void {
@@ -592,6 +635,8 @@ export class App {
       this.resume();
       return;
     }
+    // Reprise proposée : on choisit explicitement (reprendre ou terminer), jamais d'abandon accidentel par Échap ou Retour
+    if (this.screen === 'revive') return;
     if (this.screen === 'confirm-purchase') {
       this.showScreen('cosmetics');
       return;
@@ -710,9 +755,38 @@ export class App {
         this.sfx.play('success');
         r?.ring(COLORS.gold);
         break;
+      case 'power':
+        if (e.stage === 'start') this.onPowerStart(e.kind, e.charged);
+        else if (e.reason === 'expire') this.sfx.play('tick');
+        break;
+      case 'shield-ready':
+        this.sfx.play('success');
+        r?.ring(COLORS.shield);
+        break;
+      case 'shield-absorb':
+        this.sfx.play('hit');
+        r?.impact(e.hitX, e.hitY, e.x, e.y, e.by);
+        r?.ring(COLORS.shield);
+        break;
+      case 'revive':
+        this.sfx.play('success');
+        r?.ring(COLORS.cyan);
+        break;
       default:
         break;
     }
+  }
+
+  /** Pouvoir activé : effet sonore et visuel ; si une charge achetée est consommée, l'inventaire local baisse tout de suite (provisoire). */
+  private onPowerStart(kind: PowerKind, charged: boolean): void {
+    this.sfx.play(kind === 'shield' ? 'success' : 'activate');
+    this.renderer?.ring(kind === 'boost' ? COLORS.gold : kind === 'gel' ? COLORS.cyan : COLORS.shield);
+    if (!charged || kind === 'shield') return;
+    const e = this.save.economy;
+    this.save.inventory[kind] = Math.max(0, this.save.inventory[kind] - 1);
+    e.bonusUsed[kind]++;
+    e.liveUse[kind]++;
+    this.persist(false);
   }
 
   /** Fin de partie : résultat appliqué une seule fois (la session garantit l'unicité de l'appel). */
@@ -722,12 +796,133 @@ export class App {
       this.onMissionEnd(summary);
       return;
     }
-    const report = applyRun(this.save, summary);
-    this.persist();
-    if (summary.mode === 'survival') this.afterSurvivalRun(summary, s);
+    let report: RunReport;
+    if (summary.mode === 'survival') {
+      // Le résultat classé a été appliqué à la première mort (jamais deux fois) ; la survie libre éventuelle n'est qu'un complément d'affichage
+      report = this.firstReport ?? applyRun(this.save, summary);
+      report.run.free = summary.free;
+      this.persist();
+      // Charges et achats en attente : synchronisation puis nouvel envoi des parties classées (le service demande parfois de synchroniser d'abord)
+      void this.account.syncNow().then(() => this.lb.flush()).then(() => this.refreshRunLbFromPending());
+    } else {
+      report = applyRun(this.save, summary);
+      this.persist();
+    }
     this.hud.show(false);
+    this.setPowersVisible(false);
     this.hideBanner();
     this.showResult(report);
+  }
+
+  /**
+   * PREMIÈRE MORT en Survie : la tentative classée est figée et traitée tout de suite — records locaux, succès, soumission au classement (en attente si
+   * hors ligne) — sans jamais attendre ni dépendre d'une éventuelle reprise.
+   */
+  private onFirstDeath(summary: RunSummary, s: GameSession): void {
+    if (s !== this.session) return;
+    this.firstReport = applyRun(this.save, summary);
+    this.persist();
+    this.afterSurvivalRun(summary, s);
+  }
+
+  // ————————————————————————————————————————————— reprise (deuxième / troisième chance)
+
+  /** Affiche ou masque les commandes des pouvoirs et recalcule la taille de l'arène (la barre réserve sa place). */
+  private setPowersVisible(visible: boolean): void {
+    this.powersBar.show(visible);
+    this.layout();
+  }
+
+  /** Écran de reprise : la partie classée est déjà enregistrée ; la suite est une survie libre non classée. */
+  private showRevive(_life: 2 | 3, s: GameSession): void {
+    if (s !== this.session) return;
+    this.reviveBusy = false;
+    this.reviveMessage = null;
+    this.setPowersVisible(false);
+    this.hud.show(false);
+    this.hideBanner();
+    this.screen = 'revive';
+    this.renderRevive();
+  }
+
+  private renderRevive(): void {
+    const s = this.session;
+    if (!s || this.screen !== 'revive') return;
+    const life = s.sim.life >= 2 ? 3 : 2;
+    const report = this.firstReport;
+    const price = REVIVE.prisms[life];
+    const conf = this.save.economy.confirmed?.prisms ?? null;
+    let blocked: string | null = null;
+    if (!this.lb.configured) blocked = 'Indisponible dans cette version';
+    else if (!this.lb.identity()) blocked = 'Connexion au service requise';
+    else if (typeof navigator !== 'undefined' && navigator.onLine === false) blocked = 'Hors connexion : paiement impossible';
+    else if (conf !== null && conf < price) blocked = `Prismes insuffisants (${conf} sur ${price})`;
+    const ad = getAdProvider();
+    this.screenEl.innerHTML = S.reviveScreen({
+      life,
+      time: report?.run.time ?? 0,
+      score: report?.run.score ?? 0,
+      category: report?.run.category ?? 'plain',
+      ad: { offered: life === 2 && REVIVE.adLives.includes(2), available: ad.isAvailable() },
+      prisms: { price, balance: conf, blocked },
+      busy: this.reviveBusy,
+      message: this.reviveMessage,
+      lb: this.runLb,
+    });
+    this.screenEl.classList.remove('hidden', 'no-anim');
+    this.screenEl.classList.add('dim');
+    this.screenEl.scrollTop = 0;
+    this.screenEl.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true });
+  }
+
+  /**
+   * Reprise payée en Prismes : le SERVICE vérifie le solde et débite (idempotent par partie et par vie). Aucune reprise tant que le paiement n'est pas
+   * confirmé : réseau coupé, refus ou réponse perdue = pas de reprise, rien de débité localement ; une nouvelle tentative ne débite jamais deux fois.
+   */
+  private async reviveWithPrisms(): Promise<void> {
+    const s = this.session;
+    if (!s || this.reviveBusy || s.phase !== 'offer') return;
+    const life = s.sim.life >= 2 ? 3 : 2;
+    this.reviveBusy = true;
+    this.reviveMessage = null;
+    this.renderRevive();
+    const res = await this.account.payRevive(this.runId, life);
+    if (this.session !== s || s.phase !== 'offer') return;
+    this.reviveBusy = false;
+    if (res.ok) this.startRevive(s);
+    else {
+      this.reviveMessage = { kind: 'error', text: res.message };
+      this.renderRevive();
+    }
+  }
+
+  /** Reprise par publicité récompensée : seulement avec un VRAI fournisseur prêt ; une publicité interrompue n'accorde rien. */
+  private async reviveWithAd(): Promise<void> {
+    const s = this.session;
+    const ad = getAdProvider();
+    if (!s || this.reviveBusy || s.phase !== 'offer' || !ad.isAvailable()) return;
+    this.reviveBusy = true;
+    this.renderRevive();
+    const res = await ad.showRewarded('revive');
+    if (this.session !== s || s.phase !== 'offer') return;
+    this.reviveBusy = false;
+    if (res === 'rewarded') this.startRevive(s);
+    else {
+      this.reviveMessage = { kind: 'error', text: res === 'dismissed' ? 'Publicité interrompue : la reprise n’est pas accordée.' : 'Publicité indisponible pour le moment.' };
+      this.renderRevive();
+    }
+  }
+
+  private startRevive(s: GameSession): void {
+    this.screen = null;
+    this.screenEl.classList.add('hidden');
+    this.screenEl.classList.remove('dim');
+    this.screenEl.innerHTML = '';
+    this.music.startGame();
+    this.hud.show(true);
+    this.setPowersVisible(true);
+    this.lastCountdownShown = -1;
+    s.revive();
   }
 
   private showResult(report: RunReport): void {
@@ -977,6 +1172,7 @@ export class App {
     if (id !== 'pause') {
       this.endSession();
       this.hud.show(false);
+      this.setPowersVisible(false);
       this.hideBanner();
     }
     const today = utcDateString();
@@ -1197,6 +1393,10 @@ export class App {
       case 'lb-refresh': void this.refreshLeaderboard(); break;
       case 'lb-flush': void this.refreshLeaderboard(); break;
       case 'lb-clear': this.lb.clearDone(); this.rerenderLeaderboard(); break;
+      case 'lb-category':
+        this.lbCategory = target.dataset.category === 'bonus' ? 'bonus' : 'plain';
+        void this.refreshLeaderboard();
+        break;
       case 'lb-balance':
         this.lbBalance = Number(target.dataset.balance) || BALANCE_VERSION;
         void this.refreshLeaderboard();
@@ -1229,6 +1429,9 @@ export class App {
         this.showScreen('prep');
         void this.account.syncNow();
         break;
+      case 'revive-prisms': void this.reviveWithPrisms(); break;
+      case 'revive-ad': void this.reviveWithAd(); break;
+      case 'revive-decline': if (!this.reviveBusy) this.session?.decline(); break;
       case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
       case 'play-daily': {
         const date = utcDateString();
@@ -1400,33 +1603,71 @@ export class App {
    */
   private afterSurvivalRun(summary: RunSummary, s: GameSession): void {
     this.runLb = { kind: 'hidden' };
-    if (!this.lb.configured) return;
-    if (this.devMode || s.sim.assisted) this.runLb = { kind: 'assisted' };
-    else if (!this.lb.identity()) this.runLb = { kind: 'no-identity' };
-    else if (!this.runTicket) this.runLb = { kind: 'no-ticket' };
-    else {
+    this.runLbTicketId = null;
+    // Charges consommées pendant la première vie : tranchées ici (envoyées avec le ticket, ou déclarées comme usage non classé)
+    const eco = this.save.economy;
+    const live = { ...eco.liveUse };
+    eco.liveUse = { boost: 0, gel: 0 };
+    const settled = (viaTicket: boolean): void => {
+      if (viaTicket) {
+        eco.bonusUsed.boost = Math.max(0, eco.bonusUsed.boost - live.boost);
+        eco.bonusUsed.gel = Math.max(0, eco.bonusUsed.gel - live.gel);
+      }
+      this.persist();
+    };
+    if (!this.lb.configured) return settled(false);
+    const first = s.sim.firstLife;
+    if (this.devMode || s.sim.assisted || !first) {
+      this.runLb = { kind: 'assisted' };
+      settled(false);
+    } else if (!this.lb.identity()) {
+      this.runLb = { kind: 'no-identity' };
+      settled(false);
+    } else if (!this.runTicket) {
+      this.runLb = { kind: 'no-ticket' };
+      settled(false);
+    } else {
       const ticket = this.runTicket;
-      this.lb.recordRun(ticket, s.sim.flipLog, { time: summary.time, score: summary.score });
+      this.runLbTicketId = ticket.id;
+      // Journal de la première vie (inversions + activations, en pas de simulation) : le service le REJOUE et déduit lui-même catégorie et durée
+      const acts = first.acts.map((a) => [a.step, POWER_CODES[a.kind]] as [number, number]);
+      this.lb.recordRun(ticket, { flips: first.flips, acts }, { time: summary.time, score: summary.score }, live);
+      settled(true);
       this.runLb = { kind: 'sending' };
       void this.lb.flush().then((list) => {
         const p = list.find((x) => x.id === ticket.id);
         this.runLb = this.statusOf(p);
         this.refreshRunLbStatus();
+        if (p?.needsSync) void this.account.syncNow(true).then(() => this.lb.flush()).then(() => this.refreshRunLbFromPending());
         if (this.screen === 'leaderboard') void this.refreshLeaderboard();
       });
     }
     this.runTicket = null;
   }
 
+  /** Ticket de la partie classée dont le statut est affiché (résultat et écran de reprise). */
+  private runLbTicketId: string | null = null;
+
+  /** Rafraîchit le statut mondial de la partie courante depuis la file « en attente » (après un renvoi ou une synchronisation). */
+  private refreshRunLbFromPending(): void {
+    const id = this.runLbTicketId;
+    if (!id) return;
+    const p = this.lb.pending().find((x) => x.id === id);
+    if (!p) return;
+    this.runLb = this.statusOf(p);
+    this.refreshRunLbStatus();
+  }
+
   private statusOf(p: PendingRun | undefined): S.RunLbStatus {
     if (!p) return { kind: 'hidden' };
-    if (p.status === 'accepted' && p.result) return { kind: 'accepted', rank: p.result.rank, best: p.result.personalBest };
+    if (p.status === 'accepted' && p.result) return { kind: 'accepted', rank: p.result.rank, best: p.result.personalBest, category: p.result.category };
     if (p.status === 'rejected') return { kind: 'rejected', message: p.message ?? 'refusé par le serveur' };
     return { kind: 'pending', offline: !!p.lastError };
   }
 
   /** Met à jour la ligne de statut du résultat sans recréer l'écran (aucun crédit, aucune animation rejouée). */
   private refreshRunLbStatus(): void {
+    if (this.screen === 'revive') this.renderRevive();
     if (this.screen !== 'result') return;
     const el = this.screenEl.querySelector('#lb-status');
     if (el) el.innerHTML = S.runLbStatusHtml(this.runLb);
@@ -1443,10 +1684,14 @@ export class App {
       me: this.lbMe,
       balances: this.lbBalances,
       balance: this.lbBalance,
+      category: this.lbCategory,
       pending: this.lb.pendingOwn(),
       foreignPending: this.lb.pendingForeign().filter((p) => p.status === 'pending').length,
       nickMessage: this.lbNickMessage,
-      localBest: this.save.survival.bestTime > 0 ? { time: this.save.survival.bestTime, score: this.save.survival.bestScore } : null,
+      localBest: (() => {
+        const r = this.lbCategory === 'bonus' ? this.save.survivalBonus : this.save.survival;
+        return r.bestTime > 0 ? { time: r.bestTime, score: r.bestScore } : null;
+      })(),
       profileLost: this.lbProfileLost,
       confirmDelete: this.lbConfirmDelete,
       reportMessage: this.lbReportMessage,
@@ -1477,7 +1722,7 @@ export class App {
     this.rerenderLeaderboard();
     await this.lb.flush();
     void this.lb.ensureTickets();
-    const [top, me, balances] = await Promise.all([this.lb.top(this.lbBalance), this.lb.identity() ? this.lb.me(this.lbBalance) : Promise.resolve(null), this.lb.balances()]);
+    const [top, me, balances] = await Promise.all([this.lb.top(this.lbBalance, this.lbCategory), this.lb.identity() ? this.lb.me(this.lbBalance, this.lbCategory) : Promise.resolve(null), this.lb.balances()]);
     this.lbLoading = false;
     if (top.ok) {
       this.lbTop = top.data;
@@ -1588,6 +1833,13 @@ function ambiencePreviewOffset(): number {
 }
 
 /** Le stockage du navigateur accepte-t-il les écritures ? (sonde sur une clé à part ; navigation privée, quota, accès bloqué → non) */
+/** Identifiant aléatoire d'une partie (clé d'idempotence du paiement des reprises). */
+function randomRunId(): string {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
 function storageWorks(store: KeyValueStore): boolean {
   const key = 'polarite.sonde';
   store.set(key, '1');
