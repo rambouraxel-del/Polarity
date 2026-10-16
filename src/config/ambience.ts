@@ -49,35 +49,39 @@ export const STAGES = [
  */
 export const STAGE_PARAMS = {
   /** Luminosité des étoiles. */
-  stars: [0.5, 0.6, 0.72, 0.82, 0.92],
+  stars: [0.55, 0.64, 0.74, 0.84, 0.92],
   /** Vitesse de rotation du ciel (multiplicateur de `motion.starSpin`). */
   starSpeed: [0.35, 0.55, 0.85, 1.15, 1.45],
   /** Densité de poussières (fraction du plafond de qualité). */
-  dust: [0.06, 0.3, 0.55, 0.8, 1],
+  dust: [0.4, 0.52, 0.66, 0.82, 1],
   /** Luminosité des nébuleuses (lueurs cyan / violet / magenta). */
-  nebula: [0.03, 0.06, 0.09, 0.12, 0.15],
+  nebula: [0.07, 0.09, 0.11, 0.14, 0.17],
   /** Ouverture de la faille (0 = trait à peine visible, 1 = pleinement ouverte). */
   riftOpen: [0.08, 0.3, 0.6, 0.82, 1],
   /** Luminosité de la faille. */
   riftGlow: [0.14, 0.32, 0.55, 0.75, 0.92],
   /** Réponse aux battements. */
-  beatGain: [0.6, 0.72, 0.85, 0.94, 1],
+  beatGain: [0.82, 0.88, 0.93, 0.97, 1],
   /** Réponse aux basses. */
-  bassGain: [0.5, 0.62, 0.78, 0.9, 1],
+  bassGain: [0.78, 0.84, 0.9, 0.96, 1],
   /** Probabilité d'un anneau d'énergie sur un battement fort. */
-  ringChance: [0.05, 0.1, 0.2, 0.3, 0.4],
+  ringChance: [0.55, 0.62, 0.7, 0.8, 0.9],
   /** Arcs d'énergie décoratifs (par seconde, hors zone de jeu). */
-  arcRate: [0, 0.05, 0.14, 0.32, 0.55],
+  arcRate: [0.3, 0.42, 0.6, 0.85, 1.15],
   /** Débris décoratifs (fraction du plafond de qualité). */
-  debris: [0, 0, 0.15, 0.7, 1],
+  debris: [0.25, 0.35, 0.5, 0.8, 1],
   /** Déformation gravitationnelle du quadrillage (amplitude). */
-  gridWarp: [0, 0, 0.18, 0.6, 1],
+  gridWarp: [0.35, 0.45, 0.6, 0.82, 1],
   /** Force des ondes sur les passages forts. */
-  waveGain: [0.45, 0.6, 0.8, 0.92, 1],
+  waveGain: [0.7, 0.78, 0.86, 0.94, 1],
   /** Chaleur des couleurs : 0 = cyan dominant, 1 = violet et magenta très présents. */
   heat: [0, 0.25, 0.5, 0.75, 1],
   /** Fissures lumineuses autour du noyau (probabilité sur un battement fort). */
-  fissure: [0.05, 0.12, 0.25, 0.4, 0.6],
+  fissure: [0.4, 0.45, 0.5, 0.55, 0.6],
+  /** Probabilité d'un éclair ramifié sur un battement marqué (en plus du rythme ambiant `arcRate`). */
+  boltChance: [0.2, 0.26, 0.32, 0.4, 0.5],
+  /** Probabilité d'une onde d'énergie sur un battement très fort (en plus des passages forts, toujours suivis d'une onde). */
+  waveChance: [0.2, 0.26, 0.33, 0.4, 0.5],
 } as const;
 
 export type StageParam = keyof typeof STAGE_PARAMS;
@@ -98,7 +102,7 @@ export const AMBIENCE = {
     points: 56,
     /** Demi-taille (unités monde) de la sphère au départ, puis de la faille pleinement ouverte. */
     radiusMin: 9,
-    radiusMax: 128,
+    radiusMax: 165,
     /** Allongement le long de l'axe de la faille (le contour est comprimé de la racine de cette valeur de l'autre côté). */
     stretch: 1.5,
     /** Amplitude des déformations du contour (fraction du rayon) à pleine ouverture. */
@@ -110,7 +114,7 @@ export const AMBIENCE = {
     dark: 0x01030b,
     darkAlpha: 0.97,
     /** Opacité maximale des lueurs (halo, bord, sphère de départ). */
-    alphaMax: 0.6,
+    alphaMax: 0.7,
     /** Bord lumineux : trois passes (épaisseur en unités monde, opacité), de la plus large et diffuse à la plus fine et vive. */
     rim: [
       { width: 22, alpha: 0.16 },
@@ -140,15 +144,15 @@ export const AMBIENCE = {
     scaleMin: 0.05,
     scaleMax: 2.6,
     /** Part du parcours (0–1) consacrée au fondu d'entrée, et début du fondu de sortie. */
-    fadeIn: 0.14,
-    fadeOut: 0.8,
+    fadeIn: 0.07,
+    fadeOut: 0.9,
     /** Parcours complets par seconde (un plan traverse toute la profondeur en ~11 s) et réponse à la musique. */
     speed: 0.09,
     music: { bass: 0.9, build: 0.6, drop: 1.6, intensity: 0.3 },
     /** Rotation (rad/s) : chaque plan tourne à sa vitesse, un sur deux en sens inverse. */
     spin: 0.045,
     /** Opacité maximale d'un plan et opacité du voile de la zone de jeu en phase 2 (le tunnel reste visible sous l'arène). */
-    alphaMax: 0.9,
+    alphaMax: 1,
     veilAlpha: 0.5,
     /** Assombrissement des bords de l'écran (vignette) : profondeur et lisibilité de l'arène. */
     vignette: 0.8,
@@ -210,31 +214,39 @@ export const AMBIENCE = {
   ] as readonly { at: number; wave: number; fissure: number }[],
 
   /** Passages calmes de la musique : sous ce niveau d'intensité l'ambiance se calme (réactions réduites, fissures et arcs rares). */
-  calm: { low: 0.2, high: 0.5, reaction: 0.55 },
+  calm: { low: 0.07, high: 0.17, reaction: 0.56 },
+  /** Reprise nette : quand un passage calme se termine, une onde et des éclairs repartent avec la musique. */
+  resume: { from: 0.55, to: 0.3 },
 
   /** Réactions musicales. */
   music: {
     /** Avance visuelle (s) : le pic lumineux tombe sur le battement entendu (une image d'affichage d'avance). */
-    lead: 0.016,
+    lead: 0.034,
     /** Battement « significatif » : force minimale (0–1, voir la carte musicale). */
-    beatThreshold: 0.35,
+    beatThreshold: 0.3,
+    /** Battement qui lance un anneau d'énergie : force minimale. */
+    ringBeat: 0.5,
     /** Battement fort (anneaux, arcs) : force minimale. */
     strongBeat: 0.8,
     /** Décroissance de la pulsation de battement (s, constante de temps) : retombée rapide pour que chaque coup reste distinct. */
-    beatDecay: 0.1,
+    beatDecay: 0.08,
     /** Courbe d'attaque d'un battement (< 1 : les battements moyens frappent presque aussi fort que les plus marqués ; 1 = linéaire). */
-    beatCurve: 0.65,
+    beatCurve: 0.55,
     /** Basses : attaque quasi immédiate et relâchement court (s). */
     bassAttack: 0.012,
-    bassRelease: 0.12,
+    bassRelease: 0.09,
     /** Passage fort : durée de l'impulsion (s). */
     dropDecay: 1.4,
     /** Intensité musicale : lissage (s). */
-    intensitySmooth: 0.4,
+    intensitySmooth: 0.22,
     /** Montée : lissage (s). */
-    buildSmooth: 0.3,
+    buildSmooth: 0.2,
     /** Saut de position au-delà duquel on ne rattrape pas les battements manqués (reprise, changement de morceau). */
     maxCatchUp: 0.25,
+    /** Attaque de basse (coup de grosse caisse) entre les battements cartographiés : montée minimale en 0,1 s, niveau minimal, délai entre deux coups (s). */
+    hitRise: 0.1,
+    hitLevel: 0.3,
+    hitGap: 0.16,
   },
 
   /** Mouvements (unités monde = orbite de rayon 300 ; angles en rad/s). */
@@ -275,7 +287,7 @@ export const AMBIENCE = {
     /** Opacité maximale de la faille, des nébuleuses, des anneaux. */
     riftAlpha: 0.75,
     nebulaAlpha: 0.32,
-    ringAlpha: 0.32,
+    ringAlpha: 0.5,
     arcAlpha: 0.55,
     /** Dilatation maximale de la faille sur un passage fort (multiplicateur d'ouverture). */
     dropDilate: 1.35,
@@ -286,14 +298,14 @@ export const AMBIENCE = {
   },
 
   /** Effets réduits (option du jeu ou préférence système) : mêmes stades, réactions adoucies, aucun éclair ni déformation. */
-  reduced: { reaction: 0.25, motion: 0.3, waves: false, arcs: false, gridWarp: false },
+  reduced: { reaction: 0.4, motion: 0.4, waves: false, arcs: false, gridWarp: false },
 
   /** Qualité adaptative : plafonds par niveau ; on descend si les images sont trop lentes, on remonte prudemment. */
   quality: {
     tiers: {
-      high: { stars: 220, dust: 150, debris: 12, rings: 6, arcs: 3, nebulae: 3, gridSegments: 128, tunnel: 8, ribbons: 6, bolts: 5, shards: 26, holePoints: 56 },
-      medium: { stars: 150, dust: 90, debris: 8, rings: 4, arcs: 2, nebulae: 2, gridSegments: 96, tunnel: 6, ribbons: 4, bolts: 3, shards: 16, holePoints: 40 },
-      low: { stars: 90, dust: 45, debris: 4, rings: 2, arcs: 1, nebulae: 1, gridSegments: 64, tunnel: 4, ribbons: 2, bolts: 2, shards: 8, holePoints: 28 },
+      high: { stars: 220, dust: 150, debris: 12, rings: 6, arcs: 3, nebulae: 3, gridSegments: 128, tunnel: 8, ribbons: 6, bolts: 6, shards: 26, holePoints: 56 },
+      medium: { stars: 150, dust: 90, debris: 8, rings: 5, arcs: 2, nebulae: 2, gridSegments: 96, tunnel: 6, ribbons: 5, bolts: 5, shards: 16, holePoints: 44 },
+      low: { stars: 90, dust: 45, debris: 4, rings: 4, arcs: 1, nebulae: 2, gridSegments: 64, tunnel: 5, ribbons: 4, bolts: 4, shards: 8, holePoints: 32 },
     },
     /** Durée d'image moyenne (s) au-delà de laquelle on descend d'un niveau, et durée d'observation (s). */
     slowFrame: 1 / 45,

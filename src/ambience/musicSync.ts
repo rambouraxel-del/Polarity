@@ -42,6 +42,8 @@ export interface MusicFrame {
   intensity: number;
   /** Force du battement franchi depuis l'image précédente (0 si aucun). */
   beat: number;
+  /** Attaque de basse franche (coup de grosse caisse) depuis l'image précédente, entre les battements cartographiés (0 = aucune ; 0–1 = force). */
+  hit?: number;
   /** Un passage fort (drop) a été franchi depuis l'image précédente. */
   drop: boolean;
   /** Avancement dans une montée en cours (0 hors montée, 0→1 pendant). */
@@ -101,9 +103,11 @@ export function envAt(env: Float32Array, fps: number, t: number): number {
 }
 
 export class MusicSync {
-  readonly frame: MusicFrame = { active: false, track: null, bass: 0, intensity: 0, beat: 0, drop: false, build: 0 };
+  readonly frame: MusicFrame = { active: false, track: null, bass: 0, intensity: 0, beat: 0, hit: 0, drop: false, build: 0 };
   private lastTrack: MusicTrack | null = null;
   private lastTime = 0;
+  /** Dernier coup de basse détecté (position dans le morceau, s). */
+  private lastHit = -10;
 
   constructor(private readonly maps: Record<MusicTrack, TrackMap> = MUSIC_MAP.tracks, private readonly fps: number = MUSIC_MAP.envFps) {}
 
@@ -111,6 +115,7 @@ export class MusicSync {
   reset(): void {
     this.lastTrack = null;
     this.lastTime = 0;
+    this.lastHit = -10;
   }
 
   /**
@@ -121,6 +126,7 @@ export class MusicSync {
   update(pos: MusicPosition, audible = true): MusicFrame {
     const f = this.frame;
     f.beat = 0;
+    f.hit = 0;
     f.drop = false;
     if (!pos.track || !pos.playing || !audible) {
       f.active = false;
@@ -137,6 +143,13 @@ export class MusicSync {
     f.active = true;
     f.track = pos.track;
     f.bass = envAt(m.bass, this.fps, t);
+    // Attaque de basse : montée franche de l'enveloppe en 0,1 s (coup de grosse caisse), au moins `hitGap` après le précédent
+    const mu = AMBIENCE.music;
+    const rise = f.bass - envAt(m.bass, this.fps, Math.max(0, t - 0.1));
+    if (this.lastTrack === pos.track && rise >= mu.hitRise && f.bass >= mu.hitLevel && t - this.lastHit >= mu.hitGap) {
+      f.hit = Math.min(1, 0.4 + rise * 2.5);
+      this.lastHit = t;
+    }
     f.intensity = envAt(m.intensity, this.fps, t);
     f.build = 0;
     for (let i = 0; i < m.builds.length; i += 2) {

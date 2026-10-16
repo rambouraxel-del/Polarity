@@ -315,8 +315,8 @@ describe('silence, sourdine, pause : aucune fausse synchronisation', () => {
     // Son rétabli : la première image ne rejoue rien du passé
     expect(sync.update(pos('loop', 20.01), true).beat).toBe(0);
     const b = MUSIC_MAP.tracks.loop.beats.find((x) => x > 20.1)!;
-    sync.update(pos('loop', b - 0.02));
-    expect(sync.update(pos('loop', b + 0.01)).beat).toBeGreaterThan(0);
+    sync.update(pos('loop', b - AMBIENCE.music.lead - 0.02));
+    expect(sync.update(pos('loop', b - AMBIENCE.music.lead + 0.01)).beat).toBeGreaterThan(0);
   });
 
   it('position non jouée (pause, compte à rebours, contexte suspendu) : aucune réaction, les valeurs retombent', () => {
@@ -535,5 +535,73 @@ describe('décor animé : faille en formation, traversée, tunnel de la phase 2'
       const src = readFileSync(`src/render/ambience/${f}.ts`, 'utf8');
       expect(src, f).not.toMatch(/from '\.\.\/\.\.\/sim|from '\.\.\/\.\.\/core\/rng|Rng/);
     }
+  });
+});
+
+describe('activité musicale dès les premières secondes', () => {
+  const kick: MusicFrame = { ...silent, active: true, track: 'loop', bass: 0.7, intensity: 0.8, beat: 0.9, hit: 0 };
+  const pos = (track: MusicPosition['track'], time: number): MusicPosition => ({ track, time, playing: true });
+
+  it('dès la première seconde : anneaux, ondes et éclairs sur les battements forts', () => {
+    const d = new AmbienceDirector(() => 0);
+    let rings = 0;
+    let waves = 0;
+    let arcs = 0;
+    for (let i = 0; i < 240; i++) {
+      const st = d.update(2 + i / 60, 1 / 60, i % 25 === 0 ? kick : { ...kick, beat: 0, bass: 0.4 }, false);
+      rings += st.spawnRing > 0 ? 1 : 0;
+      waves += st.spawnWave > 0 ? 1 : 0;
+      arcs += st.spawnArcs;
+    }
+    expect(rings).toBeGreaterThan(5);
+    expect(waves).toBeGreaterThan(5);
+    expect(arcs).toBeGreaterThan(5);
+  });
+
+  it('coup de basse entre deux battements : réponse immédiate, sans attendre le battement suivant', () => {
+    const d = new AmbienceDirector(() => 0);
+    for (let i = 0; i < 40; i++) d.update(10 + i / 60, 1 / 60, { ...silent, active: true, track: 'loop', bass: 0.8, intensity: 0.8 }, false);
+    const st = d.update(11, 1 / 60, { ...silent, active: true, track: 'loop', bass: 0.8, intensity: 0.8, beat: 0, hit: 0.9 }, false);
+    expect(st.beat).toBeGreaterThan(0.5);
+    expect(st.spawnRing).toBeGreaterThan(0);
+  });
+
+  it('MusicSync détecte une attaque de basse franche, une seule fois par coup', () => {
+    const m = MUSIC_MAP.tracks.loop;
+    const sync = new MusicSync();
+    let hits = 0;
+    for (let t = 20; t < 40; t += 1 / 60) hits += (sync.update(pos('loop', t)).hit ?? 0) > 0 ? 1 : 0;
+    expect(m.bass.length).toBeGreaterThan(0);
+    expect(hits).toBeGreaterThan(3);
+    expect(hits).toBeLessThan(20 / AMBIENCE.music.hitGap);
+  });
+
+  it('passage calme : respiration, puis reprise nette (onde et éclairs) quand la musique repart', () => {
+    const d = new AmbienceDirector(() => 0);
+    const calmFrame: MusicFrame = { ...silent, active: true, track: 'loop', intensity: 0.02 };
+    for (let i = 0; i < 90; i++) d.update(60, 1 / 60, calmFrame, false);
+    expect(d.state.calm).toBeGreaterThan(0.9);
+    let wave = 0;
+    let arcs = 0;
+    for (let i = 0; i < 60; i++) {
+      const st = d.update(60.5 + i / 60, 1 / 60, { ...silent, active: true, track: 'loop', intensity: 0.95, bass: 0.8 }, false);
+      wave = Math.max(wave, st.spawnWave);
+      arcs += st.spawnArcs;
+    }
+    expect(wave).toBeGreaterThan(0);
+    expect(arcs).toBeGreaterThanOrEqual(2);
+  });
+
+  it('sans musique audible : aucun éclair ambiant', () => {
+    const d = new AmbienceDirector(() => 0);
+    let arcs = 0;
+    for (let i = 0; i < 600; i++) arcs += d.update(5 + i / 60, 1 / 60, silent, false).spawnArcs;
+    expect(arcs).toBe(0);
+  });
+
+  it('effets réduits : les structures et les réactions douces restent, ni éclair ni onde', () => {
+    expect(AMBIENCE.reduced.reaction).toBeGreaterThanOrEqual(0.4);
+    expect(AMBIENCE.reduced.motion).toBeGreaterThanOrEqual(0.4);
+    for (const t of Object.values(AMBIENCE.quality.tiers)) expect(t.tunnel).toBeGreaterThanOrEqual(5);
   });
 });

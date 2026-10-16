@@ -124,7 +124,7 @@ export class AmbienceRenderer {
     // Le tunnel apparaît pendant l'engloutissement (sous le cœur sombre de la faille), puis occupe tout l'écran
     const tunnelAmount = s.phase === 2 ? 1 : s.transit > 0 ? smooth((s.transit - tr.tunnelFrom) / (tr.tunnelTo - tr.tunnelFrom)) : 0;
     // Rubans : quelques courants à peine visibles en phase 1 (un peu plus présents avec le stade), pleins en phase 2
-    const ribbonAmount = clamp01((0.28 + 0.25 * (s.stage / 4)) * (1 + 2.2 * g) * (1 - s.look) + s.look);
+    const ribbonAmount = clamp01((0.55 + 0.2 * (s.stage / 4)) * (1 + 1.4 * g) * (1 - s.look) + s.look);
 
     this.rift.draw(s, v);
     this.stars.draw(s, v, dt);
@@ -134,7 +134,7 @@ export class AmbienceRenderer {
     this.effects.draw(s, v, dt);
     this.shards.draw(s, v, dt, this.hole.radius);
     this.hole.draw(s, v, tunnelAmount);
-    this.bolts.draw(s, v, dt, this.hole, s.core);
+    this.bolts.draw(s, v, dt, this.hole);
 
     // Voile : plus l'ambiance est lumineuse, plus la zone de jeu est protégée (plafonné) ; en phase 2 il s'allège pour laisser voir le tunnel sous l'arène
     const d = AMBIENCE.shape.veilRadius * 2 * v.scale;

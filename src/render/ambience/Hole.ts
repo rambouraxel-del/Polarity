@@ -82,7 +82,8 @@ export class Hole {
     const g = s.transit > 0 ? smooth(s.transit / tr.engulfBy) : 0;
     const open = 1 - s.look; // le cœur sombre s'efface sous le flash
     const cover = (v.halfDiag / v.scale) * 2.1;
-    const base0 = cfg.radiusMin + (cfg.radiusMax - cfg.radiusMin) * core;
+    // Ouverture rapide au début (la faille est bien visible dès 4 min 45) puis qui s'affine
+    const base0 = cfg.radiusMin + (cfg.radiusMax - cfg.radiusMin) * Math.pow(core, 0.5);
     // Croissance lente puis accélérée : le bord lumineux traverse l'écran avant de l'envelopper
     const ge = Math.pow(g, 2.6);
     const base = base0 + (cover - base0) * ge;
@@ -100,7 +101,7 @@ export class Hole {
     const tint = lerpColor(AMBIENCE_COLORS.azure, AMBIENCE_COLORS.violet, heat * 0.6 + 0.25 * s.drop);
     const glowBoost = 0.8 + 0.45 * s.bass + 0.3 * s.beat + 0.4 * s.drop;
     const haloSize = Math.max(40 * v.dpr, this.radius * sx * 5.4 * v.scale);
-    const haloA = Math.min(cfg.alphaMax, (0.12 + 0.5 * core) * glowBoost * open * (1 - 0.85 * ge) * user);
+    const haloA = Math.min(cfg.alphaMax, (0.15 + 0.55 * Math.pow(core, 0.5)) * glowBoost * open * (1 - 0.85 * ge) * user);
     this.halo.setPosition(v.cx, v.cy).setTint(tint).setAlpha(haloA).setDisplaySize(haloSize, haloSize * (1 / (sx * sx)) * 1.25).setRotation(rot);
     const orbSize = (60 + 90 * core) * v.scale * (1 + 0.45 * s.beat + 0.2 * s.drop) * (1 + 0.5 * g);
     const orbA = Math.min(1, (0.2 + 0.55 * (1 - core * 0.7)) * user * (0.85 + 0.3 * s.bass) * (1 - 0.75 * g) + 0.1 * s.look * user);

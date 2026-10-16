@@ -111,7 +111,7 @@ export class Bolts {
     const min = AMBIENCE.bolts.minRadius;
     const a = Math.random() * Math.PI * 2;
     const r0 = min + Math.random() * Math.max(40, farUnits * 0.85 - min);
-    const a1 = a + (Math.random() < 0.5 ? -1 : 1) * (0.1 + Math.random() * 0.32);
+    const a1 = a + (Math.random() < 0.5 ? -1 : 1) * (0.18 + Math.random() * 0.5);
     const r1 = Math.max(min, r0 * (0.72 + Math.random() * 0.6));
     b.sx = Math.cos(a) * r0;
     b.sy = Math.sin(a) * r0;
@@ -168,14 +168,14 @@ export class Bolts {
     g.strokePath();
   }
 
-  /** @param spawnRim apparition d'un filament depuis la faille (force 0 = aucun) ; @param hole forme courante de la faille */
-  draw(s: AmbienceState, v: AmbienceView, dt: number, hole: HoleShape, rimOpen: number): void {
+  /** @param hole forme courante de la faille (noyau, puis faille) : de là partent les filaments de la phase 1 */
+  draw(s: AmbienceState, v: AmbienceView, dt: number, hole: HoleShape): void {
     const cfg = AMBIENCE.bolts;
     const g = this.g;
     g.clear();
     const limit = s.quality.bolts;
     if (!s.reduced && s.user > 0 && dt > 0) {
-      if (s.spawnFissure > 0 && rimOpen > 0.2 && s.look < 0.5 && s.transit === 0) {
+      if (s.spawnFissure > 0 && s.look < 0.5 && s.transit === 0) {
         this.spawnFromRim(clamp01(s.spawnFissure), hole, limit);
         if (s.spawnFissure > 0.85) this.spawnFromRim(clamp01(s.spawnFissure * 0.8), hole, limit);
       }
@@ -207,14 +207,14 @@ export class Bolts {
       const alpha = Math.min(cfg.alphaMax, b.strength * Math.pow(1 - k, 0.8) * flick * (0.7 + 0.4 * s.drop) * s.user);
       if (alpha < 0.02) continue;
       if (s.tier !== 'low') {
-        g.lineStyle(7 * v.dpr, glowCol, alpha * 0.28);
+        g.lineStyle(9 * v.dpr, glowCol, alpha * 0.3);
         this.stroke(b.main, 0, MAIN, v);
         g.lineStyle(4 * v.dpr, glowCol, alpha * 0.22);
         for (let r = 0; r < b.nBr; r++) this.stroke(b.br, r * BRANCH_POINTS * 2, BRANCH_POINTS, v);
       }
-      g.lineStyle(1.9 * v.dpr, coreCol, alpha);
+      g.lineStyle(2.4 * v.dpr, coreCol, alpha);
       this.stroke(b.main, 0, MAIN, v);
-      g.lineStyle(1.2 * v.dpr, coreCol, alpha * 0.85);
+      g.lineStyle(1.6 * v.dpr, coreCol, alpha * 0.85);
       for (let r = 0; r < b.nBr; r++) this.stroke(b.br, r * BRANCH_POINTS * 2, BRANCH_POINTS, v);
     }
   }

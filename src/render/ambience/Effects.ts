@@ -5,8 +5,8 @@ import { clamp01, lerpColor, type AmbienceView } from './view';
 
 const MAX_RINGS = AMBIENCE.quality.tiers.high.rings;
 /** Vitesse d'expansion (unités monde/s) : anneau de battement, onde de passage fort. */
-const RING_SPEED = 300;
-const WAVE_SPEED = 460;
+const RING_SPEED = 520;
+const WAVE_SPEED = 820;
 /** Largeur (unités monde) de la bosse que l'onde imprime au quadrillage. */
 const WAVE_BAND = 45;
 
@@ -95,19 +95,19 @@ export class Effects {
         r.active = false;
         continue;
       }
-      const fade = Math.pow(1 - k, 1.3);
+      const fade = Math.pow(1 - k, 1.8);
       const rad = r.r * v.scale;
       if (r.wave) {
-        const a = Math.min(caps.ringAlpha * 1.25, r.strength * 0.5 * fade);
+        const a = Math.min(caps.ringAlpha * 1.25, r.strength * 0.8 * fade);
         g.lineStyle(10 * v.dpr, heatColor, a * 0.3);
         g.strokeCircle(v.cx, v.cy, rad);
         g.lineStyle(2.5 * v.dpr, AMBIENCE_COLORS.ice, a);
         g.strokeCircle(v.cx, v.cy, rad);
       } else {
-        const a = Math.min(caps.ringAlpha, r.strength * 0.4 * fade);
-        g.lineStyle(5 * v.dpr, AMBIENCE_COLORS.cyan, a * 0.3);
+        const a = Math.min(caps.ringAlpha, r.strength * 0.75 * fade);
+        g.lineStyle(9 * v.dpr, AMBIENCE_COLORS.cyan, a * 0.3);
         g.strokeCircle(v.cx, v.cy, rad);
-        g.lineStyle(1.4 * v.dpr, AMBIENCE_COLORS.cyan, a);
+        g.lineStyle(2.2 * v.dpr, AMBIENCE_COLORS.cyan, a);
         g.strokeCircle(v.cx, v.cy, rad);
       }
     }

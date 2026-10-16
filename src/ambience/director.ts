@@ -13,7 +13,7 @@ import type { MusicFrame } from './musicSync';
 const PARAM_KEYS = Object.keys(STAGE_PARAMS) as StageParam[];
 const LAST = STAGES.length - 1;
 /** Paramètres que le réglage « intensité visuelle » du joueur atténue (le ciel étoilé et le décor de base restent). */
-const USER_SCALED: StageParam[] = ['nebula', 'riftGlow', 'dust', 'debris', 'arcRate', 'ringChance', 'gridWarp', 'waveGain', 'beatGain', 'bassGain'];
+const USER_SCALED: StageParam[] = ['nebula', 'riftGlow', 'dust', 'debris', 'arcRate', 'ringChance', 'gridWarp', 'waveGain', 'beatGain', 'bassGain', 'boltChance', 'waveChance'];
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smoothstep = (x: number): number => {
@@ -121,10 +121,13 @@ export class AmbienceDirector {
     s.calm = 0;
     this.scriptIdx = 0;
     this.lastSurvival = 0;
+    this.prevCalm = 0;
   }
 
   private scriptIdx = 0;
   private lastSurvival = 0;
+  /** Passage calme de l'image précédente (détection de la reprise). */
+  private prevCalm = 0;
 
   /**
    * @param survival temps de survie actif (s) — la pause l'arrête
@@ -216,24 +219,42 @@ export class AmbienceDirector {
     s.beat *= Math.exp(-dt / cfg.beatDecay);
     // Passage calme : impulsions réduites, anneaux et fissures rares
     const quiet = 1 - AMBIENCE.calm.reaction * s.calm;
-    if (music.beat >= cfg.beatThreshold) {
-      s.beat = Math.max(s.beat, Math.pow(Math.min(1, music.beat), cfg.beatCurve) * s.p.beatGain * reaction * quiet);
-      if (music.beat >= cfg.strongBeat && this.rand() < s.p.ringChance * (1 + s.build) * quiet) s.spawnRing = music.beat * s.p.beatGain * reaction;
-      if (music.beat >= cfg.strongBeat && this.rand() < (s.p.fissure + 0.25 * s.look) * quiet * (1 - s.calm)) s.spawnFissure = Math.max(s.spawnFissure, music.beat);
-      // Phase 2 : éclairs entre les structures du tunnel sur les battements marqués
-      if (s.look > 0.5 && (!reduced || AMBIENCE.reduced.arcs) && music.beat >= cfg.beatThreshold && this.rand() < 0.3 * music.beat * quiet) s.spawnArcs += 1;
+    const waves = !reduced || AMBIENCE.reduced.waves;
+    const arcs = !reduced || AMBIENCE.reduced.arcs;
+    // Les battements cartographiés et les coups de basse (grosse caisse entre deux battements) ont la même réponse franche
+    const hit = music.hit ?? 0;
+    const power = Math.max(music.beat, hit);
+    if (power >= cfg.beatThreshold) {
+      s.beat = Math.max(s.beat, Math.pow(Math.min(1, power), cfg.beatCurve) * s.p.beatGain * reaction * quiet);
+      // Anneau d'énergie dès un battement moyen ; onde plus rapide et plus large sur les battements très forts
+      if (power >= cfg.ringBeat && this.rand() < s.p.ringChance * (1 + s.build) * quiet) s.spawnRing = power * s.p.beatGain * reaction;
+      if (power >= cfg.strongBeat) {
+        if (waves && this.rand() < s.p.waveChance * quiet) s.spawnWave = Math.max(s.spawnWave, s.p.waveGain * 0.7);
+        if (this.rand() < (s.p.fissure + 0.25 * s.look) * quiet * (1 - s.calm)) s.spawnFissure = Math.max(s.spawnFissure, power);
+      }
+      // Éclair ramifié sur les battements marqués (phase 2 : plus souvent)
+      if (arcs && this.rand() < (s.p.boltChance + 0.2 * s.look) * power * quiet) s.spawnArcs += 1;
     }
+
+    // Reprise nette : fin d'un passage calme → onde, éclairs et impulsion avec la musique
+    if (this.prevCalm > AMBIENCE.resume.from && s.calm < AMBIENCE.resume.to && music.active) {
+      s.drop = Math.max(s.drop, s.p.waveGain * 0.7 * reaction);
+      if (waves) s.spawnWave = Math.max(s.spawnWave, s.p.waveGain);
+      if (arcs) s.spawnArcs += 2;
+      s.spawnFissure = Math.max(s.spawnFissure, 0.9);
+    }
+    this.prevCalm = s.calm;
 
     // Passage fort : impulsion longue, onde, arcs
     s.drop *= Math.exp(-dt / cfg.dropDecay);
     if (music.drop) {
       s.drop = Math.max(s.drop, s.p.waveGain * reaction);
-      if (!reduced || AMBIENCE.reduced.waves) s.spawnWave = s.p.waveGain;
-      if ((!reduced || AMBIENCE.reduced.arcs) && s.p.arcRate > 0) s.spawnArcs += 2;
+      if (waves) s.spawnWave = s.p.waveGain;
+      if (arcs && s.p.arcRate > 0) s.spawnArcs += 3;
     }
 
     // Arcs occasionnels : plus fréquents avec l'intensité, les montées et les passages forts
-    if (!reduced || AMBIENCE.reduced.arcs) {
+    if (music.active && (!reduced || AMBIENCE.reduced.arcs)) {
       const rate = s.p.arcRate * (1 + s.intensity * 0.6 + s.build + s.drop * 2) * (1 - 0.85 * s.calm) * (1 + 0.8 * s.look);
       if (this.rand() < rate * dt) s.spawnArcs += 1;
     }

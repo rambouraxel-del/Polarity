@@ -62,7 +62,7 @@ export class Tunnel {
     let resort = n !== this.count;
     this.count = n;
     const ratio = cfg.scaleMax / cfg.scaleMin;
-    const pulse = 0.72 + 0.28 * Math.min(1, s.beat + 0.4 * s.bass + 0.5 * s.drop);
+    const pulse = 0.84 + 0.16 * Math.min(1, s.beat + 0.4 * s.bass + 0.5 * s.drop);
     const warm = clamp01(s.p.heat * 0.5 + s.drop * 0.3 + s.build * 0.2);
     const aMax = cfg.alphaMax * amount * s.user;
     for (let i = 0; i < MAX; i++) {
@@ -76,7 +76,7 @@ export class Tunnel {
       this.lastT[i] = t;
       const fadeIn = smooth(t / cfg.fadeIn);
       const fadeOut = 1 - smooth((t - cfg.fadeOut) / (1 - cfg.fadeOut));
-      const alpha = aMax * fadeIn * fadeOut * pulse * (0.55 + 0.45 * Math.sqrt(t));
+      const alpha = aMax * fadeIn * fadeOut * pulse * (0.78 + 0.22 * Math.sqrt(t));
       if (alpha < 0.01) {
         img.setVisible(false);
         continue;

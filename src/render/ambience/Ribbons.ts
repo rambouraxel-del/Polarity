@@ -72,7 +72,7 @@ export class Ribbons {
     this.time += dt * motion * (1 + 0.5 * s.bass + 0.8 * s.drop + 0.3 * s.build);
     const t = this.time;
     // Nombre de rubans : deux en phase 1, tout le jeu (selon la qualité) en phase 2
-    const n = Math.min(MAX, s.quality.ribbons, Math.max(2, Math.round(2 + (MAX - 2) * s.look)));
+    const n = Math.min(MAX, s.quality.ribbons, Math.max(4, Math.round(4 + (MAX - 4) * s.look)));
     const far = v.halfDiag / v.scale;
     const swell = 1 + 0.45 * s.beat + 0.35 * s.bass + 0.5 * s.drop;
     const bright = amount * s.user * (0.55 + 0.7 * Math.min(1, s.beat + 0.5 * s.bass + 0.5 * s.build + 0.7 * s.drop));
@@ -112,6 +112,29 @@ export class Ribbons {
           const mx = (this.lx[q] + this.rx[q]) / 2;
           const my = (this.ly[q] + this.ry[q]) / 2;
           g.lineTo(mx + (this.rx[q] - mx) * k, my + (this.ry[q] - my) * k);
+        }
+        g.closePath();
+        g.fillPath();
+      }
+      // Impulsion d'énergie qui circule le long du ruban (mouvement entre les battements, plus vif sur la musique)
+      const u0 = (t * (0.1 + 0.03 * i) + i * 0.37) % 1;
+      const k0 = Math.max(0, Math.floor((u0 - 0.1) * (PTS - 1)));
+      const k1 = Math.min(PTS - 1, Math.ceil((u0 + 0.1) * (PTS - 1)));
+      if (k1 - k0 >= 2) {
+        g.fillStyle(AMBIENCE_COLORS.ice, Math.min(0.7, a * (0.9 + 1.6 * s.beat + 0.8 * s.drop)));
+        g.beginPath();
+        for (let q = k0; q <= k1; q++) {
+          const mx = (this.lx[q] + this.rx[q]) / 2;
+          const my = (this.ly[q] + this.ry[q]) / 2;
+          const x = mx + (this.lx[q] - mx) * 0.45;
+          const y = my + (this.ly[q] - my) * 0.45;
+          if (q === k0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        }
+        for (let q = k1; q >= k0; q--) {
+          const mx = (this.lx[q] + this.rx[q]) / 2;
+          const my = (this.ly[q] + this.ry[q]) / 2;
+          g.lineTo(mx + (this.rx[q] - mx) * 0.45, my + (this.ry[q] - my) * 0.45);
         }
         g.closePath();
         g.fillPath();

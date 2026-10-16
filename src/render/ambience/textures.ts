@@ -68,7 +68,7 @@ function tunnelRing(scene: Phaser.Scene, key: string, seed: number): void {
   const rand = seeded(seed);
   const mid = size / 2;
   const R = size / 2 - 6;
-  const SEG = 14;
+  const SEG = 12;
   const levels = [0.2, 0.35, 0.54, 0.76, 1];
   const grid: [number, number][][] = levels.map((lv, j) =>
     Array.from({ length: SEG }, (_, i) => {
@@ -97,10 +97,10 @@ function tunnelRing(scene: Phaser.Scene, key: string, seed: number): void {
     const k = rand();
     let c0: string;
     let c1: string;
-    if (k < 0.34) {
+    if (k < 0.46) {
       c0 = `rgba(${22 + Math.floor(rand() * 20)},${64 + Math.floor(rand() * 30)},${225 + Math.floor(rand() * 30)},0.92)`;
       c1 = 'rgba(8,20,96,0.96)';
-    } else if (k < 0.44) {
+    } else if (k < 0.56) {
       c0 = `rgba(${84 + Math.floor(rand() * 24)},${48 + Math.floor(rand() * 20)},${210 + Math.floor(rand() * 40)},0.9)`;
       c1 = 'rgba(22,12,76,0.96)';
     } else {
@@ -125,14 +125,14 @@ function tunnelRing(scene: Phaser.Scene, key: string, seed: number): void {
   }
   // Arêtes lumineuses : trois passes (large et faible, moyenne, fine et vive)
   const passes: [number, number][] = [
-    [18, 0.07],
-    [8, 0.2],
-    [2.8, 0.95],
+    [22, 0.08],
+    [10, 0.22],
+    [3.6, 0.95],
   ];
   const lit: { a: Pt; b: Pt; col: readonly [number, number, number]; w: number }[] = [];
   for (const { t, band } of tris) {
     for (let e = 0; e < 3; e++) {
-      if (rand() > (band[e] ? 0.86 : 0.5)) continue;
+      if (rand() > (band[e] ? 0.72 : 0.3)) continue;
       lit.push({ a: t[e], b: t[(e + 1) % 3], col: EDGE_COLORS[Math.floor(rand() * EDGE_COLORS.length)], w: 0.6 + rand() * 0.9 });
     }
   }

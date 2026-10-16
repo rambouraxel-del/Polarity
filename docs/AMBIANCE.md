@@ -77,6 +77,21 @@ Si la musique change un jour : remplacer les MP3 et leurs repères, puis relance
 Ordre des calques : nébuleuses → étoiles → tunnel → débris → rubans → poussières/étincelles → anneaux/ondes → vignette → **voile sombre de la zone de jeu**
 → fragments → faille (halo, cœur sombre, liseré, sphère) → éclairs → quadrillage → orbite, menaces, vaisseau (inchangés).
 
+## Activité musicale dès le début (stade 1 compris)
+Les trois premières minutes ne sont plus « vides » : dès la première seconde, anneaux d'énergie (battements à partir de 0,5), ondes plus larges et rapides
+(battements très forts, passages forts), éclairs ramifiés (rythme ambiant `arcRate` + probabilité `boltChance` par battement marqué) et filaments qui
+jaillissent du noyau (`fissure`). Les paramètres de stade partent haut (`STAGE_PARAMS`) et gagnent en richesse stade après stade.
+- **Réponse franche** : `music.lead` 34 ms (avance visuelle), `beatDecay` 80 ms, `bassRelease` 90 ms, `intensitySmooth` 220 ms, `beatCurve` 0,55 ; anneaux à
+  520 u/s, ondes à 820 u/s, extinction courte. Les **coups de basse** entre deux battements cartographiés (`MusicFrame.hit`, attaque de l'enveloppe des basses :
+  `hitRise`, `hitLevel`, `hitGap`) déclenchent la même réponse que les battements.
+- **Entre les battements** : rubans d'énergie (avec une impulsion qui circule le long de chacun), poussières, nébuleuses, rotation du ciel et du tunnel.
+- **Respirations** : seuls les vrais creux de la musique (`calm.low/high` = 0,07/0,17 d'intensité) calment l'ambiance ; à leur fin, **reprise nette**
+  (`AMBIENCE.resume` : onde, éclairs et impulsion repartent avec la musique).
+- **Mobile** : on réduit d'abord les particules et les effets coûteux (poussières, étoiles, fragments, segments du quadrillage, points du contour) ; les grandes
+  structures (plans du tunnel ≥ 5, rubans ≥ 4, anneaux ≥ 4, éclairs ≥ 4) et les fréquences d'apparition sont conservées à tous les niveaux de qualité.
+  **Effets réduits** : tunnel, rubans et faille restent affichés, réactions à 40 %, mouvements à 40 % ; ni éclair ni onde (confort).
+  Sans musique audible, aucune réaction (inchangé).
+
 ## Décor animé : faille, traversée, tunnel (tout est dessiné en code)
 Références artistiques : « espace avec faille en formation » (phase 1) et « intérieur électrique de la faille » (phase 2). Aucune image n'est affichée :
 les textures sont générées au lancement (canvas 2D, graine fixe) et animées par le moteur existant. Tous les réglages sont dans `config/ambience.ts`
