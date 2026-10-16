@@ -1,5 +1,7 @@
 # Reprise
 
+**Fenêtre développeur « DEV » (visuel/outils seulement, `BALANCE_VERSION` 4 inchangée) :** immortalité, pause/vitesse/sauts de temps (4:30, traversée, phase 2), obstacles, éclairs et vagues, intensité et qualité, FPS et diagnostic du classement, remises à zéro (records locaux avec copie ; classements mondiaux uniquement par une autorisation administrateur dédiée vérifiée par le service, `ADMIN_RESET_SECRET`, désactivée sans elle). Toute partie utilisant ces contrôles reste une partie de test. Le menu Classement n'affiche que la version actuelle. **Étapes OVH (non faites) :** voir `docs/GUIDE_DEPLOIEMENT.md` § 7 bis. Détail : `docs/MODE_DEVELOPPEUR.md`.
+
 **Mode développeur (Options) :** désactivé par défaut, verrou par mot de passe configurable, désactivation immédiate ; en Survie le vaisseau est immortel (badge « TEST »), et toute partie lancée dans ce mode reste une partie de test (aucun classement, record, gain, succès ni cosmétique, rien envoyé au service). `BALANCE_VERSION` 4 inchangée. Voir `docs/MODE_DEVELOPPEUR.md`.
 
 **Ambiance musicale renforcée dès les premières secondes (visuel seulement, `BALANCE_VERSION` 4 inchangée) :** anneaux, ondes, éclairs ramifiés et filaments du noyau dès le stade 1, réponse franche aux basses (coups de basse détectés entre les battements), respirations sur les vrais creux de la musique puis reprise nette, rubans avec impulsions qui circulent, qualité mobile qui réduit d'abord les particules ; faille de 4 min 45 plus grande et tunnel de 5 min 20 plus plein. Voir `docs/AMBIANCE.md`.

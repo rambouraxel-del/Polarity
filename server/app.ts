@@ -33,6 +33,8 @@ import { createRewards, rollDrop } from './rewards';
 import { createPayments, PAYMENT_ASYNC_ROUTES, settleDebt, type PaymentsConfig } from './payments';
 import { createAds, ADS_ASYNC_ROUTES } from './ads';
 import { DROPS } from '../src/config/rewards';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { RESET_CONFIRMATION, isBoard, resetBoard } from './boards';
 
 /**
  * Logique du service de classement, indépendante du transport HTTP (testable sans réseau).
@@ -56,6 +58,11 @@ export interface AppConfig {
   accounts?: AccountsConfig;
   /** Achats réels de Prismes et publicités récompensées (phase 5) : chaque fournisseur reste DÉSACTIVÉ tant que ses identifiants ne sont pas fournis. */
   payments?: PaymentsConfig;
+  /**
+   * Autorisation administrateur DÉDIÉE à la remise à zéro d'un classement (jamais le mot de passe du mode développeur du jeu, jamais dans le jeu) :
+   * absente = route désactivée. `backupDir` : dossier où la copie de la base est écrite avant tout effacement.
+   */
+  admin?: { resetSecret: string; backupDir: string };
 }
 
 /** Gestionnaire du service : synchrone, sauf les routes qui attendent le réseau (clés des fournisseurs, courriel) exposées par `async`. */
@@ -143,6 +150,7 @@ const isUniqueViolation = (e: unknown): boolean => e instanceof Error && /UNIQUE
 
 export function createApp(db: Db, cfg: AppConfig): App {
   if (!cfg.ticketSecret || cfg.ticketSecret.length < 16) throw new Error('ticketSecret (16 caractères minimum) requis');
+  if (cfg.admin && cfg.admin.resetSecret.length < 32) throw new Error('ADMIN_RESET_SECRET : 32 caractères minimum');
   const now = cfg.now ?? Date.now;
   const balance = cfg.balance ?? BALANCE_VERSION;
   const limiter = new RateLimiter(now);
@@ -461,6 +469,30 @@ export function createApp(db: Db, cfg: AppConfig): App {
     return json(200, res);
   }
 
+  /** Remise à zéro d'un classement : autorisation administrateur dédiée (en-tête Authorization, hors des jetons de joueurs), confirmation écrite, sauvegarde préalable. */
+  function adminResetBoard(req: HttpRequest): HttpResponse {
+    const admin = cfg.admin;
+    if (!admin) return err(404, 'not_found', 'Route inconnue.');
+    if (!limiter.allow(`admin:${req.ip}`, 5, 10 * 60_000) || !limiter.allow('admin:global', 20, 10 * 60_000)) return err(429, 'rate_limited', 'Trop de tentatives : réessayez plus tard.');
+    const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
+    const digest = (s: string): Buffer => createHash('sha256').update(s).digest();
+    const ok = !!m && timingSafeEqual(digest(m[1]), digest(admin.resetSecret));
+    if (!ok) {
+      q.log.run(now(), 'remise_a_zero_refusee', 'autorisation administrateur refusée');
+      return err(403, 'forbidden', 'Autorisation administrateur refusée.');
+    }
+    const b = (req.body ?? {}) as { board?: unknown; confirm?: unknown };
+    if (!isBoard(b.board)) return err(400, 'bad_request', 'Classement inconnu (plain, bonus ou daily).');
+    if (b.confirm !== RESET_CONFIRMATION) return err(400, 'confirmation_required', `Confirmation exigée : « ${RESET_CONFIRMATION} ».`);
+    try {
+      const res = resetBoard(db, { board: b.board, balance, backupDir: admin.backupDir, now, source: 'route administrateur' });
+      return json(200, { ok: true, board: res.board, removed: res.rows, backup: res.backup });
+    } catch (e) {
+      console.error('Remise à zéro impossible :', e);
+      return err(503, 'backup_failed', 'La sauvegarde préalable a échoué : rien n’a été effacé.');
+    }
+  }
+
   const rewards = createRewards({ db, now, allow: (k, m, w) => limiter.allow(k, m, w), authenticate });
   // Reprise après une panne : les défis quotidiens échus pendant l'arrêt sont clos dès le démarrage
   rewards.tick(true);
@@ -486,6 +518,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
         case 'GET /api/leaderboard': return leaderboard(req);
         case 'GET /api/balances': return balances();
         case 'POST /api/register': return register(req);
+        case 'POST /api/admin/reset-board': return adminResetBoard(req);
         default: break;
       }
       // Routes authentifiées

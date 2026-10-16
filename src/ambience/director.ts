@@ -126,6 +126,8 @@ export class AmbienceDirector {
 
   private scriptIdx = 0;
   private lastSurvival = 0;
+  /** Effets demandés à la main (outils du mode développeur) : appliqués à la prochaine image. */
+  private manual: ('bolt' | 'wave' | 'ring' | 'fissure')[] = [];
   /** Passage calme de l'image précédente (détection de la reprise). */
   private prevCalm = 0;
 
@@ -139,6 +141,14 @@ export class AmbienceDirector {
     const s = this.state;
     s.reduced = reduced;
     s.spawnRing = s.spawnWave = s.spawnArcs = s.spawnFissure = 0;
+    for (const k of this.manual.splice(0)) {
+      if (k === 'bolt') s.spawnArcs += 2;
+      else if (k === 'wave') {
+        s.spawnWave = Math.max(s.spawnWave, 1);
+        s.drop = Math.max(s.drop, 0.9);
+      } else if (k === 'ring') s.spawnRing = Math.max(s.spawnRing, 1);
+      else s.spawnFissure = Math.max(s.spawnFissure, 1);
+    }
     s.time += dt;
     s.phase = ph.phase;
     s.transit = ph.transit;
@@ -258,6 +268,11 @@ export class AmbienceDirector {
       const rate = s.p.arcRate * (1 + s.intensity * 0.6 + s.build + s.drop * 2) * (1 - 0.85 * s.calm) * (1 + 0.8 * s.look);
       if (this.rand() < rate * dt) s.spawnArcs += 1;
     }
+  }
+
+  /** Demande un effet décoratif à la prochaine image (mode développeur) ; sans effet en pause et jamais lu par la simulation. */
+  trigger(kind: 'bolt' | 'wave' | 'ring' | 'fissure'): void {
+    this.manual.push(kind);
   }
 
   setQuality(tier: QualityTier): void {

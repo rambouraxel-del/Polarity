@@ -3,6 +3,8 @@ import { dirname } from 'node:path';
 import { backupTo, integrityCheck, openDb, transaction, type Db } from './db';
 import { maskedNickname } from './moderation';
 import { balancesOf, eraseProfile } from './profile';
+import { BOARDS, isBoard, planReset, resetBoard } from './boards';
+import { BALANCE_VERSION } from '../src/config/version';
 
 /**
  * Outil d'administration du classement — EN LIGNE DE COMMANDE, à lancer sur la machine qui héberge la base (il n'existe aucune route HTTP
@@ -17,6 +19,7 @@ import { balancesOf, eraseProfile } from './profile';
  *   npm run server:admin -- export <pseudo|id>          données liées à un profil (demande d'accès)
  *   npm run server:admin -- delete-player <pseudo|id> [--yes]   suppression complète d'un profil et de ses données
  *   npm run server:admin -- backup <fichier>            copie cohérente de la base (refuse d'écraser)
+ *   npm run server:admin -- reset-board <plain|bonus|daily> <dossier-de-sauvegarde> [--yes]   remet UN classement à zéro (copie de la base écrite avant ; profils, monnaies, achats, cosmétiques intacts)
  *   npm run server:admin -- check                       contrôle d'intégrité
  *   npm run server:admin -- prune --older-than-days N [--yes]   tickets périmés non utilisés et journaux de parties anciennes (hors records)
  */
@@ -71,6 +74,15 @@ export function runAdmin(db: Db, args: string[], now: () => number = Date.now): 
         `Comptes : ${n('SELECT COUNT(DISTINCT player_id) AS n FROM identities')} profils avec méthode de connexion, ${n('SELECT COUNT(*) AS n FROM players WHERE guest = 1')} invités, ${n('SELECT COUNT(*) AS n FROM merges')} fusions`,
         `Registre des monnaies : ${n('SELECT COUNT(*) AS n FROM ledger')} lignes (Éclats en circulation : ${n("SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE currency = 'shards'")}, Prismes : ${n("SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE currency = 'prisms'")})`,
       ];
+    }
+    case 'reset-board': {
+      const [board, dir] = pos;
+      if (!isBoard(board)) throw new Error(`Classement inconnu : indiquez ${BOARDS.join(', ')}.`);
+      const plan = planReset(db, board, BALANCE_VERSION);
+      if (!yes) return [`SIMULATION : ${plan.rows} ligne(s) de classement « ${board} » seraient effacées (profils, monnaies, achats et cosmétiques intacts). Ajoutez le dossier de sauvegarde et --yes pour appliquer.`];
+      if (!dir) throw new Error('Indiquez le dossier où écrire la sauvegarde préalable.');
+      const res = resetBoard(db, { board, balance: BALANCE_VERSION, backupDir: dir, now, source: 'ligne de commande' });
+      return [`Classement « ${board} » remis à zéro : ${res.rows} ligne(s) effacée(s). Sauvegarde préalable : ${dir}/${res.backup}.`];
     }
     case 'check': {
       const problems = integrityCheck(db);

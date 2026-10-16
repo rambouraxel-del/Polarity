@@ -182,7 +182,9 @@ describe('classement : client', () => {
     expect(html).toContain('2 / 2');
     expect(html).toContain('lb-row--you');
     expect(html).toContain('En attente de connexion');
-    expect(html).toContain('ancien');
+    // Version actuelle seulement : le service connaît une version antérieure, l'interface n'y donne aucun accès
+    expect(html).not.toContain('ancien');
+    expect(html).not.toContain('lb-balance');
     expect(html).toContain('data-action="lb-flush"');
     expect(html).toContain('data-form="lb-rename"');
     // Deux classements : onglets « Sans bonus » (par défaut) et « Avec bonus »

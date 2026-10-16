@@ -14,6 +14,9 @@ services:
       TICKET_SECRET: ${TICKET_SECRET:?TICKET_SECRET manquant (openssl rand -hex 32)}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS manquant (ex. https://utilisateur.github.io)}
       DATABASE_PATH: /data/leaderboard.sqlite
+      # Remise à zéro d'un classement depuis la fenêtre développeur du jeu (facultatif ; vide = route désactivée). 32 caractères minimum, jamais dans le jeu.
+      ADMIN_RESET_SECRET: ${ADMIN_RESET_SECRET:-}
+      BACKUP_DIR: /data/sauvegardes
       TRUST_PROXY: "1"
       REQUIRE_HTTPS: "1"
       BLOCKED_WORDS: ${BLOCKED_WORDS:-}

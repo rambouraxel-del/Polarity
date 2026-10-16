@@ -106,6 +106,12 @@ Supprimer les fichiers `-wal` et `-shm` est indispensable : ils appartiennent à
 **Retour arrière** : `git checkout <ancien commit>` → `docker compose up -d --build`. Si la base a été migrée entre-temps, l'ancien code **refuse de démarrer** (« base plus récente que ce service ») sans rien modifier : restaurez alors la sauvegarde faite avant la mise à jour (§6), ou le fichier `.avant-vN.bak`, puis relancez.
 Évolution du schéma (pour un développeur) : ajouter une migration à la fin de `MIGRATIONS` dans `server/db.ts` (jamais modifier une existante), puis un test ; `PRAGMA user_version` suit la version.
 
+## 7 bis. Remise à zéro d'un classement (outil du mode développeur — facultatif)
+Deux voies, toutes deux précédées d'une **copie de la base** (si la copie échoue, rien n'est effacé) et journalisées (`moderation_log`) ; profils, monnaies (registre), achats et cosmétiques ne sont jamais touchés :
+- **Ligne de commande** (sur la machine) : `docker compose exec classement npm run server:admin -- reset-board <plain|bonus|daily> /data/sauvegardes` (simulation) puis ajouter `--yes`.
+- **Fenêtre développeur du jeu** → onglet « Remise à zéro » : exige `ADMIN_RESET_SECRET` dans `.env` (32 caractères minimum, **différent** de `TICKET_SECRET` et du mot de passe du mode développeur), `docker compose up -d --build`. Le secret est saisi à l'instant dans la fenêtre, envoyé en HTTPS dans l'en-tête `Authorization`, jamais enregistré ni présent dans le jeu. Sans `ADMIN_RESET_SECRET`, la route répond « route inconnue » (désactivée). 5 tentatives / 10 min par adresse.
+Portée : `plain` / `bonus` = records de la version actuelle ; `daily` = défis quotidiens non clos (les défis clos et leurs Prismes restent). Les anciennes versions et les parties validées (`runs`) restent archivées. Les sauvegardes sont écrites dans `BACKUP_DIR` (`/data/sauvegardes`, volume `donnees`) : copiez-les hors de la machine.
+
 ## 8. Quand `BALANCE_VERSION` change (règles de Survie modifiées)
 Le serveur ne rejoue que les parties de **sa** version ; les anciennes versions du jeu seraient refusées (« version non prise en charge », ticket conservé). Donc, **dans cet ordre** :
 1. `sh sauvegarde.sh` (les records de l'ancienne version restent en base et consultables, jamais mélangés).

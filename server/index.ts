@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createApp } from './app';
 import { mailerFromEnv } from './mailer';
 import { openDb } from './db';
@@ -7,6 +7,8 @@ import { checkOrigins, createHttpServer } from './http';
 
 /**
  * Point d'entrée du service de classement mondial (Survie). Configuration par variables d'environnement (voir docs/GUIDE_DEPLOIEMENT.md) :
+ *   ADMIN_RESET_SECRET  (facultatif) autorisation administrateur dédiée à la remise à zéro d'un classement via POST /api/admin/reset-board, 32 caractères minimum ; absente = route désactivée ; jamais dans le jeu
+ *   BACKUP_DIR        dossier des sauvegardes écrites avant une remise à zéro (défaut : sauvegardes/ à côté de la base)
  *   TICKET_SECRET     secret de signature des tickets (obligatoire, ≥ 32 caractères aléatoires) — jamais dans le jeu ni dans le dépôt
  *   DATABASE_PATH     fichier SQLite (défaut : ./data/leaderboard.sqlite) — à placer sur un disque persistant
  *   ALLOWED_ORIGINS   origines CORS exactes, séparées par des virgules (ex. https://utilisateur.github.io) ; jamais « * ». Applications natives : ajouter https://localhost (Android) et capacitor://localhost (iOS), seules origines non https acceptées (src/net/origins.ts)
@@ -33,6 +35,9 @@ const dbPath = process.env.DATABASE_PATH ?? './data/leaderboard.sqlite';
 const allowed = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const trustProxy = Math.max(0, Math.floor(Number(process.env.TRUST_PROXY === 'true' ? 1 : (process.env.TRUST_PROXY ?? 0))) || 0);
 const requireHttps = process.env.REQUIRE_HTTPS === '1';
+// Remise à zéro d'un classement par la route d'administration : désactivée sans ADMIN_RESET_SECRET (32 caractères minimum, jamais dans le jeu)
+const adminSecret = process.env.ADMIN_RESET_SECRET?.trim() ?? '';
+const backupDir = process.env.BACKUP_DIR?.trim() || join(dirname(process.env.DATABASE_PATH ?? './data/leaderboard.sqlite'), 'sauvegardes');
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? '0.0.0.0';
 const blocked = (process.env.BLOCKED_WORDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -71,6 +76,7 @@ const adUnits = list(process.env.ADMOB_AD_UNIT_IDS);
 const app = createApp(db, {
   payments: { apple: applePay, google: googlePay, playNotifyToken: env('PLAY_NOTIFY_TOKEN') || undefined, playNotifyOidc: env('PLAY_NOTIFY_AUDIENCE') && env('PLAY_NOTIFY_SERVICE_ACCOUNT_EMAIL') ? { audience: env('PLAY_NOTIFY_AUDIENCE'), email: env('PLAY_NOTIFY_SERVICE_ACCOUNT_EMAIL') } : undefined, ads: adUnits.length > 0 ? { adUnits } : undefined },
   ticketSecret: secret,
+  admin: adminSecret ? { resetSecret: adminSecret, backupDir } : undefined,
   blockedWords: blocked,
   limits: { replaysPerMinute: Number.isFinite(maxReplays) && maxReplays > 0 ? maxReplays : 30 },
   accounts: {

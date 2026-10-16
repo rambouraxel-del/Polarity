@@ -1,0 +1,231 @@
+/* Mode développeur : bouton discret « DEV » et fenêtre de contrôle (couleurs du thème uniquement) */
+.dev-btn {
+  position: fixed;
+  left: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  min-width: 40px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid rgb(var(--c-gold-rgb) / 0.55);
+  border-radius: var(--r-pill);
+  background: rgb(var(--c-bg-deep-rgb) / 0.55);
+  color: var(--c-gold);
+  font: 700 11px/1 var(--font-display);
+  letter-spacing: 0.12em;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.dev-btn:hover,
+.dev-btn--on {
+  opacity: 1;
+}
+
+.dev-panel {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+  z-index: 41;
+  max-width: 420px;
+  max-height: min(72vh, 620px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgb(var(--c-gold-rgb) / 0.5);
+  border-radius: var(--r-md);
+  background: rgb(var(--c-bg-deep-rgb) / 0.94);
+  color: var(--c-white);
+  font: 13px/1.35 var(--font-text);
+  box-shadow: 0 6px 28px rgb(var(--c-bg-deep-rgb) / 0.8);
+}
+
+.dev-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgb(var(--c-white-rgb) / 0.12);
+}
+
+.dev-tag {
+  padding: 0 7px;
+  border: 1px solid rgb(var(--c-gold-rgb) / 0.8);
+  border-radius: var(--r-pill);
+  color: var(--c-gold);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.dev-close {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--c-white);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.dev-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+}
+
+.dev-tab {
+  flex: 1;
+  min-height: 32px;
+  border: 1px solid rgb(var(--c-white-rgb) / 0.14);
+  border-bottom: 0;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  background: transparent;
+  color: var(--c-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dev-tab--on {
+  background: rgb(var(--c-white-rgb) / 0.08);
+  color: var(--c-white);
+}
+
+.dev-body {
+  overflow-y: auto;
+  padding: 8px 10px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dev-body h4 {
+  margin: 10px 0 4px;
+  color: var(--c-gold);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dev-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 5px 0;
+}
+
+.dev-lab {
+  min-width: 64px;
+  color: var(--c-muted);
+}
+
+.dev-btn-x,
+.dev-chip {
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid rgb(var(--c-cyan-rgb) / 0.5);
+  border-radius: var(--r-sm);
+  background: rgb(var(--c-cyan-rgb) / 0.08);
+  color: var(--c-white);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dev-btn-x:disabled,
+.dev-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dev-chip--on {
+  background: rgb(var(--c-cyan-rgb) / 0.3);
+}
+
+.dev-btn-x--danger {
+  border-color: rgb(var(--c-coral-rgb) / 0.8);
+  background: rgb(var(--c-coral-rgb) / 0.12);
+}
+
+.dev-kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  margin: 4px 0 8px;
+}
+
+.dev-kv dt {
+  color: var(--c-muted);
+}
+
+.dev-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dev-select,
+.dev-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid rgb(var(--c-white-rgb) / 0.25);
+  border-radius: var(--r-sm);
+  background: rgb(var(--c-bg-deep-rgb) / 0.8);
+  color: var(--c-white);
+  font: inherit;
+}
+
+.dev-input {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+}
+
+.dev-range {
+  flex: 1;
+  min-width: 120px;
+}
+
+.dev-note {
+  margin: 6px 0;
+  color: var(--c-muted);
+  font-size: 12px;
+}
+
+.dev-note--ok {
+  color: var(--c-cyan);
+}
+
+.dev-note--error {
+  color: var(--c-coral);
+}
+
+.dev-scope {
+  margin: 8px 0;
+  padding: 6px 8px;
+  border-left: 3px solid rgb(var(--c-cyan-rgb) / 0.7);
+  background: rgb(var(--c-white-rgb) / 0.05);
+  font-size: 12px;
+}
+
+.dev-scope--world {
+  border-left-color: var(--c-coral);
+}
+
+.dev-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dev-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.dev-foot {
+  padding: 8px 10px;
+  border-top: 1px solid rgb(var(--c-white-rgb) / 0.12);
+}

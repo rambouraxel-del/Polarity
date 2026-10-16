@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import { DevAttemptGuard, checkDevPassword, devPasswordProblem, makeLock, randomSalt } from './dev/devMode';
+import { DevTools, type DevHost } from './dev/devTools';
+import { backupRecords, clearRecords, hasRecords, snapshotRecords, RECORDS_BACKUP_PREFIX } from './dev/records';
+import type { QualityTier } from './config/ambience';
 import { Music, type MusicPosition } from './audio/music';
 import { AmbienceDirector, QualityGovernor } from './ambience/director';
 import { MusicSync } from './ambience/musicSync';
@@ -50,7 +53,7 @@ import { INSTALL_KEY, ensureInstallId, useInstallStore } from './economy/ids';
 import { accountScreen } from './ui/accountScreens';
 import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leaderboard';
 import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
-import type { BalancesResponse, Category, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
+import type { Category, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
 import { CURRENCY_NAME } from './ui/components';
 import { escapeHtml, formatScore } from './ui/format';
 import { Hud } from './ui/hud';
@@ -104,18 +107,20 @@ export class App {
   /** Mode développeur (options) : dernier message affiché et limitation des essais de mot de passe. */
   private devMessage: { kind: 'ok' | 'error'; text: string } | null = null;
   private readonly devGuard = new DevAttemptGuard();
+  /** Fenêtre de contrôle du mode développeur (bouton « DEV » visible seulement quand le mode est actif). */
+  private readonly devTools: DevTools;
+  /** Qualité de l'ambiance forcée depuis la fenêtre développeur (null = automatique). Jamais enregistrée. */
+  private qualityOverride: QualityTier | null = null;
   private readonly devMode = new URLSearchParams(location.search).has('demo') || new URLSearchParams(location.search).has('debug');
   private nextTicket: Ticket | null = null;
   private runTicket: Ticket | null = null;
   private runLb: S.RunLbStatus = { kind: 'hidden' };
-  private lbBalance = BALANCE_VERSION;
   /** Classement affiché : « Sans bonus » par défaut. */
   private lbCategory: Category = 'plain';
   private lbLoading = false;
   private lbError: string | null = null;
   private lbTop: LeaderboardResponse | null = null;
   private lbMe: MeResponse | null = null;
-  private lbBalances: BalancesResponse | null = null;
   private lbNickMessage: string | null = null;
   private lbProfileLost = false;
   private lbConfirmDelete = false;
@@ -256,6 +261,59 @@ export class App {
     this.storageFailed = !storageWorks(this.store);
     // Sauvegarde modifiée par un AUTRE onglet : on adopte la plus récente (jamais d'écrasement silencieux, aucune récompense en double)
     window.addEventListener('storage', (e) => this.onRemoteSave(e));
+    this.devTools = new DevTools(this.devHost(), document.getElementById('app') ?? document.body);
+  }
+
+  /** Points d'entrée de la fenêtre développeur : tout passe par ici, aucune logique de jeu n'est dans la fenêtre. */
+  private devHost(): DevHost {
+    const app = this;
+    return {
+      get save() {
+        return app.save;
+      },
+      lb: this.lb,
+      session: () => this.session,
+      restartTest: () => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: false }),
+      persist: () => this.persist(false),
+      trigger: (kind) => this.ambience.trigger(kind),
+      setQuality: (tier) => {
+        this.qualityOverride = tier;
+      },
+      quality: () => ({ forced: this.qualityOverride, current: this.ambience.state.tier }),
+      setIntensity: (v) => {
+        this.save.options.visualIntensity = Math.min(1, Math.max(0, v));
+        this.persist(false);
+      },
+      resetLocal: () => this.resetLocalRecords(),
+      worldResetDone: () => {
+        if (this.screen === 'leaderboard') void this.refreshLeaderboard();
+      },
+      disable: () => {
+        this.save.options.dev.enabled = false;
+        this.persist();
+        this.devTools.sync();
+        if (this.screen === 'options') this.refreshOptions();
+      },
+    };
+  }
+
+  /** Remise à zéro des records LOCAUX : copie préalable dans le stockage (sinon rien n'est effacé), puis effacement des seuls records. */
+  private resetLocalRecords(): string {
+    if (this.session && !this.session.isTest) return 'Impossible pendant une partie classée.';
+    if (!hasRecords(this.save)) return 'Aucun record local à effacer.';
+    const indexKey = `${RECORDS_BACKUP_PREFIX}index`;
+    let index: string[] = [];
+    try {
+      index = JSON.parse(this.store.get(indexKey) ?? '[]') as string[];
+    } catch {
+      index = [];
+    }
+    const key = backupRecords(this.store, snapshotRecords(this.save), index);
+    if (!key) return 'La copie de sécurité a échoué (stockage refusé) : rien n’a été effacé.';
+    this.store.set(indexKey, JSON.stringify(index));
+    clearRecords(this.save);
+    this.persist();
+    return `Records locaux remis à zéro. Copie enregistrée sur cet appareil (${key.slice(RECORDS_BACKUP_PREFIX.length)}).`;
   }
 
   /**
@@ -292,6 +350,7 @@ export class App {
     this.save = next;
     this.applyAudioOptions();
     this.normalizeSave();
+    this.devTools?.sync();
     if (App.SAVE_SCREENS.includes(this.screen) && !this.session) this.showScreen(this.screen, false);
   }
 
@@ -482,6 +541,7 @@ export class App {
     const realDt = Math.min(0.25, Math.max(0, (now - this.lastFrame) / 1000));
     this.lastFrame = now;
     this.clock += realDt;
+    this.devTools.frame(realDt);
     const session = this.session;
     if (session) {
       session.frame(realDt);
@@ -525,7 +585,8 @@ export class App {
     const s = this.session;
     if (!s || !ambienceApplies(s.config.mode)) return null;
     this.quality.update(realDt);
-    if (this.ambience.state.tier !== this.quality.tier) this.ambience.setQuality(this.quality.tier);
+    const tier = this.qualityOverride ?? this.quality.tier;
+    if (this.ambience.state.tier !== tier) this.ambience.setQuality(tier);
     const frame = this.musicSync.update(this.music.position(this.musicPos), this.musicAudible());
     const dt = s.phase === 'paused' ? 0 : realDt;
     const transit = s.transitLeft > 0 ? 1 - s.transitLeft / PHASES.transit : 0;
@@ -633,7 +694,7 @@ export class App {
       onCampaignEvent: (e, s) => this.onCampaignEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
       onFirstDeath: (summary, s) => this.onFirstDeath(summary, s),
-      canOffer: (s) => !this.devMode && !s.sim.assisted && !s.config.test && this.lb.configured,
+      canOffer: (s) => !this.devMode && !s.sim.assisted && !s.isTest && this.lb.configured,
       onOffer: (life, s) => this.showRevive(life === 3 ? 3 : 2, s),
     });
     this.session = session;
@@ -695,7 +756,7 @@ export class App {
       this.sfx.play('success');
       return;
     }
-    if (!s.sim.assisted && !s.config.test && !this.devMode && grantPhaseSkin(this.save)) {
+    if (!s.sim.assisted && !s.isTest && !this.devMode && grantPhaseSkin(this.save)) {
       this.persist();
       this.banner('<strong>Nouvelle apparence : Faille</strong><br>Disponible dans Cosmétiques', 4);
     }
@@ -783,6 +844,8 @@ export class App {
   }
 
   private onSimEvent(e: SimEvent, s: GameSession): void {
+    // Saut dans le temps d'une partie de test : ni son, ni effet, ni popup
+    if (s.skipping) return;
     const r = this.renderer;
     switch (e.type) {
       case 'collect': {
@@ -832,7 +895,7 @@ export class App {
         break;
       case 'phase': {
         // Entrée en phase 2 : prime d'Éclats, une seule fois par partie (première vie, partie non assistée) ; identifiant de partie = clé d'idempotence
-        if (s.config.mode === 'survival' && s.sim.life === 1 && !s.sim.assisted && !s.config.test && !this.devMode) {
+        if (s.config.mode === 'survival' && s.sim.life === 1 && !s.sim.assisted && !s.isTest && !this.devMode) {
           const got = claimPhaseBonus(this.save, this.runId, 2);
           if (got > 0) {
             this.persist();
@@ -850,7 +913,7 @@ export class App {
         if (this.creditedShards.has(e.id)) break;
         this.creditedShards.add(e.id);
         // Partie de test : l'éclat s'anime comme d'habitude mais n'est jamais crédité
-        if (!s.config.test) {
+        if (!s.isTest) {
           creditShards(this.save, e.amount);
           this.persist();
         }
@@ -859,7 +922,7 @@ export class App {
         const y = ARENA.orbitRadius * Math.sin(e.angle);
         r?.burst(x, y, COLORS.shard, 12, 170, 0.5);
         r?.burst(x, y, 0xffffff, 6, 120, 0.35);
-        r?.popup(x, y, s.config.test ? 'TEST' : `+${e.amount}`, '#c9a8ff');
+        r?.popup(x, y, s.isTest ? 'TEST' : `+${e.amount}`, '#c9a8ff');
         break;
       }
       case 'shard-expire':
@@ -925,7 +988,7 @@ export class App {
       return;
     }
     // Partie de test : rien n'est appliqué (ni statistiques, ni record, ni gain, ni succès), rien n'est envoyé ; retour à l'accueil
-    if (s.config.test || summary.test) {
+    if (s.isTest || summary.test) {
       this.endTestRun();
       return;
     }
@@ -954,7 +1017,7 @@ export class App {
    */
   private onFirstDeath(summary: RunSummary, s: GameSession): void {
     if (s !== this.session) return;
-    if (s.config.test || summary.test) {
+    if (s.isTest || summary.test) {
       this.endTestRun();
       return;
     }
@@ -1747,10 +1810,6 @@ export class App {
         this.lbCategory = target.dataset.category === 'bonus' ? 'bonus' : 'plain';
         void this.refreshLeaderboard();
         break;
-      case 'lb-balance':
-        this.lbBalance = Number(target.dataset.balance) || BALANCE_VERSION;
-        void this.refreshLeaderboard();
-        break;
       // Les formulaires de pseudo sont traités à l'envoi (touche Entrée comprise), pas au clic
       case 'lb-register':
       case 'lb-rename':
@@ -1913,6 +1972,7 @@ export class App {
       case 'dev-disable':
         // Désactivation immédiate (sans mot de passe) : seules les parties déjà lancées restent des parties de test
         this.save.options.dev.enabled = false;
+        this.devTools.sync();
         this.devMessage = { kind: 'ok', text: 'Mode développeur désactivé. Les prochaines parties comptent normalement.' };
         this.devGuard.succeed();
         this.persist();
@@ -1971,6 +2031,7 @@ export class App {
       }
       this.devGuard.succeed();
       dev.enabled = true;
+      this.devTools.sync();
       this.devMessage = { kind: 'ok', text: 'Mode développeur actif : vaisseau immortel, badge TEST. Les parties lancées maintenant ne comptent jamais.' };
     } else {
       const next = field('next');
@@ -2110,8 +2171,7 @@ export class App {
       error: this.lbError,
       top: this.lbTop,
       me: this.lbMe,
-      balances: this.lbBalances,
-      balance: this.lbBalance,
+      balance: BALANCE_VERSION,
       category: this.lbCategory,
       pending: this.lb.pendingOwn(),
       foreignPending: this.lb.pendingForeign().filter((p) => p.status === 'pending').length,
@@ -2150,7 +2210,8 @@ export class App {
     this.rerenderLeaderboard();
     await this.lb.flush();
     void this.lb.ensureTickets();
-    const [top, me, balances] = await Promise.all([this.lb.top(this.lbBalance, this.lbCategory), this.lb.identity() ? this.lb.me(this.lbBalance, this.lbCategory) : Promise.resolve(null), this.lb.balances()]);
+    // Version actuelle seulement : aucun accès aux anciens classements depuis l'interface (leurs données restent archivées côté service)
+    const [top, me] = await Promise.all([this.lb.top(BALANCE_VERSION, this.lbCategory), this.lb.identity() ? this.lb.me(BALANCE_VERSION, this.lbCategory) : Promise.resolve(null)]);
     this.lbLoading = false;
     if (top.ok) {
       this.lbTop = top.data;
@@ -2161,7 +2222,6 @@ export class App {
     }
     this.lbMe = me && me.ok ? me.data : null;
     this.lbProfileLost = !!me && !me.ok && me.kind === 'unauthorized';
-    this.lbBalances = balances.ok ? balances.data : this.lbBalances;
     this.rerenderLeaderboard();
   }
 

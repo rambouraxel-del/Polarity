@@ -61,9 +61,83 @@ export class GameSession {
     }
   }
 
+  // ————————————————————————— contrôles du mode développeur (parties de test seulement)
+
+  /** Une commande de test a servi : la partie est une partie de TEST pour toujours (jamais classée, aucun gain, aucun succès), même si le mode est désactivé ensuite. */
+  private testUsed = false;
+  /** Vitesse de la simulation (1 = normale) et gel du temps : actifs seulement après `markTest()`. Les pas restent à 1/120 s : seul le rythme d'avancement change. */
+  private devRate = 1;
+  private devFrozen = false;
+  /** Vrai pendant un saut dans le temps : le jeu n'anime ni ne joue rien (aucun son, aucun effet). */
+  skipping = false;
+
+  /** Partie de test : lancée en mode développeur, ou ayant utilisé une commande de test. */
+  get isTest(): boolean {
+    return this.config.mode === 'survival' && (this.config.test === true || this.testUsed);
+  }
+
+  /** Marque la partie comme partie de test (aucun effet sur une partie hors Survie). */
+  markTest(): void {
+    if (this.config.mode === 'survival') this.testUsed = true;
+  }
+
+  get testRate(): number {
+    return this.devRate;
+  }
+
+  get testFrozen(): boolean {
+    return this.devFrozen;
+  }
+
+  /** Vitesse de simulation (0,25 à 4) ; refusée hors partie de test. */
+  setTestRate(rate: number): boolean {
+    if (!this.isTest) return false;
+    this.markTest();
+    this.devRate = Math.min(4, Math.max(0.25, rate));
+    return true;
+  }
+
+  /** Gèle ou libère le temps de la simulation (le décor, la musique et l'ambiance continuent). Refusé hors partie de test. */
+  setTestFrozen(frozen: boolean): boolean {
+    if (!this.isTest) return false;
+    this.markTest();
+    this.devFrozen = frozen;
+    return true;
+  }
+
+  /** Immortalité (sans effet sur le fait que la partie reste de test). Refusée hors partie de test. */
+  setTestInvincible(on: boolean): boolean {
+    if (!this.isTest) return false;
+    this.markTest();
+    this.sim.invincible = on;
+    return true;
+  }
+
+  /**
+   * Avance la partie jusqu'au temps actif `target` (s), ou jusqu'à la fin de la traversée si `throughTransit` (puis phase 2). Sans rendu ni son : saut
+   * dans le temps d'une partie de test, jamais de progression réelle. Renvoie le temps actif atteint.
+   */
+  skipTo(target: number, throughTransit = false): number {
+    if (!this.isTest || this.phase !== 'running') return this.sim.time;
+    this.markTest();
+    this.skipping = true;
+    const done = (): boolean => (throughTransit ? this.sim.phase === 2 && this.transitLeft === 0 : this.transitLeft === 0 && this.sim.time >= target);
+    try {
+      for (let guard = 0; guard < 400000 && this.phase === 'running' && this.sim.state === 'running' && !done(); guard++) this.tick(SIM.maxFrameTime);
+    } finally {
+      this.skipping = false;
+    }
+    return this.sim.time;
+  }
+
   /** Avance d'une image de durée réelle `realDt` (secondes). */
   frame(realDt: number): void {
-    const dt = Math.max(0, Math.min(realDt, SIM.maxFrameTime));
+    let dt = Math.max(0, Math.min(realDt, SIM.maxFrameTime));
+    if (this.phase === 'running' && this.testUsed) dt = this.devFrozen ? 0 : dt * this.devRate;
+    this.tick(dt);
+  }
+
+  private tick(dt: number): void {
     switch (this.phase) {
       case 'running': {
         // Traversée de la faille : le temps de jeu est gelé (chronomètre, score, dangers, collisions, bonus, commandes) ; seul le décor avance
@@ -211,7 +285,7 @@ export class GameSession {
       free: this.config.mode === 'survival' && s.life > 1 ? { time: s.time, score: s.scoring.score, lives: s.life } : undefined,
       missionId: this.config.mission?.id,
       report: this.campaign?.report(),
-      test: this.config.test === true && this.config.mode === 'survival' ? true : undefined,
+      test: this.isTest ? true : undefined,
     };
   }
 

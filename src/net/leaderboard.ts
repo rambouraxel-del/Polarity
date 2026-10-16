@@ -104,6 +104,20 @@ export interface ClientOptions {
 const MAX_PENDING = 20;
 const MIN_TICKETS = 2;
 
+/** Diagnostic du classement affiché dans la fenêtre du mode développeur. */
+export interface LeaderboardDiagnostics {
+  configured: boolean;
+  incompatible: boolean;
+  profile: string | null;
+  tickets: number;
+  pending: number;
+  accepted: number;
+  rejected: number;
+  pendingDaily: number;
+  lastRefusal: string | null;
+  lastNetworkError: string | null;
+}
+
 export class LeaderboardClient {
   private readonly fetchFn: typeof fetch;
   private readonly now: () => number;
@@ -223,11 +237,12 @@ export class LeaderboardClient {
     return { ok: false, kind: 'incompatible', status: 0, message: INCOMPATIBLE_MESSAGE };
   }
 
-  private async request<T>(method: string, path: string, opts: { body?: unknown; auth?: boolean; query?: string } = {}): Promise<NetResult<T>> {
+  private async request<T>(method: string, path: string, opts: { body?: unknown; auth?: boolean; query?: string; headers?: Record<string, string> } = {}): Promise<NetResult<T>> {
     if (!this.configured) return { ok: false, kind: 'offline', status: 0, message: 'Service de classement non configuré.' };
-    const legacyRoute = LEGACY_PATHS.has(path) || (path === '/api/register' && typeof (opts.body as { nickname?: unknown } | undefined)?.nickname === 'string');
+    // Les routes d'administration absentes d'un service pas à jour ne le rendent pas « incompatible » pour autant
+    const legacyRoute = LEGACY_PATHS.has(path) || path.startsWith('/api/admin/') || (path === '/api/register' && typeof (opts.body as { nickname?: unknown } | undefined)?.nickname === 'string');
     if (!legacyRoute && this.isServiceIncompatible()) return this.incompatible();
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...opts.headers };
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
     if (opts.auth) {
       const id = this.identity();
@@ -386,6 +401,41 @@ export class LeaderboardClient {
 
   me(balance?: number, category: Category = 'plain'): Promise<NetResult<MeResponse>> {
     return this.request('GET', '/api/me', { auth: true, query: this.query(balance, category) });
+  }
+
+  /**
+   * Remise à zéro d'un classement MONDIAL (outil du mode développeur). Exige l'autorisation administrateur dédiée du service, saisie à l'instant et envoyée
+   * telle quelle dans l'en-tête Authorization : elle n'est jamais stockée ni présente dans le jeu, et le mot de passe du mode développeur ne la remplace pas.
+   */
+  adminResetBoard(board: 'plain' | 'bonus' | 'daily', authorization: string, confirm: string): Promise<NetResult<{ ok: boolean; board: string; removed: number; backup: string }>> {
+    return this.request('POST', '/api/admin/reset-board', { body: { board, confirm }, headers: { Authorization: `Bearer ${authorization}` } });
+  }
+
+  /** Sonde de connexion au service (outil du mode développeur). */
+  ping(): Promise<NetResult<{ ok: boolean; balance: number; api?: number }>> {
+    return this.request('GET', '/api/health');
+  }
+
+  /** Diagnostic du classement (lecture seule) : connexion, profil, tickets, résultats en attente et dernier motif de refus. Sert au mode développeur. */
+  diagnostics(): LeaderboardDiagnostics {
+    const own = this.pendingOwn();
+    const rejected = own.filter((p) => p.status === 'rejected');
+    const lastRejected = rejected[rejected.length - 1];
+    const waiting = own.filter((p) => p.status === 'pending');
+    const lastErr = [...waiting].reverse().find((p) => p.lastError)?.lastError;
+    const id = this.identity();
+    return {
+      configured: this.configured,
+      incompatible: this.isServiceIncompatible(),
+      profile: id ? (id.guest ? 'invité (sans pseudo)' : id.nickname) : null,
+      tickets: this.ticketCount(),
+      pending: waiting.length,
+      accepted: own.filter((p) => p.status === 'accepted').length,
+      rejected: rejected.length,
+      pendingDaily: this.pendingDaily().filter((p) => p.status === 'pending').length,
+      lastRefusal: lastRejected ? lastRejected.message ?? lastRejected.reason ?? 'refusé par le service' : null,
+      lastNetworkError: lastErr ?? null,
+    };
   }
 
   balances(): Promise<NetResult<BalancesResponse>> {

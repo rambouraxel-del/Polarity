@@ -622,8 +622,9 @@ export interface LeaderboardView {
   error: string | null;
   top: LeaderboardResponse | null;
   me: MeResponse | null;
-  balances: BalancesResponse | null;
-  /** Version d'équilibrage affichée. */
+  /** Hérité : les anciennes versions du classement ne sont plus proposées dans l'interface (leurs données restent archivées côté service). */
+  balances?: BalancesResponse | null;
+  /** Version d'équilibrage affichée : toujours la version actuelle. */
   balance: number;
   /** Classement affiché : « Sans bonus » (aucune activation de Boost, Gel ou Bouclier en première vie) ou « Avec bonus ». */
   category: 'plain' | 'bonus';
@@ -710,13 +711,6 @@ export function leaderboardScreen(v: LeaderboardView): string {
       ? `<div class="stats">${stat(`Votre rang · ${catName}`, `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
       : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé « ${catName} » pour la version ${v.balance} : jouez une partie de Survie en mode « ${catName} ».</p>`
     : '';
-  const versions =
-    v.balances && v.balances.versions.length > 0
-      ? `<div class="filters" role="group" aria-label="Version d’équilibrage">${[...new Set([v.balances.current, ...v.balances.versions.map((x) => x.balance)])]
-          .sort((a, b) => b - a)
-          .map((b) => `<button class="filter${b === v.balance ? ' filter--on' : ''}" data-action="lb-balance" data-balance="${b}" aria-pressed="${b === v.balance}">Version ${b}${b === v.balances!.current ? ' (actuelle)' : ' · ancien'}</button>`)
-          .join('')}</div>`
-      : '';
   let table: string;
   if (v.loading) table = '<p class="sub" role="status" style="margin:16px 0">Chargement du classement…</p>';
   else if (v.error) table = `<div role="alert" class="notice">Classement indisponible : ${escapeHtml(v.error)} ${button({ action: 'lb-refresh', label: 'Réessayer', variant: 'secondary', size: 'sm' })}</div>`;
@@ -735,7 +729,7 @@ export function leaderboardScreen(v: LeaderboardView): string {
     : '';
   const foreign = v.foreignPending ? `<p class="small">${v.foreignPending} résultat${v.foreignPending > 1 ? 's' : ''} en attente d’un autre profil de cet appareil : conservé${v.foreignPending > 1 ? 's' : ''}, envoyé${v.foreignPending > 1 ? 's' : ''} quand ce profil se reconnecte.</p>` : '';
   return `<div class="panel panel--wide">${head}
-    ${lost}${identity}${msg}${tabs}${me}${versions}${table}${pending}${foreign}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
+    ${lost}${identity}${msg}${tabs}${me}${table}${pending}${foreign}${account}${local ? `<h3 class="section-title">Sur cet appareil</h3>${local}` : ''}${rules}
   </div>`;
 }
 
