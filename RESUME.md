@@ -1,5 +1,7 @@
 # Reprise
 
+**Mode développeur (Options) :** désactivé par défaut, verrou par mot de passe configurable, désactivation immédiate ; en Survie le vaisseau est immortel (badge « TEST »), et toute partie lancée dans ce mode reste une partie de test (aucun classement, record, gain, succès ni cosmétique, rien envoyé au service). `BALANCE_VERSION` 4 inchangée. Voir `docs/MODE_DEVELOPPEUR.md`.
+
 **Ambiance musicale renforcée dès les premières secondes (visuel seulement, `BALANCE_VERSION` 4 inchangée) :** anneaux, ondes, éclairs ramifiés et filaments du noyau dès le stade 1, réponse franche aux basses (coups de basse détectés entre les battements), respirations sur les vrais creux de la musique puis reprise nette, rubans avec impulsions qui circulent, qualité mobile qui réduit d'abord les particules ; faille de 4 min 45 plus grande et tunnel de 5 min 20 plus plein. Voir `docs/AMBIANCE.md`.
 
 **Décor animé de la Survie refait (visuel seulement, règles/records/`BALANCE_VERSION` 4 inchangés) :** faille en formation au cœur sombre (4 min 30 – 5 min), traversée de 6 s qui l'agrandit jusqu'à envelopper l'écran, tunnel de facettes brisées en phase 2 avec rubans d'énergie, éclairs ramifiés, fragments et étincelles, tout dessiné en code et lié à la musique ; voir `docs/AMBIANCE.md` (« Décor animé »).

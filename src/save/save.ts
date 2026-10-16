@@ -4,6 +4,7 @@
  * on retombe sur des valeurs par défaut (et la donnée corrompue est mise de côté, pas effacée).
  */
 
+import { defaultDevOptions, sanitizeDevOptions, type DevModeOptions } from '../dev/devMode';
 import { ACHIEVEMENT_CONFIG } from '../config/achievements';
 import { LEGACY_ACHIEVEMENT_ITEMS } from '../config/catalog';
 import { MISSIONS, UPGRADES, missionKey } from '../config/campaign';
@@ -76,6 +77,8 @@ export interface Options {
   tutorialSeen: boolean;
   /** Dernier mode de Survie choisi à la préparation (préférence ; le mode d'une partie est figé à son départ). */
   survivalMode: 'plain' | 'bonus';
+  /** Mode développeur (verrouillé par mot de passe, désactivé par défaut) : vaisseau immortel, parties de TEST jamais comptabilisées. */
+  dev: DevModeOptions;
 }
 
 /** Records de Survie et de défi obtenus sous un ancien équilibrage. */
@@ -300,7 +303,7 @@ export function defaultSave(): SaveData {
     inventory: { boost: 0, gel: 0 },
     owned: [],
     paid: {},
-    options: { muted: false, volume: 0.7, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, reducedEffects: false, tutorialSeen: false, survivalMode: 'plain' },
+    options: { muted: false, volume: 0.7, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, reducedEffects: false, tutorialSeen: false, survivalMode: 'plain', dev: defaultDevOptions() },
     seenIntros: [],
     stats: { totalCycles: 0, totalRuns: 0, totalShards: 0, totalEvents: 0, bestScore: 0, bestMultiplier: 0 },
     rewarded: [],
@@ -453,6 +456,7 @@ export function sanitize(raw: unknown): SaveData {
       reducedEffects: bool(o.reducedEffects, def.options.reducedEffects),
       tutorialSeen: bool(o.tutorialSeen, def.options.tutorialSeen),
       survivalMode: o.survivalMode === 'bonus' ? 'bonus' : 'plain',
+      dev: sanitizeDevOptions(o.dev),
     };
   }
   if (Array.isArray(raw.seenIntros)) {

@@ -550,6 +550,7 @@ export function prepScreen(save: SaveData, message: { kind: 'ok' | 'error'; text
   return `<div class="panel panel--wide compact prep">${screenHead('Préparation')}
     <div class="prep__line"><span class="prep__record">Survie · ${mode === 'bonus' ? 'Avec bonus' : 'Sans bonus'}${record}</span>${balance}</div>
     ${choice}
+    ${save.options.dev.enabled ? '<div class="notice notice--compact" role="status"><strong>TEST</strong> — mode développeur actif : vaisseau immortel, aucun bonus, rien n’est enregistré.</div>' : ''}
     ${msg}
     <div class="prep__go">${button({ action: 'survival-start', label: 'Lancer la partie', icon: 'play', variant: 'primary', size: 'go', attrs: 'data-autofocus' })}</div>
     ${body}
@@ -864,7 +865,32 @@ export function visualIntensityLabel(v: number): string {
   return v <= 0 ? 'Ciel étoilé seul' : `Ambiance de la Survie : ${Math.round(v * 100)} %`;
 }
 
-export function optionsScreen(save: SaveData, accountEnabled = false): string {
+/** Section « Mode développeur » des options : verrou par mot de passe, désactivation immédiate, changement du mot de passe. */
+export function devModeSection(save: SaveData, message: { kind: 'ok' | 'error'; text: string } | null): string {
+  const on = save.options.dev.enabled;
+  const msg = message ? `<p class="shop-note" role="${message.kind === 'error' ? 'alert' : 'status'}">${escapeHtml(message.text)}</p>` : '';
+  const intro = '<p class="small">Vaisseau immortel pour explorer et tester les phases de la Survie. Obstacles, animations et musique restent normaux. <strong>Une partie lancée dans ce mode reste une partie de test</strong> : ni classement, ni record, ni gain, ni succès, ni cosmétique, et elle n’est jamais envoyée au service. Le mot de passe est un simple verrou d’accès à cette interface.</p>';
+  if (!on) {
+    return `<h3 class="section-title">Mode développeur</h3>${intro}
+      <form class="nick-form" data-form="dev-enable" autocomplete="off" novalidate>
+        <label class="sr-only" for="dev-pass">Mot de passe du mode développeur</label>
+        <input id="dev-pass" class="input" name="password" type="password" maxlength="64" placeholder="Mot de passe" autocomplete="off" spellcheck="false" autocapitalize="off" />
+        ${button({ action: 'dev-enable', label: 'Activer', variant: 'secondary', size: 'sm', attrs: 'type="submit"' })}
+      </form>${msg}`;
+  }
+  return `<h3 class="section-title">Mode développeur</h3>
+    <div class="notice notice--compact" role="status"><strong>Actif</strong> — badge « TEST » en partie, vaisseau immortel (Survie). Les parties lancées dans ce mode ne comptent jamais.</div>
+    ${button({ action: 'dev-disable', label: 'Désactiver maintenant', variant: 'primary' })}${msg}
+    <form class="dev-form" data-form="dev-passwd" autocomplete="off" novalidate>
+      <p class="small">Changer le mot de passe (8 caractères au moins) :</p>
+      <input class="input" name="current" type="password" maxlength="64" placeholder="Mot de passe actuel" autocomplete="off" aria-label="Mot de passe actuel" />
+      <input class="input" name="next" type="password" maxlength="64" placeholder="Nouveau mot de passe" autocomplete="off" aria-label="Nouveau mot de passe" />
+      <input class="input" name="confirm" type="password" maxlength="64" placeholder="Confirmer le nouveau mot de passe" autocomplete="off" aria-label="Confirmation" />
+      ${button({ action: 'dev-passwd', label: 'Enregistrer le mot de passe', variant: 'secondary', size: 'sm', attrs: 'type="submit"' })}
+    </form>`;
+}
+
+export function optionsScreen(save: SaveData, accountEnabled = false, devMessage: { kind: 'ok' | 'error'; text: string } | null = null): string {
   const o = save.options;
   const pct = (v: number): string => `${Math.round(v * 100)} %`;
   return `<div class="panel">${screenHead('Options')}
@@ -875,6 +901,7 @@ export function optionsScreen(save: SaveData, accountEnabled = false): string {
     ${sliderSetting('sparkle', 'Intensité visuelle', visualIntensityLabel(o.visualIntensity), 'opt-visual', 'visual', o.visualIntensity)}
     ${setting('leaf', 'Effets réduits', 'Sans secousses, flash, traînées ni animations décoratives', switchButton('opt-fx', 'toggle-fx', o.reducedEffects, 'Effets réduits'))}
     ${setting('help', 'Astuce de départ', 'Réafficher l’explication des commandes', button({ action: 'reset-tutorial', label: 'Réafficher', variant: 'secondary', size: 'sm' }))}
+    ${devModeSection(save, devMessage)}
     <h3 class="section-title">Sauvegarde et données</h3>
     ${accountEnabled ? `${setting('shop', 'Compte et synchronisation', 'Retrouver votre progression sur un autre appareil (facultatif)', button({ action: 'account', label: 'Ouvrir', variant: 'secondary', size: 'sm' }))}<p class="small">Sans compte, votre progression reste <strong>sur cet appareil</strong> (aucune synchronisation).</p>` : ''}
     <p class="small">Votre progression (niveaux, campagne, Éclats, cosmétiques, succès, records) est enregistrée <strong>dans ce navigateur, sur cet appareil</strong>. Elle n’est pas synchronisée automatiquement avec un autre appareil, un autre navigateur ni une version installée (application native) du jeu. Vider les données du site ou passer en navigation privée l’efface. Le profil du classement mondial est lui aussi lié à ce navigateur.</p>

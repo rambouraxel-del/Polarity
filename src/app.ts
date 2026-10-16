@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { DevAttemptGuard, checkDevPassword, devPasswordProblem, makeLock, randomSalt } from './dev/devMode';
 import { Music, type MusicPosition } from './audio/music';
 import { AmbienceDirector, QualityGovernor } from './ambience/director';
 import { MusicSync } from './ambience/musicSync';
@@ -100,6 +101,9 @@ export class App {
   /** Compte, synchronisation et migration (économie v3) : facultatifs, jamais bloquants ; inactifs si le service n'est pas configuré. */
   readonly account: AccountService;
   /** ?demo (joueur automatique) ou ?debug : jamais éligible au classement. */
+  /** Mode développeur (options) : dernier message affiché et limitation des essais de mot de passe. */
+  private devMessage: { kind: 'ok' | 'error'; text: string } | null = null;
+  private readonly devGuard = new DevAttemptGuard();
   private readonly devMode = new URLSearchParams(location.search).has('demo') || new URLSearchParams(location.search).has('debug');
   private nextTicket: Ticket | null = null;
   private runTicket: Ticket | null = null;
@@ -341,6 +345,10 @@ export class App {
     this.screenEl.addEventListener('submit', (e) => {
       e.preventDefault();
       const kind = (e.target as HTMLElement).dataset.form;
+      if (kind === 'dev-enable' || kind === 'dev-passwd') {
+        this.submitDevForm(kind, e.target as HTMLFormElement);
+        return;
+      }
       if (kind === 'lb-register' || kind === 'lb-rename') void this.submitNickname(kind);
       else if (kind === 'lb-report') void this.submitReport();
       else if (kind === 'acct-email') void this.account.emailRequest(((e.target as HTMLElement).querySelector('input') as HTMLInputElement | null)?.value.trim() ?? '');
@@ -576,8 +584,12 @@ export class App {
     this.endSession();
     // Survie : les charges de l'inventaire sont le stock de la partie (le service vérifie ensuite chaque activation par rejeu)
     // Le mode choisi à la préparation est figé pour toute la partie (rejouer garde le même mode) ; « Sans bonus » : aucune charge, aucun pouvoir
+    // Mode développeur : une partie lancée alors qu'il est actif est une partie de TEST pour toute sa durée (le réglage est relu à chaque départ,
+    // jamais repris d'une partie précédente). Test : aucun pouvoir ni charge, aucun ticket du classement.
+    const test = cfg.mode === 'survival' && this.save.options.dev.enabled;
+    cfg = { ...cfg, test: test || undefined };
     if (cfg.mode === 'survival') {
-      const bonus = cfg.bonus ?? this.save.options.survivalMode === 'bonus';
+      const bonus = test ? false : (cfg.bonus ?? this.save.options.survivalMode === 'bonus');
       cfg = { ...cfg, bonus, stock: bonus ? { boost: this.save.inventory.boost, gel: this.save.inventory.gel } : { boost: 0, gel: 0 } };
     }
     this.firstReport = null;
@@ -585,8 +597,9 @@ export class App {
     this.reviveBusy = false;
     this.reviveMessage = null;
     this.lastConfig = cfg;
-    this.runTicket = cfg.mode === 'survival' ? this.nextTicket : null;
-    this.nextTicket = null;
+    // Un ticket du classement n'est jamais consommé par une partie de test : il reste pour la prochaine partie normale
+    this.runTicket = cfg.mode === 'survival' && !test ? this.nextTicket : null;
+    if (!test) this.nextTicket = null;
     this.runLb = { kind: 'hidden' };
     // Récompenses gratuites : le départ est enregistré par le SERVICE (preuve d'horaire du Défi quotidien ; condition du drop rare en Survie)
     this.dailyAttempt = null;
@@ -602,9 +615,11 @@ export class App {
     this.hud.reset();
     this.eventKey = '';
     this.creditedShards.clear();
+    this.hud.setTest(test);
     this.hud.show(true);
     this.setPowersVisible(cfg.mode === 'survival' && cfg.bonus !== false);
-    if (cfg.mode === 'survival') this.bestAtStart = (cfg.bonus ? this.save.survivalBonus : this.save.survival).bestTime;
+    if (test) this.bestAtStart = 0;
+    else if (cfg.mode === 'survival') this.bestAtStart = (cfg.bonus ? this.save.survivalBonus : this.save.survival).bestTime;
     else if (cfg.mode === 'daily') this.bestAtStart = this.save.daily[cfg.date ?? '']?.bestTime ?? 0;
     else this.bestAtStart = 0;
 
@@ -618,7 +633,7 @@ export class App {
       onCampaignEvent: (e, s) => this.onCampaignEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
       onFirstDeath: (summary, s) => this.onFirstDeath(summary, s),
-      canOffer: (s) => !this.devMode && !s.sim.assisted && this.lb.configured,
+      canOffer: (s) => !this.devMode && !s.sim.assisted && !s.config.test && this.lb.configured,
       onOffer: (life, s) => this.showRevive(life === 3 ? 3 : 2, s),
     });
     this.session = session;
@@ -680,7 +695,7 @@ export class App {
       this.sfx.play('success');
       return;
     }
-    if (!s.sim.assisted && !this.devMode && grantPhaseSkin(this.save)) {
+    if (!s.sim.assisted && !s.config.test && !this.devMode && grantPhaseSkin(this.save)) {
       this.persist();
       this.banner('<strong>Nouvelle apparence : Faille</strong><br>Disponible dans Cosmétiques', 4);
     }
@@ -817,7 +832,7 @@ export class App {
         break;
       case 'phase': {
         // Entrée en phase 2 : prime d'Éclats, une seule fois par partie (première vie, partie non assistée) ; identifiant de partie = clé d'idempotence
-        if (s.config.mode === 'survival' && s.sim.life === 1 && !s.sim.assisted && !this.devMode) {
+        if (s.config.mode === 'survival' && s.sim.life === 1 && !s.sim.assisted && !s.config.test && !this.devMode) {
           const got = claimPhaseBonus(this.save, this.runId, 2);
           if (got > 0) {
             this.persist();
@@ -834,14 +849,17 @@ export class App {
         // Crédit unique (identifiant de l'éclat), sauvegardé tout de suite : les Éclats restent acquis à la mort
         if (this.creditedShards.has(e.id)) break;
         this.creditedShards.add(e.id);
-        creditShards(this.save, e.amount);
-        this.persist();
+        // Partie de test : l'éclat s'anime comme d'habitude mais n'est jamais crédité
+        if (!s.config.test) {
+          creditShards(this.save, e.amount);
+          this.persist();
+        }
         this.sfx.play('shard');
         const x = ARENA.orbitRadius * Math.cos(e.angle);
         const y = ARENA.orbitRadius * Math.sin(e.angle);
         r?.burst(x, y, COLORS.shard, 12, 170, 0.5);
         r?.burst(x, y, 0xffffff, 6, 120, 0.35);
-        r?.popup(x, y, `+${e.amount}`, '#c9a8ff');
+        r?.popup(x, y, s.config.test ? 'TEST' : `+${e.amount}`, '#c9a8ff');
         break;
       }
       case 'shard-expire':
@@ -889,11 +907,26 @@ export class App {
     this.persist(false);
   }
 
+  /** Fin d'une partie de test : aucun résultat, aucune écriture dans la sauvegarde, rien d'envoyé au service. */
+  private endTestRun(): void {
+    this.hud.show(false);
+    this.setPowersVisible(false);
+    this.hideBanner();
+    this.endSession();
+    this.showScreen('home');
+    this.banner('<strong>Partie de test terminée</strong><br>Rien n’a été enregistré', 3.5);
+  }
+
   /** Fin de partie : résultat appliqué une seule fois (la session garantit l'unicité de l'appel). */
   private onRunEnd(summary: RunSummary, s: GameSession): void {
     if (s !== this.session) return;
     if (summary.mode === 'campaign') {
       this.onMissionEnd(summary);
+      return;
+    }
+    // Partie de test : rien n'est appliqué (ni statistiques, ni record, ni gain, ni succès), rien n'est envoyé ; retour à l'accueil
+    if (s.config.test || summary.test) {
+      this.endTestRun();
       return;
     }
     let report: RunReport;
@@ -921,6 +954,10 @@ export class App {
    */
   private onFirstDeath(summary: RunSummary, s: GameSession): void {
     if (s !== this.session) return;
+    if (s.config.test || summary.test) {
+      this.endTestRun();
+      return;
+    }
     this.firstReport = applyRun(this.save, summary);
     this.persist();
     this.afterSurvivalRun(summary, s);
@@ -1466,6 +1503,7 @@ export class App {
   // ————————————————————————————————————————————— écrans
 
   showScreen(id: ScreenId, animate = true): void {
+    if (id !== 'options') this.devMessage = null;
     this.screen = id;
     this.story = null;
     this.screenEl.classList.remove('screen--story');
@@ -1505,7 +1543,7 @@ export class App {
       case 'prep':
         html = S.prepScreen(this.save, this.prepMessage);
         break;
-      case 'options': html = S.optionsScreen(this.save, this.lb.configured); break;
+      case 'options': html = S.optionsScreen(this.save, this.lb.configured, this.devMessage); break;
       case 'account': html = accountScreen({ state: this.account.state, methods: this.account.availability() }); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
       case 'pause': html = S.pauseScreen(this.modeLabel(), this.session?.config.mode === 'campaign'); break;
@@ -1872,6 +1910,14 @@ export class App {
         this.persist();
         this.refreshOptions();
         break;
+      case 'dev-disable':
+        // Désactivation immédiate (sans mot de passe) : seules les parties déjà lancées restent des parties de test
+        this.save.options.dev.enabled = false;
+        this.devMessage = { kind: 'ok', text: 'Mode développeur désactivé. Les prochaines parties comptent normalement.' };
+        this.devGuard.succeed();
+        this.persist();
+        this.refreshOptions();
+        break;
       case 'reset-tutorial':
         this.save.options.tutorialSeen = false;
         this.save.seenIntros = [];
@@ -1907,10 +1953,46 @@ export class App {
     }
   };
 
+  /** Mode développeur : activation (mot de passe) et changement du mot de passe, depuis l'écran des options seulement et jamais pendant une partie. */
+  private submitDevForm(kind: 'dev-enable' | 'dev-passwd', form: HTMLFormElement): void {
+    const field = (name: string): string => (form.elements.namedItem(name) as HTMLInputElement | null)?.value ?? '';
+    const dev = this.save.options.dev;
+    const fail = (text: string): void => {
+      this.devMessage = { kind: 'error', text };
+      this.refreshOptions();
+    };
+    if (this.session) return fail('Impossible pendant une partie.');
+    const wait = this.devGuard.wait();
+    if (wait > 0) return fail(`Trop d’essais. Réessayez dans ${wait} s.`);
+    if (kind === 'dev-enable') {
+      if (!checkDevPassword(dev.lock, field('password'))) {
+        this.devGuard.fail();
+        return fail('Mot de passe incorrect.');
+      }
+      this.devGuard.succeed();
+      dev.enabled = true;
+      this.devMessage = { kind: 'ok', text: 'Mode développeur actif : vaisseau immortel, badge TEST. Les parties lancées maintenant ne comptent jamais.' };
+    } else {
+      const next = field('next');
+      if (!dev.enabled || !checkDevPassword(dev.lock, field('current'))) {
+        this.devGuard.fail();
+        return fail('Mot de passe actuel incorrect.');
+      }
+      const problem = devPasswordProblem(next);
+      if (problem) return fail(problem);
+      if (next !== field('confirm')) return fail('La confirmation ne correspond pas.');
+      this.devGuard.succeed();
+      dev.lock = makeLock(next, randomSalt());
+      this.devMessage = { kind: 'ok', text: 'Mot de passe du mode développeur modifié.' };
+    }
+    this.persist();
+    this.refreshOptions();
+  }
+
   private refreshOptions(): void {
     const scroll = this.screenEl.scrollTop;
     this.screenEl.classList.add('no-anim');
-    this.screenEl.innerHTML = S.optionsScreen(this.save);
+    this.screenEl.innerHTML = S.optionsScreen(this.save, this.lb.configured, this.devMessage);
     this.screenEl.scrollTop = scroll;
   }
 

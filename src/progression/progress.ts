@@ -32,6 +32,8 @@ export interface RunSummary {
   phase?: 1 | 2;
   /** Survie : survie libre après reprise (partie non classée) — durée, score et nombre de vies utilisées. Jamais enregistrée comme record. */
   free?: { time: number; score: number; lives: number };
+  /** Partie de TEST (mode développeur) : jamais appliquée à la sauvegarde (voir `applyRun`), jamais envoyée au service. */
+  test?: boolean;
 }
 
 /** Récompenses d'un niveau réussi (Éclats). */
@@ -69,6 +71,8 @@ export interface RunReport {
   levelReward: LevelReward | null;
   /** Solde d'Éclats après cette partie (affiché tel quel : jamais recrédité à l'ouverture de l'écran). */
   shardsBalance: number;
+  /** Partie de TEST : rien n'a été enregistré. */
+  test?: boolean;
 }
 
 /** Meilleur record de Survie obtenu sous un ancien équilibrage (non comparable aux records actuels), ou null. */
@@ -151,6 +155,13 @@ export function applyRun(save: SaveData, run: RunSummary, now = Date.now()): Run
     levelReward: null,
     shardsBalance: 0,
   };
+  // Partie de TEST (mode développeur) : aucune statistique, aucun record, aucun gain, aucun succès, aucun déblocage
+  if (run.test === true) {
+    report.test = true;
+    report.orbitShards = 0;
+    report.shardsBalance = save.wallet.shards;
+    return report;
+  }
   save.stats.totalRuns++;
   save.stats.totalCycles += run.cycles;
   save.stats.totalShards += Math.max(0, Math.floor(run.shards ?? 0));

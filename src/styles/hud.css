@@ -97,6 +97,21 @@
   white-space: nowrap;
 }
 
+.hud-test {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border: 1px solid rgb(var(--c-gold-rgb) / 0.8);
+  border-radius: var(--r-pill);
+  background: rgb(var(--c-bg-deep-rgb) / 0.6);
+  color: var(--c-gold);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
 .hud-time.record {
   color: var(--c-gold);
   text-shadow: 0 0 12px rgb(var(--c-gold-rgb) / 0.6);

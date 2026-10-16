@@ -13,6 +13,9 @@ export class Hud {
   private readonly sub = document.getElementById('hud-sub')!;
   private readonly shards = document.getElementById('hud-shards')!;
   private readonly shardsN = document.getElementById('hud-shards-n')!;
+  private readonly testBadge = document.getElementById('hud-test')!;
+  /** Partie de test : le compteur d'Éclats (non crédités) reste masqué. */
+  private test = false;
   private cache: Record<string, string> = {};
   private recordShown = false;
 
@@ -23,6 +26,12 @@ export class Hud {
 
   show(visible: boolean): void {
     this.root.classList.toggle('hidden', !visible);
+  }
+
+  /** Badge « TEST » permanent pendant toute partie de test (mode développeur). */
+  setTest(on: boolean): void {
+    this.test = on;
+    this.testBadge.classList.toggle('hidden', !on);
   }
 
   reset(): void {
@@ -76,7 +85,7 @@ export class Hud {
       this.combo.style.width = w;
     }
     // Éclats gagnés pendant cette partie (Survie) : déjà crédités à chaque collecte
-    const income = sim.shards?.income ?? -1;
+    const income = this.test ? -1 : (sim.shards?.income ?? -1);
     const shown = income >= 0 ? '1' : '';
     if (this.cache.shardsShown !== shown) {
       this.cache.shardsShown = shown;

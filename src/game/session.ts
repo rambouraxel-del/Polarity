@@ -211,6 +211,7 @@ export class GameSession {
       free: this.config.mode === 'survival' && s.life > 1 ? { time: s.time, score: s.scoring.score, lives: s.life } : undefined,
       missionId: this.config.mission?.id,
       report: this.campaign?.report(),
+      test: this.config.test === true && this.config.mode === 'survival' ? true : undefined,
     };
   }
 

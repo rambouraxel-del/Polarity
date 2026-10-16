@@ -170,7 +170,7 @@ describe('Migration de la sauvegarde v1.0 → v1.1', () => {
     expect(res.data.achievements).toEqual(V1_SAVE.achievements);
     expect(res.data.skin).toBe('aurore');
     // Les réglages de l'ancienne sauvegarde sont conservés ; les nouveaux (mixage musique/effets, intensité visuelle) prennent leur valeur par défaut
-    expect(res.data.options).toEqual({ ...V1_SAVE.options, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, survivalMode: 'plain' });
+    expect(res.data.options).toEqual({ ...V1_SAVE.options, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, survivalMode: 'plain', dev: { enabled: false, lock: '' } });
     expect(res.data.seenIntros).toEqual(V1_SAVE.seenIntros);
     expect(res.data.stats).toMatchObject(V1_SAVE.stats);
     expect(isLevelUnlocked(res.data, 3)).toBe(true);
@@ -290,7 +290,7 @@ describe('Migration de la sauvegarde v1.1 → v1.2 (équilibrage 3)', () => {
     expect(res.data.levels).toEqual(V2_SAVE.levels);
     expect(res.data.achievements).toEqual(V2_SAVE.achievements);
     expect(res.data.skin).toBe('glace');
-    expect(res.data.options).toEqual({ ...V2_SAVE.options, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, survivalMode: 'plain' });
+    expect(res.data.options).toEqual({ ...V2_SAVE.options, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, survivalMode: 'plain', dev: { enabled: false, lock: '' } });
     expect(res.data.seenIntros).toEqual(V2_SAVE.seenIntros);
     expect(res.data.stats).toMatchObject(V2_SAVE.stats);
     expect(isLevelUnlocked(res.data, 4)).toBe(true);

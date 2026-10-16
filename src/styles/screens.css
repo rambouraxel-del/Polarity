@@ -1896,3 +1896,16 @@
   margin: 8px 0 0;
   text-align: center;
 }
+
+/* Mode développeur (options) : formulaire du mot de passe */
+.dev-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.dev-form .btn {
+  width: auto;
+  align-self: flex-start;
+}
