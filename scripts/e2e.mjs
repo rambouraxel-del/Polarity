@@ -361,6 +361,11 @@ const m = await newPage({ width: 390, height: 844 }, { touch: true });
   await go(page, 'home');
   await page.click('[data-action="survival"]');
   await page.waitForTimeout(500);
+  // Mode choisi à la préparation : « Sans bonus » par défaut (aucune carte), « Avec bonus » affiche les bonus possédés
+  check((await page.locator('[data-action="prep-mode"]').count()) === 2 && (await page.locator('[data-action="bonus-ask"]').count()) === 0, 'Préparation : choix Sans bonus / Avec bonus, aucune carte de bonus en « Sans bonus »');
+  await compactOk(page, 'Préparation « Sans bonus » (390×844)', { noScroll: true });
+  await page.click('[data-action="prep-mode"][data-mode="bonus"]');
+  await page.waitForTimeout(300);
   let t = await text(page);
   check(/Boost/.test(t) && /Gel/.test(t), 'Préparation : bonus possédés affichés');
   await shot(page, 'e2e-06-preparation-mobile');
@@ -521,6 +526,8 @@ for (const [label, vp, touch] of [['Mobile paysage 844×390', { width: 844, heig
   await go(page, 'home');
   await page.click('[data-action="survival"]');
   await page.waitForTimeout(400);
+  await page.click('[data-action="prep-mode"][data-mode="bonus"]');
+  await page.waitForTimeout(200);
   await page.click('[data-action="survival-start"]');
   await page.waitForTimeout(700);
   check((await page.locator('#powers [data-power]').count()) === 3, `${label} : commandes des pouvoirs présentes`);
@@ -552,6 +559,16 @@ for (const [label, vp, touch] of [['Mobile paysage 844×390', { width: 844, heig
   await compactOk(page, 'Préparation (360×780)', { noScroll: true });
   await layoutOk(page, 'Préparation (360×780)');
   await shot(page, 'e2e-15-preparation-360');
+  await page.click('[data-action="prep-mode"][data-mode="bonus"]');
+  await page.waitForTimeout(250);
+  await compactOk(page, 'Préparation « Avec bonus » (360×780)', { noScroll: true });
+  // « Sans bonus » (choix mémorisé puis rétabli) : aucune commande de pouvoir pendant la partie
+  await page.click('[data-action="prep-mode"][data-mode="plain"]');
+  await page.click('[data-action="survival-start"]');
+  await page.waitForTimeout(700);
+  check((await page.locator('#powers [data-power]:visible').count()) === 0, 'Sans bonus : aucune commande de pouvoir pendant la partie');
+  check((await simState(page)).used.boost === 0, 'Sans bonus : aucun pouvoir actif');
+  await go(page, 'home');
   await go(page, 'cosmetics');
   for (const tab of ['ships', 'trails', 'bonus', 'prisms']) {
     await page.click(`[data-action="cat-${tab}"]`);

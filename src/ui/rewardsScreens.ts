@@ -1,4 +1,4 @@
-import { DAILY_RANKING, LOYALTY, LOYALTY_LENGTH, dailyPrizeForRank, type LoyaltyReward } from '../config/rewards';
+import { DAILY_RANKING, DAILY_STANDARD_TOTAL, LOYALTY, LOYALTY_LENGTH, type LoyaltyReward } from '../config/rewards';
 import { INCOMPATIBLE_MESSAGE, type PendingDaily } from '../net/leaderboard';
 import type { DailyBoard, DailyNotice, LoyaltyCycleView, LoyaltyState } from '../net/rewardsProtocol';
 import { button, coin, notice, screenHead } from './components';
@@ -186,9 +186,9 @@ export function dailyBoardHtml(v: DailyBoardView): string {
   return `${head}
     <p class="small" style="text-align:left">${dateNote} — ${status}</p>
     ${me}${rows}${tie}${pend}
-    <h3 class="section-title">Récompenses du Top 10</h3>
+    <h3 class="section-title">Récompenses du podium</h3>
     <ul class="loy-prizes">${prizeRows()}</ul>
-    <p class="small">Prismes crédités automatiquement par le service à 00 h 15 UTC (${formatScore(Array.from({ length: 10 }, (_, i) => dailyPrizeForRank(i + 1)).reduce((a, c) => a + c, 0))} Prismes par jour sans égalité). Une tentative doit être <strong>démarrée en ligne</strong> pour être classée ; l’heure de fin n’est jamais celle de l’appareil. Pseudo requis pour apparaître au classement.</p>`;
+    <p class="small">Seuls les trois premiers sont récompensés ; Prismes crédités automatiquement par le service à 00 h 15 UTC (${formatScore(DAILY_STANDARD_TOTAL)} Prismes par jour sans égalité). Une tentative doit être <strong>démarrée en ligne</strong> pour être classée ; l’heure de fin n’est jamais celle de l’appareil. Pseudo requis pour apparaître au classement.</p>`;
 }
 
 // ————————————————————————— notifications de gains

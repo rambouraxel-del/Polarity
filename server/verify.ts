@@ -27,9 +27,9 @@ export type ReplayResult =
     }
   | { ok: false; reason: 'bad_replay' | 'not_finished' | 'inputs_after_end' | 'bad_powers' };
 
-export function replaySurvival(seed: number, flips: readonly number[], acts: readonly (readonly [number, number])[] = [], maxSteps: number = LIMITS.maxSteps): ReplayResult {
+export function replaySurvival(seed: number, flips: readonly number[], acts: readonly (readonly [number, number])[] = [], maxSteps: number = LIMITS.maxSteps, declared?: Category): ReplayResult {
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return { ok: false, reason: 'bad_replay' };
-  const sim = createSimulation({ mode: 'survival', seed, stock: { boost: Infinity, gel: Infinity } });
+  const sim = createSimulation({ mode: 'survival', seed, stock: { boost: Infinity, gel: Infinity }, bonus: declared !== 'plain' });
   let next = 0;
   let nextAct = 0;
   for (let step = 0; step < maxSteps && sim.state === 'running'; step++) {
@@ -51,7 +51,8 @@ export function replaySurvival(seed: number, flips: readonly number[], acts: rea
   // Une entrée après la mort (ou sautée) n'a pas pu être jouée : journal incohérent
   if (next !== flips.length || nextAct !== acts.length) return { ok: false, reason: 'inputs_after_end' };
   const powers = { ...sim.powers.used };
-  const category: Category = powers.boost + powers.gel + powers.shield > 0 ? 'bonus' : 'plain';
+  // Mode déclaré au départ : « Sans bonus » a interdit tout pouvoir pendant le rejeu ; sinon (ancien client) déduction par les activations
+  const category: Category = declared ?? (powers.boost + powers.gel + powers.shield > 0 ? 'bonus' : 'plain');
   return { ok: true, steps: sim.stepIndex, time: sim.stepIndex * SIM.dt, score: sim.scoring.score, cycles: sim.scoring.cycles, flips: flips.length, powers, category, beacons: sim.scoring.beacons };
 }
 

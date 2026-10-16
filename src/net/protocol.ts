@@ -23,8 +23,10 @@ export const REPLAY_FORMAT_POWERS = 2;
 export type ReplayFormat = typeof REPLAY_FORMAT | typeof REPLAY_FORMAT_POWERS;
 
 /**
- * Catégorie de classement, DÉDUITE PAR LE SERVICE des activations qu'il a rejouées (jamais d'un indicateur du client) :
- * `plain` = aucune activation réussie de Boost, Gel ou Bouclier pendant la première vie ; `bonus` = au moins une.
+ * Catégorie de classement = MODE CHOISI AU DÉPART (« Sans bonus » / « Avec bonus »), verrouillé pendant la partie.
+ * `plain` : aucun pouvoir n'existe (le service REJETTE tout journal contenant une activation) ; `bonus` : pouvoirs permis, même si aucun
+ * n'est utilisé. Le client ne fait que DÉCLARER le mode (`Replay.category`), qui contraint le rejeu : il ne peut rien y gagner.
+ * Sans déclaration (anciens clients), le service déduit : `bonus` si au moins une activation réussie pendant la première vie, sinon `plain`.
  */
 export type Category = 'plain' | 'bonus';
 export const CATEGORIES: readonly Category[] = ['plain', 'bonus'];
@@ -64,6 +66,8 @@ export interface Replay {
   flips: number[];
   /** Format 2 : activations RÉUSSIES de pouvoirs [pas, code] (0 Boost, 1 Gel, 2 Bouclier), dans l'ordre. Le service les rejoue et les juge. */
   acts?: [number, number][];
+  /** Mode choisi au départ (format 2). Absent = ancien client : catégorie déduite des activations rejouées. */
+  category?: Category;
 }
 
 export interface RunSubmission {

@@ -61,11 +61,11 @@ export const STAGE_PARAMS = {
   /** Luminosité de la faille. */
   riftGlow: [0.14, 0.32, 0.55, 0.75, 0.92],
   /** Réponse aux battements. */
-  beatGain: [0.25, 0.45, 0.7, 0.85, 1],
+  beatGain: [0.6, 0.72, 0.85, 0.94, 1],
   /** Réponse aux basses. */
-  bassGain: [0.2, 0.4, 0.65, 0.85, 1],
+  bassGain: [0.5, 0.62, 0.78, 0.9, 1],
   /** Probabilité d'un anneau d'énergie sur un battement fort. */
-  ringChance: [0, 0.04, 0.16, 0.26, 0.4],
+  ringChance: [0.05, 0.1, 0.2, 0.3, 0.4],
   /** Arcs d'énergie décoratifs (par seconde, hors zone de jeu). */
   arcRate: [0, 0.05, 0.14, 0.32, 0.55],
   /** Débris décoratifs (fraction du plafond de qualité). */
@@ -73,7 +73,7 @@ export const STAGE_PARAMS = {
   /** Déformation gravitationnelle du quadrillage (amplitude). */
   gridWarp: [0, 0, 0.18, 0.6, 1],
   /** Force des ondes sur les passages forts. */
-  waveGain: [0.2, 0.4, 0.75, 0.9, 1],
+  waveGain: [0.45, 0.6, 0.8, 0.92, 1],
   /** Chaleur des couleurs : 0 = cyan dominant, 1 = violet et magenta très présents. */
   heat: [0, 0.25, 0.5, 0.75, 1],
 } as const;
@@ -91,20 +91,22 @@ export const AMBIENCE = {
     /** Avance visuelle (s) : le pic lumineux tombe sur le battement entendu (une image d'affichage d'avance). */
     lead: 0.016,
     /** Battement « significatif » : force minimale (0–1, voir la carte musicale). */
-    beatThreshold: 0.45,
+    beatThreshold: 0.35,
     /** Battement fort (anneaux, arcs) : force minimale. */
     strongBeat: 0.8,
-    /** Décroissance de la pulsation de battement (s, constante de temps). */
-    beatDecay: 0.16,
-    /** Basses : attaque et relâchement (s). */
-    bassAttack: 0.04,
-    bassRelease: 0.22,
+    /** Décroissance de la pulsation de battement (s, constante de temps) : retombée rapide pour que chaque coup reste distinct. */
+    beatDecay: 0.1,
+    /** Courbe d'attaque d'un battement (< 1 : les battements moyens frappent presque aussi fort que les plus marqués ; 1 = linéaire). */
+    beatCurve: 0.65,
+    /** Basses : attaque quasi immédiate et relâchement court (s). */
+    bassAttack: 0.012,
+    bassRelease: 0.12,
     /** Passage fort : durée de l'impulsion (s). */
     dropDecay: 1.4,
     /** Intensité musicale : lissage (s). */
-    intensitySmooth: 0.8,
+    intensitySmooth: 0.4,
     /** Montée : lissage (s). */
-    buildSmooth: 0.6,
+    buildSmooth: 0.3,
     /** Saut de position au-delà duquel on ne rattrape pas les battements manqués (reprise, changement de morceau). */
     maxCatchUp: 0.25,
   },
@@ -152,7 +154,7 @@ export const AMBIENCE = {
     /** Dilatation maximale de la faille sur un passage fort (multiplicateur d'ouverture). */
     dropDilate: 1.35,
     /** Pulsation maximale d'un halo sur un battement (multiplicateur d'échelle). */
-    beatScale: 0.06,
+    beatScale: 0.09,
     /** Déformation maximale du quadrillage (unités monde). */
     gridWarp: 7,
   },

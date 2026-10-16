@@ -351,6 +351,9 @@ export function createApp(db: Db, cfg: AppConfig): App {
     const acts: [number, number][] = fmt === REPLAY_FORMAT_POWERS ? (sub.replay.acts ?? []) : [];
     if (fmt === REPLAY_FORMAT && sub.replay.acts !== undefined && !(Array.isArray(sub.replay.acts) && sub.replay.acts.length === 0)) return reject('bad_replay', 400);
     if (!validActs(acts)) return reject('bad_replay', 400);
+    // Mode choisi au départ (format 2 seulement) : « plain » ou « bonus », sinon absent (ancien client : catégorie déduite)
+    const declared = sub.replay.category;
+    if (declared !== undefined && (fmt !== REPLAY_FORMAT_POWERS || !isCategory(declared))) return reject('bad_replay', 400);
     // Version d'équilibrage : seule la version courante peut être rejouée par ce code (les anciennes sont conservées en lecture)
     if (sub.client.balance !== balance) return reject('unsupported_balance');
     // Ticket : signature, propriétaire, expiration, usage unique
@@ -365,7 +368,7 @@ export function createApp(db: Db, cfg: AppConfig): App {
     // Budget global de rejeux (calcul coûteux, exécuté dans le processus du service) : refus SANS consommer le ticket, le client réessaiera
     if (!limiter.allow('replay:global', maxReplays, 60_000)) return json(429, { status: 'rejected', reason: 'rate_limited', message: REJECT_MESSAGES.rate_limited } satisfies RunResponse);
     // Rejeu : le résultat est celui du serveur (graine du ticket + entrées du journal)
-    const rep = replaySurvival(row.seed, sub.replay.flips, acts);
+    const rep = replaySurvival(row.seed, sub.replay.flips, acts, undefined, declared);
     const consume = (): boolean => (q.useTicket.run(now(), row.id) as unknown as { changes: number }).changes === 1;
     if (!rep.ok) {
       transaction(db, () => void consume());

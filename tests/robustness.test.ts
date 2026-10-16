@@ -495,7 +495,7 @@ describe('classement hors ligne et honnêteté sur les données', () => {
     expect(html).not.toMatch(/docs\/|VITE_|CLASSEMENT\.md/);
     expect(html).not.toMatch(/data-action="(lb-|buy)/);
     expect(html).toContain('Votre record sur cet appareil');
-    expect(html).toContain('ce navigateur');
+    expect(html).toContain('Durée puis score');
   });
 
   it('hors connexion : erreur annoncée (role=alert), « Réessayer » seulement, jeu et record local toujours là', () => {
@@ -503,7 +503,7 @@ describe('classement hors ligne et honnêteté sur les données', () => {
     expect(html).toMatch(/role="alert"[^>]*>Classement indisponible : réseau indisponible/);
     expect(html.match(/data-action="lb-refresh"/g)).toHaveLength(1);
     expect(html).toContain('Votre record sur cet appareil');
-    expect(html).toContain('envoyés plus tard');
+    expect(html).toContain('envoi plus tard');
   });
 
   it('options : la sauvegarde est locale à ce navigateur, non synchronisée avec une application native ni un autre appareil', () => {

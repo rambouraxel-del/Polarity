@@ -5,7 +5,7 @@
 
 ## Principes
 - Accès gratuit et complet ; aucun avantage de jeu à l'achat. Les Prismes servent aux cosmétiques premium (Néon 150, Nébuleuse 75, pack 200) et aux reprises (5 puis 10). Tarifs **inchangés**.
-- Prismes achetés et gagnés (calendrier, Top 10 quotidien, drop) : **identiques**. Éclats et Médailles : intacts, jamais convertis.
+- Prismes achetés et gagnés (calendrier, podium quotidien, drop) : **identiques**. Éclats et Médailles : intacts, jamais convertis.
 - Les Prismes ne sont crédités **que par le service**, après vérification auprès du fournisseur. Aucune valeur (montant, produit, quantité) envoyée par le client ne fait autorité : le service retrouve le pack d'après l'identifiant de produit **vérifié chez le fournisseur** (`src/config/monetization.ts`).
 - Compte connecté obligatoire pour acheter (l'invité joue sans paiement, l'interface propose d'ouvrir Compte).
 

@@ -218,7 +218,7 @@ export function createRewards(deps: RewardsDeps): Rewards {
   /**
    * Réclamation MANUELLE d'une récompense débloquée : atomique (décision + ligne du registre dans la même transaction), idempotente (clé
    * `loy:<cycle>:<jour>` unique par profil), jamais plus d'une fois. Boost/Gel : refusée tant que le stock est plein (la récompense reste récupérable).
-   * Prismes : réservés aux profils ayant CHOISI un pseudo (`guest = 0`, identité du service) — règle commune au calendrier, au Top 10 quotidien et au drop rare ; un profil invité sans pseudo (même connecté à un compte) ne les reçoit pas (protection contre la création en série de profils).
+   * Prismes : réservés aux profils ayant CHOISI un pseudo (`guest = 0`, identité du service) — règle commune au calendrier, au podium quotidien et au drop rare ; un profil invité sans pseudo (même connecté à un compte) ne les reçoit pas (protection contre la création en série de profils).
    */
   function claim(req: HttpRequest, me: PlayerRow): HttpResponse {
     if (!allow(`loyalty-claim:${me.id}`, 120, HOUR)) return err(429, 'rate_limited', RATE);
@@ -273,7 +273,7 @@ export function createRewards(deps: RewardsDeps): Rewards {
 
   let lastTick = 0;
   /**
-   * Clôture des défis échus (00 h 15 UTC passées) : Top 10 + tous les ex æquo du 10ᵉ rang figés dans `daily_results`, Prismes crédités au registre
+   * Clôture des défis échus (00 h 15 UTC passées) : podium (rangs 1 à 3) + tous les ex æquo du 3ᵉ rang figés dans `daily_results`, Prismes crédités au registre
    * (clé `daily:<date>`, unique par profil) dans UNE transaction avec le marqueur `daily_closed`. Rejouable : un défi déjà clos est ignoré, une
    * panne en cours de route n'a rien écrit (transaction) et la clôture reprend au prochain appel.
    */

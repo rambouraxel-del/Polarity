@@ -47,8 +47,8 @@ describe('Chiffres validés de la mise à jour économique', () => {
     expect(LOYALTY.absencesAllowed).toBe(1);
   });
 
-  it('Défi quotidien : Top 10 15/10/5/2/2/2/2/1/1/1, rien au 11ᵉ ; grâce 15 min ; drop 0,02 % par balise, 1 Prisme maximum', () => {
-    expect(Array.from({ length: 11 }, (_, i) => dailyPrizeForRank(i + 1))).toEqual([15, 10, 5, 2, 2, 2, 2, 1, 1, 1, 0]);
+  it('Défi quotidien : podium 5/2/1, rien au 4ᵉ rang ; grâce 15 min ; drop 0,02 % par balise, 1 Prisme maximum', () => {
+    expect(Array.from({ length: 5 }, (_, i) => dailyPrizeForRank(i + 1))).toEqual([5, 2, 1, 0, 0]);
     expect(DAILY_RANKING.graceMinutes).toBe(15);
     expect(DROPS.prism).toEqual({ chancePerBeacon: 0.0002, maxPerRun: 1, amount: 1 });
   });

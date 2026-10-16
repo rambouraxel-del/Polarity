@@ -70,9 +70,9 @@ describe('Configuration des récompenses', () => {
     expect(LOYALTY.absencesAllowed).toBe(1);
   });
 
-  it('classement quotidien : 15/10/5, 4ᵉ à 7ᵉ 2 chacun, 8ᵉ à 10ᵉ 1 chacun ; 41 Prismes par jour standard ; rien au-delà du 10ᵉ rang', () => {
-    expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(dailyPrizeForRank)).toEqual([15, 10, 5, 2, 2, 2, 2, 1, 1, 1, 0]);
-    expect(DAILY_STANDARD_TOTAL).toBe(41);
+  it('classement quotidien : 5/2/1 pour les trois premiers ; 8 Prismes par jour standard ; rien à partir du 4ᵉ rang', () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(dailyPrizeForRank)).toEqual([5, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(DAILY_STANDARD_TOTAL).toBe(8);
     expect(DAILY_RANKING.graceMinutes).toBe(15);
   });
 
@@ -683,42 +683,33 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     c.app.tick(true);
   };
 
-  it('dix joueurs éligibles sans égalité : 15+10+5+4×2+3×1 = 41 Prismes crédités au registre', () => {
+  it('seuls les trois premiers sont récompensés sans égalité : 5+2+1 = 8 Prismes crédités au registre', () => {
     const c = ctx();
     const ps = seed(c, Array.from({ length: 10 }, (_, i) => ({ steps: 10000 - i * 100, score: 5000 })));
     seed(c, [{ steps: 100, score: 1 }, { steps: 50, score: 1 }]); // 11ᵉ et 12ᵉ : rien
     closeAt(c);
-    expect(results(c).map((r) => r.prisms)).toEqual([15, 10, 5, 2, 2, 2, 2, 1, 1, 1]);
-    expect(results(c).reduce((t, r) => t + r.prisms, 0)).toBe(41);
-    expect(balancesOf(c.db, ps[0].id).prisms).toBe(15);
-    expect(balancesOf(c.db, ps[9].id).prisms).toBe(1);
-    expect(c.db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM ledger WHERE ref = ?").get(`daily:${date}`)).toEqual({ n: 41 });
-    expect(c.db.prepare('SELECT rewarded FROM daily_closed WHERE date = ?').get(date)).toEqual({ rewarded: 41 });
+    expect(results(c).map((r) => r.prisms)).toEqual([5, 2, 1]);
+    expect(results(c).reduce((t, r) => t + r.prisms, 0)).toBe(8);
+    expect(balancesOf(c.db, ps[0].id).prisms).toBe(5);
+    expect(balancesOf(c.db, ps[2].id).prisms).toBe(1);
+    expect(balancesOf(c.db, ps[3].id).prisms).toBe(0); // 4ᵉ : rien
+    expect(balancesOf(c.db, ps[9].id).prisms).toBe(0);
+    expect(c.db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM ledger WHERE ref = ?").get(`daily:${date}`)).toEqual({ n: 8 });
+    expect(c.db.prepare('SELECT rewarded FROM daily_closed WHERE date = ?').get(date)).toEqual({ rewarded: 8 });
   });
 
-  it('ex æquo : même rang = même récompense, les rangs suivants sautent (égalités aux rangs 1, 3, 7 et 10)', () => {
-    // Durées/scores : A=B (rang 1) ; C (rang 3) ; D=E (rang 4) ; F (6) ; G=H (rang 7) ; I (9) ; J=K=L (rang 10)
+  it('ex æquo : même rang = même récompense, les rangs suivants sautent (égalités aux rangs 1 et 3 ; le 6ᵉ n’a rien)', () => {
+    // A=B (rang 1) ; C=D=E (rang 3) ; F (rang 6)
     const c = ctx();
-    const data = [
-      [1000, 50], [1000, 50],
-      [900, 40],
-      [800, 30], [800, 30],
-      [700, 20],
-      [600, 10], [600, 10],
-      [500, 9],
-      [400, 5], [400, 5], [400, 5],
-      [300, 1],
-    ].map(([steps, score]) => ({ steps, score }));
+    const data = [[1000, 50], [1000, 50], [900, 40], [900, 40], [900, 40], [700, 20]].map(([steps, score]) => ({ steps, score }));
     seed(c, data);
     closeAt(c);
     const r = results(c);
-    expect(r.map((x) => x.rank)).toEqual([1, 1, 3, 4, 4, 6, 7, 7, 9, 10, 10, 10]);
-    expect(r.map((x) => x.prisms)).toEqual([15, 15, 5, 2, 2, 2, 2, 2, 1, 1, 1, 1]);
-    // Tous les ex æquo du 10ᵉ rang sont récompensés : la distribution dépasse 41
-    expect(r.reduce((t, x) => t + x.prisms, 0)).toBe(15 + 15 + 5 + 2 + 2 + 2 + 2 + 2 + 1 + 1 + 1 + 1);
-    expect(r.reduce((t, x) => t + x.prisms, 0)).toBeGreaterThan(41);
-    // Le 13ᵉ (rang 13) n'a rien
-    expect(c.db.prepare('SELECT COUNT(*) AS n FROM daily_results WHERE date = ?').get(date)).toEqual({ n: 12 });
+    expect(r.map((x) => x.rank)).toEqual([1, 1, 3, 3, 3]);
+    expect(r.map((x) => x.prisms)).toEqual([5, 5, 1, 1, 1]);
+    // Tous les ex æquo du 3ᵉ rang sont récompensés : la distribution dépasse 8
+    expect(r.reduce((t, x) => t + x.prisms, 0)).toBe(13);
+    expect(c.db.prepare('SELECT COUNT(*) AS n FROM daily_results WHERE date = ?').get(date)).toEqual({ n: 5 });
   });
 
   it('égalité = métriques officielles identiques (durée ET score) : à durée égale, le score départage', () => {
@@ -726,7 +717,7 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     seed(c, [{ steps: 1000, score: 60 }, { steps: 1000, score: 50 }, { steps: 1000, score: 50 }]);
     closeAt(c);
     expect(results(c).map((x) => x.rank)).toEqual([1, 2, 2]);
-    expect(results(c).map((x) => x.prisms)).toEqual([15, 10, 10]);
+    expect(results(c).map((x) => x.prisms)).toEqual([5, 2, 2]);
   });
 
   it('profils invités et exclus par la modération : ni classés, ni récompensés ; leurs résultats ne déplacent personne', () => {
@@ -737,7 +728,7 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     const bad = seed(c, [{ steps: 7000, score: 1 }])[0];
     c.db.prepare('UPDATE players SET moderation = 2 WHERE id = ?').run(bad.id);
     closeAt(c);
-    expect(results(c).map((x) => [x.player_id, x.rank, x.prisms])).toEqual([[ps[0].id, 1, 15], [ps[1].id, 2, 10]]);
+    expect(results(c).map((x) => [x.player_id, x.rank, x.prisms])).toEqual([[ps[0].id, 1, 5], [ps[1].id, 2, 2]]);
     expect(balancesOf(c.db, g.id).prisms).toBe(0);
     expect(board(c, date).entries.map((e) => e.rank)).toEqual([1, 2]);
   });
@@ -748,9 +739,9 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     c.db.prepare('INSERT INTO daily_bests (player_id, date, steps, score, run_id, achieved_at) VALUES (?, ?, 5000, 9, 1, 1)').run(g.id, date);
     expect(board(c, date, g.auth).me).toMatchObject({ eligible: false, prisms: 0 });
     expect(c.call('PATCH', '/api/me', { auth: g.auth, body: { nickname: 'Nova' } }).status).toBe(200);
-    expect(board(c, date, g.auth).me).toMatchObject({ eligible: true, rank: 1, prisms: 15 });
+    expect(board(c, date, g.auth).me).toMatchObject({ eligible: true, rank: 1, prisms: 5 });
     closeAt(c);
-    expect(balancesOf(c.db, g.id).prisms).toBe(15);
+    expect(balancesOf(c.db, g.id).prisms).toBe(5);
     // Pas de compte OAuth : aucune identité n'est associée au profil
     expect(c.db.prepare('SELECT COUNT(*) AS n FROM identities WHERE player_id = ?').get(g.id)).toEqual({ n: 0 });
   });
@@ -812,13 +803,13 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     const g = guest(c);
     c.db.prepare("INSERT INTO daily_bests (player_id, date, steps, score, run_id, achieved_at) VALUES (?, ?, 100, 1, 1, 1)").run(g.id, date);
     const b = board(c, date, ps[2].auth);
-    expect(b).toMatchObject({ date, status: 'open', total: 12, endsAt: end, finalAt: end + 15 * 60_000, me: { rank: 3, prisms: 5, eligible: true } });
+    expect(b).toMatchObject({ date, status: 'open', total: 12, endsAt: end, finalAt: end + 15 * 60_000, me: { rank: 3, prisms: 1, eligible: true } });
     expect(b.entries).toHaveLength(12);
-    expect(b.entries[2]).toMatchObject({ rank: 3, prisms: 5, you: true });
+    expect(b.entries[2]).toMatchObject({ rank: 3, prisms: 1, you: true });
     expect(b.entries[11].prisms).toBe(0);
     expect(board(c, date, g.auth).me).toMatchObject({ eligible: false, prisms: 0 });
     closeAt(c);
-    expect(board(c, date, ps[2].auth)).toMatchObject({ status: 'final', me: { rank: 3, prisms: 5 } });
+    expect(board(c, date, ps[2].auth)).toMatchObject({ status: 'final', me: { rank: 3, prisms: 1 } });
     // Dates invalides ou futures refusées
     expect(c.call('GET', '/api/daily/leaderboard', { query: 'date=2099-01-01', ip: c.newIp() }).status).toBe(400);
     expect(c.call('GET', '/api/daily/leaderboard', { query: 'date=nope', ip: c.newIp() }).status).toBe(400);
@@ -829,7 +820,7 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     const ps = seed(c, [{ steps: 900, score: 1 }, { steps: 800, score: 1 }]);
     closeAt(c);
     const n = c.call('GET', '/api/daily/notices', { auth: ps[0].auth }).body as DailyNoticesResponse;
-    expect(n.notices).toEqual([{ date, rank: 1, prisms: 15, time: 900 * SIM.dt, score: 1 }]);
+    expect(n.notices).toEqual([{ date, rank: 1, prisms: 5, time: 900 * SIM.dt, score: 1 }]);
     expect(c.call('POST', '/api/daily/ack', { auth: ps[0].auth, body: { dates: [date] } }).status).toBe(200);
     expect((c.call('GET', '/api/daily/notices', { auth: ps[0].auth }).body as DailyNoticesResponse).notices).toEqual([]);
     expect((c.call('GET', '/api/daily/notices', { auth: ps[1].auth }).body as DailyNoticesResponse).notices).toHaveLength(1);
@@ -856,7 +847,7 @@ describe('Défi quotidien : classement, ex æquo, clôture et Prismes', () => {
     if (same.steps === lower.steps && same.score === lower.score) return;
     const expectedTop = same.steps > lower.steps || (same.steps === lower.steps && same.score > lower.score);
     expect(rs.map((x) => x.rank)).toEqual(expectedTop ? [1, 1, 3] : [1, 2, 2]);
-    expect(rs.map((x) => x.prisms)).toEqual(expectedTop ? [15, 15, 5] : [15, 10, 10]);
+    expect(rs.map((x) => x.prisms)).toEqual(expectedTop ? [5, 5, 1] : [5, 2, 2]);
   });
 });
 

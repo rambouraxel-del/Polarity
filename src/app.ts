@@ -48,7 +48,7 @@ import { LEADERBOARD_URL, LeaderboardClient, type PendingRun } from './net/leade
 import { backAction, hideNativeSplash, initNative, nativePlatform } from './platform/native';
 import type { BalancesResponse, Category, LeaderboardResponse, MeResponse, Ticket } from './net/protocol';
 import { CURRENCY_NAME } from './ui/components';
-import { escapeHtml, formatScore, formatTime } from './ui/format';
+import { escapeHtml, formatScore } from './ui/format';
 import { Hud } from './ui/hud';
 import { bannerHelp, isTouchPrimary } from './ui/controls';
 import { ShipPreview } from './ui/shipPreview';
@@ -566,7 +566,11 @@ export class App {
   startRun(cfg: RunConfig): void {
     this.endSession();
     // Survie : les charges de l'inventaire sont le stock de la partie (le service vérifie ensuite chaque activation par rejeu)
-    if (cfg.mode === 'survival') cfg = { ...cfg, stock: { boost: this.save.inventory.boost, gel: this.save.inventory.gel } };
+    // Le mode choisi à la préparation est figé pour toute la partie (rejouer garde le même mode) ; « Sans bonus » : aucune charge, aucun pouvoir
+    if (cfg.mode === 'survival') {
+      const bonus = cfg.bonus ?? this.save.options.survivalMode === 'bonus';
+      cfg = { ...cfg, bonus, stock: bonus ? { boost: this.save.inventory.boost, gel: this.save.inventory.gel } : { boost: 0, gel: 0 } };
+    }
     this.firstReport = null;
     this.runId = randomRunId();
     this.reviveBusy = false;
@@ -590,8 +594,8 @@ export class App {
     this.eventKey = '';
     this.creditedShards.clear();
     this.hud.show(true);
-    this.setPowersVisible(cfg.mode === 'survival');
-    if (cfg.mode === 'survival') this.bestAtStart = this.save.survival.bestTime;
+    this.setPowersVisible(cfg.mode === 'survival' && cfg.bonus !== false);
+    if (cfg.mode === 'survival') this.bestAtStart = (cfg.bonus ? this.save.survivalBonus : this.save.survival).bestTime;
     else if (cfg.mode === 'daily') this.bestAtStart = this.save.daily[cfg.date ?? '']?.bestTime ?? 0;
     else this.bestAtStart = 0;
 
@@ -1181,7 +1185,7 @@ export class App {
     this.screenEl.innerHTML = '';
     this.music.startGame();
     this.hud.show(true);
-    this.setPowersVisible(true);
+    this.setPowersVisible(this.lastConfig?.bonus !== false);
     this.lastCountdownShown = -1;
     s.revive();
   }
@@ -1459,7 +1463,7 @@ export class App {
       case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? '', this.purchaseBusy); break;
       case 'confirm-bonus': html = S.confirmBonusScreen(this.save, this.bonusOrder?.kind ?? '', this.bonusOrder?.qty ?? 0, this.bonusOrder?.back ?? 'cosmetics'); break;
       case 'prep':
-        html = S.prepScreen(this.save, this.prepMessage, this.save.survival.bestTime > 0 ? `Record : ${formatTime(this.save.survival.bestTime)}` : '');
+        html = S.prepScreen(this.save, this.prepMessage);
         break;
       case 'options': html = S.optionsScreen(this.save, this.lb.configured); break;
       case 'account': html = accountScreen({ state: this.account.state, methods: this.account.availability() }); break;
@@ -1717,7 +1721,12 @@ export class App {
       case 'prisms-account': this.showScreen('account'); break;
       case 'revive-ad': void this.reviveWithAd(); break;
       case 'revive-decline': if (!this.reviveBusy) this.session?.decline(); break;
-      case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed() }); break;
+      case 'prep-mode':
+        this.save.options.survivalMode = target.dataset.mode === 'bonus' ? 'bonus' : 'plain';
+        this.persist(false);
+        this.showScreen('prep', false);
+        break;
+      case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.save.options.survivalMode === 'bonus' }); break;
       case 'play-daily': {
         const date = utcDateString();
         this.startRun({ mode: 'daily', seed: 0, date });
@@ -1922,7 +1931,7 @@ export class App {
       this.runLbTicketId = ticket.id;
       // Journal de la première vie (inversions + activations, en pas de simulation) : le service le REJOUE et déduit lui-même catégorie et durée
       const acts = first.acts.map((a) => [a.step, POWER_CODES[a.kind]] as [number, number]);
-      this.lb.recordRun(ticket, { flips: first.flips, acts }, { time: summary.time, score: summary.score }, live);
+      this.lb.recordRun(ticket, { flips: first.flips, acts, category: summary.category }, { time: summary.time, score: summary.score }, live);
       settled(true);
       this.runLb = { kind: 'sending' };
       void this.lb.flush().then((list) => {

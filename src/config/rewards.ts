@@ -41,29 +41,27 @@ export function loyaltyTotals(): Record<RewardKind, number> {
 
 /** Classement du Défi quotidien : Prismes par rang (compétition « 1224 » : les ex æquo partagent le rang et la récompense). */
 export const DAILY_RANKING = {
-  /** Rang inclus → Prismes. Rangs 8 à 10 : 1 ; au-delà du 10ᵉ rang : rien. */
+  /** Rang inclus → Prismes. Seuls les trois premiers sont récompensés (5, 2, 1) ; au-delà du 3ᵉ rang : rien. */
   prizes: [
-    { from: 1, to: 1, prisms: 15 },
-    { from: 2, to: 2, prisms: 10 },
-    { from: 3, to: 3, prisms: 5 },
-    { from: 4, to: 7, prisms: 2 },
-    { from: 8, to: 10, prisms: 1 },
+    { from: 1, to: 1, prisms: 5 },
+    { from: 2, to: 2, prisms: 2 },
+    { from: 3, to: 3, prisms: 1 },
   ] as readonly { from: number; to: number; prisms: number }[],
   /** Dernier rang récompensé (tous les ex æquo de ce rang le sont). */
-  lastRewardedRank: 10,
+  lastRewardedRank: 3,
   /** Fin du défi : 00 h 00 UTC. Soumissions tardives acceptées jusqu'à 00 h 15 (tentative démarrée avant minuit, preuves du service). */
   graceMinutes: 15,
   /** Classement affiché (lignes). */
   topSize: 100,
 } as const;
 
-/** Prismes d'un rang (compétition) ; 0 hors du Top 10. */
+/** Prismes d'un rang (compétition) ; 0 hors du podium (rangs 1 à 3). */
 export function dailyPrizeForRank(rank: number): number {
   for (const p of DAILY_RANKING.prizes) if (rank >= p.from && rank <= p.to) return p.prisms;
   return 0;
 }
 
-/** Total d'une journée à dix joueurs éligibles sans égalité : 15 + 10 + 5 + 4×2 + 3×1 = 41. */
+/** Total d'une journée à trois joueurs éligibles au moins, sans égalité : 5 + 2 + 1 = 8. */
 export const DAILY_STANDARD_TOTAL = Array.from({ length: DAILY_RANKING.lastRewardedRank }, (_, i) => dailyPrizeForRank(i + 1)).reduce((a, b) => a + b, 0);
 
 /**

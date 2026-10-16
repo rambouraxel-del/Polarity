@@ -46,6 +46,8 @@ export type PowerState = 'ready' | 'active' | 'cooldown' | 'empty' | 'cap' | 'bl
 export class Powers {
   /** Les pouvoirs n'existent qu'en Survie (jamais en niveaux, défi quotidien ni campagne). */
   readonly enabled: boolean;
+  /** Mode « Sans bonus » (choisi au départ) : Boost, Gel et Bouclier sont désactivés, première vie et reprises comprises. */
+  readonly bonusAllowed: boolean;
   /** Après une reprise : Boost et Gel gratuits et illimités. */
   free = false;
   /** Charges achetées restantes (première vie). Infinity pour le rejeu du serveur : le service vérifie les stocks à part. */
@@ -70,16 +72,20 @@ export class Powers {
   private queue: PowerKind[] = [];
 
   constructor(
-    opts: { enabled: boolean; stock?: PowerStock },
+    opts: { enabled: boolean; stock?: PowerStock; bonus?: boolean },
     private readonly emit: (e: PowerEvent) => void,
   ) {
     this.enabled = opts.enabled;
+    this.bonusAllowed = opts.bonus !== false;
     this.stock = { boost: opts.stock?.boost ?? 0, gel: opts.stock?.gel ?? 0 };
   }
 
   /** Demande d'activation (appliquée au début du prochain pas, comme une inversion). */
   request(kind: PowerKind): void {
-    if (this.enabled) this.queue.push(kind);
+    if (!this.enabled) return;
+    // Sans bonus : toute demande est un refus (le rejeu du serveur rejette un journal qui en contient)
+    if (!this.bonusAllowed) this.rejected++;
+    else this.queue.push(kind);
   }
 
   boostActive(step: number): boolean {
@@ -96,7 +102,7 @@ export class Powers {
 
   /** Motif de refus d'une activation maintenant (null = possible). Ordre : actif, plafond, stock, exclusivité, recharge. */
   deny(kind: PowerKind, step: number): DenyReason | null {
-    if (!this.enabled) return 'disabled';
+    if (!this.enabled || !this.bonusAllowed) return 'disabled';
     if (kind === 'shield') {
       if (this.shieldActive(step)) return 'active';
       return this.shieldStored ? null : 'gauge';
@@ -180,7 +186,7 @@ export class Powers {
 
   /** Une balise a été collectée : la jauge du Bouclier avance, sauf si une charge est déjà stockée (aucune réserve cachée). */
   onBeacon(): void {
-    if (!this.enabled || this.shieldStored) return;
+    if (!this.enabled || !this.bonusAllowed || this.shieldStored) return;
     this.shieldProgress++;
     if (this.shieldProgress >= POWERS.shield.beacons) {
       this.shieldProgress = POWERS.shield.beacons;

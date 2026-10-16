@@ -61,3 +61,9 @@ ajuster `src/config/playerSpeed.ts` (courbe, `PACE`), `hazards.ts`, `events.ts` 
 
 ## Correctif Docker (avant déploiement du service)
 `server/Dockerfile` : `npm ci --ignore-scripts` (sans `--omit=optional`, qui excluait `@esbuild/linux-x64` et faisait planter tsx) ; utilisateur `node` conservé. Vérification locale sans démon Docker : installation identique + démarrage de `server/index.ts` → `/api/health` = `{"ok":true,"balance":3,"api":2}`. Reste à vérifier sur le VPS : `docker compose build` puis démarrage du conteneur.
+
+## Survie : mode choisi au départ, classement allégé, podium quotidien, ambiance plus franche
+- **Mode** « Sans bonus » (défaut) / « Avec bonus » choisi à la préparation (`save.options.survivalMode`), figé pendant la partie (`RunConfig.bonus`) : en « Sans bonus » aucun pouvoir (`Powers.bonusAllowed`), classement et record du mode choisi (même sans activation en « Avec bonus ») ; `replay.category` déclaré, imposé par `replaySurvival(…, declared)` ; ancien client sans déclaration : déduction. `BALANCE_VERSION` inchangée.
+- **Classement** : texte du bas en 3 lignes ; « Mes résultats récents » : 3 dernières parties, encarts compacts.
+- **Défi quotidien** : 5 / 2 / 1 Prismes (rangs 1 à 3, ex æquo du 3ᵉ rang inclus) ; `config/rewards.ts`, serveur, textes.
+- **Ambiance** : réaction musicale renforcée (gains des stades 0–1, attaque immédiate, retombée 0,1 s, courbe 0,65, moins de lissage), plafonds de lisibilité inchangés.

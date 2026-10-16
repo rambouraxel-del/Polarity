@@ -146,8 +146,9 @@ describe('Défi quotidien : classement mondial (écran)', () => {
     expect(html).toContain('ex æquo');
     expect(html).toContain('3 / 3');
     expect(html).toContain('Prismes (provisoire)');
-    for (const t of ['1er', '2e', '3e', '4ᵉ à 7ᵉ', '8ᵉ à 10ᵉ']) expect(html).toContain(t);
-    expect(html).toContain('41 Prismes par jour');
+    for (const t of ['1er', '2e', '3e']) expect(html).toContain(t);
+    expect(html).not.toContain('4ᵉ à 7ᵉ');
+    expect(html).toContain('8 Prismes par jour');
   });
 
   it('provisoire pendant la grâce de 15 min, définitif ensuite ; invité non éligible ; hors service : message honnête', () => {

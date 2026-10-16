@@ -19,6 +19,8 @@ export interface RunConfig {
   upgrades?: ActiveUpgrades;
   /** Survie : charges de Boost et de Gel achetées disponibles pour la première vie (le rejeu du serveur passe Infinity et vérifie les stocks à part). */
   stock?: { boost: number; gel: number };
+  /** Survie : mode choisi au départ. false = « Sans bonus » (aucun pouvoir) ; true/absent = « Avec bonus ». */
+  bonus?: boolean;
 }
 
 /** Les trois modes partagent exactement la même simulation ; seuls la courbe et la durée changent. */
@@ -33,5 +35,5 @@ export function createSimulation(cfg: RunConfig): Simulation {
   // Éclats sur l'orbite : réglage par mode dans config/economy.ts (Survie seulement pour l'instant)
   const shards = cfg.mode === 'daily' ? SHARDS.modes.daily : SHARDS.modes.survival;
   // Pouvoirs : Survie seulement (jamais le défi quotidien, les niveaux ni la campagne)
-  return new Simulation({ seed, profile: survivalProfile(shards), timeLimit: null, powers: cfg.mode === 'survival' ? { stock: cfg.stock } : undefined });
+  return new Simulation({ seed, profile: survivalProfile(shards), timeLimit: null, powers: cfg.mode === 'survival' ? { stock: cfg.stock, bonus: cfg.bonus } : undefined });
 }

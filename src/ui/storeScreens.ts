@@ -72,7 +72,7 @@ export function prismShopHtml(v: StoreView): string {
     <h3 class="section-title">${coin('prisms')} Acheter des Prismes</h3>
     <div class="pack-grid" role="list">${cards}</div>
     ${restore}
-    <p class="small shop-foot">Prix indicatifs : le prix final est affiché par la ${escapeHtml(v.storeName)}. Prismes achetés et gagnés (calendrier, Top 10 du défi jusqu’à ${DAILY_RANKING.prizes[0].prisms} par jour, drop rare) sont identiques ; achats facultatifs, sans avantage de jeu, aucune publicité n’est imposée.</p>
+    <p class="small shop-foot">Prix indicatifs : le prix final est affiché par la ${escapeHtml(v.storeName)}. Prismes achetés et gagnés (calendrier, podium du défi jusqu’à ${DAILY_RANKING.prizes[0].prisms} par jour, drop rare) sont identiques ; achats facultatifs, sans avantage de jeu, aucune publicité n’est imposée.</p>
     ${privacyHtml()}`;
 }
 

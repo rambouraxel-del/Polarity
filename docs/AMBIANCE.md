@@ -42,7 +42,7 @@ Aperçu sans jouer 4 minutes : ajouter `?stade=3` (1 à 5) à l'adresse du jeu. 
    Pause = position figée (rien ne réagit) ; reprise, saut ou changement de morceau = pas de rafale de battements manqués ;
    tour de boucle = fin puis début de la région. Sans musique (pas encore décodée, pas de contexte), **rien ne pulse** :
    on ne simule jamais une fausse synchronisation.
-4. `AmbienceDirector` (`src/ambience/director.ts`) transforme cela en impulsions : battement (pic puis décroissance 0,16 s),
+4. `AmbienceDirector` (`src/ambience/director.ts`) transforme cela en impulsions : battement (attaque immédiate, courbe 0,65, décroissance 0,1 s),
    basses (attaque 40 ms, relâchement 220 ms), intensité, montée, passage fort (1,4 s), demandes d'anneau/onde/arc.
 
 **Quand rien ne doit pulser** (`MusicSync.update(position, audible)`) : musique non décodée ou absente, **sourdine**, volume général ou

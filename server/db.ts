@@ -218,7 +218,7 @@ ALTER TABLE installs ADD COLUMN used_gel INTEGER NOT NULL DEFAULT 0;
  * - `loyalty_cycles` : cycles du calendrier de connexion (jours validés PAR LE SERVICE, UTC ; absences utilisées ; un seul cycle courant par profil) ;
  *   les récompenses réclamées sont des lignes du registre (`loy:<cycle>:<jour>`), le cycle y a un identifiant global (aucune collision à la fusion) ;
  * - `daily_attempts` (début de tentative enregistré par le service : preuve d'horaire), `daily_runs`, `daily_bests` (un record par joueur et par date),
- *   `daily_results` (Top 10 figé à la clôture, avec les Prismes), `daily_closed` (clôture faite : marqueur d'idempotence) ;
+ *   `daily_results` (podium figé à la clôture, avec les Prismes), `daily_closed` (clôture faite : marqueur d'idempotence) ;
  * - `tickets.started_at` (partie de Survie démarrée EN LIGNE : condition du drop rare de Prismes) et `runs.drop_prisms`.
  */
 const V6 = `

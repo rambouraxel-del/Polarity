@@ -149,7 +149,7 @@ export class AmbienceDirector {
     // Battements significatifs : impulsion qui décroît vite
     s.beat *= Math.exp(-dt / cfg.beatDecay);
     if (music.beat >= cfg.beatThreshold) {
-      s.beat = Math.max(s.beat, Math.min(1, music.beat) * s.p.beatGain * reaction);
+      s.beat = Math.max(s.beat, Math.pow(Math.min(1, music.beat), cfg.beatCurve) * s.p.beatGain * reaction);
       if (music.beat >= cfg.strongBeat && this.rand() < s.p.ringChance * (1 + s.build)) s.spawnRing = music.beat * s.p.beatGain * reaction;
     }
 

@@ -402,11 +402,11 @@ export class LeaderboardClient {
   // ————————————————————————— parties
 
   /** Enregistre une partie de Survie éligible : conservée localement jusqu'à validation par le serveur. */
-  recordRun(ticket: Ticket, log: { flips: readonly number[]; acts: readonly (readonly [number, number])[] }, claimed: { time: number; score: number }, bonusUse: { boost: number; gel: number } = { boost: 0, gel: 0 }): PendingRun | null {
+  recordRun(ticket: Ticket, log: { flips: readonly number[]; acts: readonly (readonly [number, number])[]; category?: Category }, claimed: { time: number; score: number }, bonusUse: { boost: number; gel: number } = { boost: 0, gel: 0 }): PendingRun | null {
     // Le ticket est signé pour le profil qui l'a reçu : le résultat lui est rattaché définitivement
     const owner = this.identity()?.playerId;
     if (!owner) return null;
-    const replay: Replay = { v: REPLAY_FORMAT_POWERS, flips: [...log.flips], acts: log.acts.map((a) => [a[0], a[1]] as [number, number]) };
+    const replay: Replay = { v: REPLAY_FORMAT_POWERS, flips: [...log.flips], acts: log.acts.map((a) => [a[0], a[1]] as [number, number]), ...(log.category ? { category: log.category } : {}) };
     const run: PendingRun = {
       id: ticket.id,
       owner,

@@ -176,7 +176,8 @@ export class GameSession {
       outcome: this.campaign ? (this.campaign.outcome === 'success' ? 'complete' : 'dead') : s.state === 'complete' ? 'complete' : 'dead',
       shards: f?.shards ?? s.shards?.income ?? 0,
       events: f?.events ?? s.director.eventCount,
-      category: this.config.mode === 'survival' ? (used.boost + used.gel + used.shield > 0 ? 'bonus' : 'plain') : undefined,
+      // Survie : le mode choisi au départ fait foi (sans choix explicite : déduit des pouvoirs utilisés)
+      category: this.config.mode === 'survival' ? (this.config.bonus !== undefined ? (this.config.bonus ? 'bonus' : 'plain') : used.boost + used.gel + used.shield > 0 ? 'bonus' : 'plain') : undefined,
       free: this.config.mode === 'survival' && s.life > 1 ? { time: s.time, score: s.scoring.score, lives: s.life } : undefined,
       missionId: this.config.mission?.id,
       report: this.campaign?.report(),

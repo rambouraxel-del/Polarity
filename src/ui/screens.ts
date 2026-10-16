@@ -324,7 +324,7 @@ export function bonusRules(): string {
 
 /** Rappel d'une ligne (préparation de la Survie) : l'essentiel des règles, le détail est dans la boutique. */
 export function bonusRulesShort(): string {
-  return `${BONUS.maxActivationsPerRun} activations au plus par bonus en première vie · Boost et Gel jamais ensemble · Bouclier gratuit (${POWERS.shield.beacons} balises).`;
+  return `${BONUS.maxActivationsPerRun} activations au plus par bonus en première vie · Boost et Gel jamais ensemble · Bouclier gratuit (${POWERS.shield.beacons} balises) · classement « Avec bonus », même sans activation.`;
 }
 
 /** Cartes de bonus COMPACTES : icône, nom, stock, effet, prix par charge, achats ×1 et ×5 côte à côte (Éclats uniquement). */
@@ -524,17 +524,27 @@ export function confirmBonusScreen(save: SaveData, kind: string, quantity: numbe
  * Préparation d'une partie de SURVIE : stocks de bonus, solde d'Éclats, achats, limite d'activations ; on peut toujours lancer sans aucun bonus.
  * (Ce n'est pas un mode : la partie lancée est la Survie habituelle.)
  */
-export function prepScreen(save: SaveData, message: { kind: 'ok' | 'error'; text: string } | null = null, record = ''): string {
+export function prepScreen(save: SaveData, message: { kind: 'ok' | 'error'; text: string } | null = null, mode: 'plain' | 'bonus' = save.options.survivalMode): string {
   const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice notice--compact${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
   const waitingShards = save.economy.managed ? provisional(save, 'shards') : 0;
   const balance = `<span class="prep__balance" role="group" aria-label="Solde : ${formatScore(save.wallet.shards)} Éclats">${coin('shards')}<strong data-wallet="shards">${formatScore(save.wallet.shards)}</strong><span class="prep__unit">Éclats</span>${waitingShards > 0 ? `<span class="prep__wait" title="Gains en attente de confirmation par le service">dont ${formatScore(waitingShards)} à confirmer</span>` : ''}</span>`;
-  // Titre, record et solde en tête ; le lancement juste dessous (une ligne) ; deux cartes de bonus compactes : le tout tient sur un téléphone sans défilement
+  // Le record affiché est celui du mode choisi (deux classements et deux records distincts)
+  const best = (mode === 'bonus' ? save.survivalBonus : save.survival).bestTime;
+  const record = best > 0 ? ` · Record : ${formatTime(best)}` : '';
+  const choice = `<div class="filters prep__mode" role="radiogroup" aria-label="Mode de Survie">${(['plain', 'bonus'] as const)
+    .map((m) => `<button class="filter${m === mode ? ' filter--on' : ''}" role="radio" aria-checked="${m === mode}" data-action="prep-mode" data-mode="${m}">${m === 'bonus' ? 'Avec bonus' : 'Sans bonus'}</button>`)
+    .join('')}</div>`;
+  // Titre, record et solde en tête ; mode ; lancement (une ligne) ; en « Avec bonus », deux cartes compactes : le tout tient sur un téléphone sans défilement
+  const body =
+    mode === 'bonus'
+      ? `<div class="bonus-list">${bonusCards(save)}</div><p class="small prep__rules">${bonusRulesShort()}</p>`
+      : '<p class="small prep__rules">Boost, Gel et Bouclier désactivés. Classement et record « Sans bonus ». Le mode est figé pendant la partie.</p>';
   return `<div class="panel panel--wide compact prep">${screenHead('Préparation')}
-    <div class="prep__line"><span class="prep__record">Survie${record ? ` · ${escapeHtml(record)}` : ''}</span>${balance}</div>
+    <div class="prep__line"><span class="prep__record">Survie · ${mode === 'bonus' ? 'Avec bonus' : 'Sans bonus'}${record}</span>${balance}</div>
+    ${choice}
     ${msg}
     <div class="prep__go">${button({ action: 'survival-start', label: 'Lancer la partie', icon: 'play', variant: 'primary', size: 'go', attrs: 'data-autofocus' })}</div>
-    <div class="bonus-list">${bonusCards(save)}</div>
-    <p class="small prep__rules">${bonusRulesShort()}</p>
+    ${body}
   </div>`;
 }
 
@@ -628,23 +638,25 @@ function pendingRow(p: PendingRun): string {
   let label: string;
   let cls: string;
   if (p.status === 'accepted') {
-    label = `Validé par le serveur${p.result ? ` — ${p.result.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'}, rang ${p.result.rank}${p.result.personalBest ? ' (nouveau meilleur)' : ''}` : ''}`;
+    label = `Validé${p.result ? ` · ${p.result.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'} · rang ${p.result.rank}${p.result.personalBest ? ' · record' : ''}` : ''}`;
     cls = 'lb-pending--ok';
   } else if (p.status === 'rejected') {
     label = `Non validé — ${p.message ?? 'refusé par le serveur'}`;
     cls = 'lb-pending--bad';
   } else {
-    label = p.lastError ? 'En attente de connexion (nouvel essai automatique)' : 'En attente d’envoi';
+    label = p.lastError ? 'En attente de connexion' : 'En attente d’envoi';
     cls = 'lb-pending--wait';
   }
-  return `<li class="lb-pending ${cls}"><strong>${formatTime(r.time)}</strong> · ${formatScore(r.score)} pts<span>${escapeHtml(label)}</span></li>`;
+  // Durée et score regroupés sur une ligne, état en dessous (encart compact)
+  return `<li class="lb-pending ${cls}"><span class="lb-pending__main"><strong>${formatTime(r.time)}</strong> · ${formatScore(r.score)} pts</span><span class="lb-pending__st">${escapeHtml(label)}</span></li>`;
 }
 
 export function leaderboardScreen(v: LeaderboardView): string {
   const head = screenHead('Classement');
-  const rules = `<p class="small" style="margin-top:12px">Survie, version d’équilibrage ${v.balance}. Critère principal : durée de survie ; le score départage. Seules les parties <strong>rejouées et validées par le serveur</strong> sont classées ; les parties de démonstration ou de test n’en font jamais partie.</p>
-    <p class="small"><strong>Sans bonus</strong> : aucune activation de Boost, Gel ou Bouclier pendant la première vie (c’est le classement historique). <strong>Avec bonus</strong> : au moins un pouvoir activé avec succès. Seule la <strong>première vie</strong> compte : une reprise (deuxième ou troisième chance) n’est jamais classée et ne change jamais votre record.</p>
-    <p class="small">Votre profil de classement (pseudo et identifiant) est enregistré dans <strong>ce navigateur</strong> : un autre navigateur, un autre appareil ou une version installée du jeu aura un autre profil. Hors connexion, le jeu reste jouable et vos résultats sont envoyés plus tard.</p>`;
+  // Trois lignes au plus : l'essentiel (critère, modes et première vie, validation et profil)
+  const rules = `<div class="small lb-rules"><p>Durée puis score · version ${v.balance} · 1ʳᵉ vie seule classée.</p>
+    <p><strong>Sans/Avec bonus</strong> : mode choisi au départ.</p>
+    <p>Validé par le serveur ; hors ligne, envoi plus tard.</p></div>`;
   const local = v.localBest ? `<div class="stats">${stat('Votre record sur cet appareil', formatTime(v.localBest.time))}${stat('Score associé', formatScore(v.localBest.score))}</div>` : '';
   if (!v.configured) {
     return `<div class="panel panel--wide">${head}
@@ -687,7 +699,7 @@ export function leaderboardScreen(v: LeaderboardView): string {
   const me = v.me
     ? v.me.best
       ? `<div class="stats">${stat(`Votre rang · ${catName}`, `${v.me.best.rank} / ${v.me.total}`, v.me.best.rank <= 3)}${stat('Votre meilleur', `${formatTime(v.me.best.time)} · ${formatScore(v.me.best.score)}`)}</div>`
-      : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé « ${catName} » pour la version ${v.balance} : jouez une partie de Survie${v.category === 'bonus' ? ' en activant un pouvoir' : ' sans activer de pouvoir'}.</p>`
+      : `<p class="sub" style="margin:10px 0">Vous n’êtes pas encore classé « ${catName} » pour la version ${v.balance} : jouez une partie de Survie en mode « ${catName} ».</p>`
     : '';
   const versions =
     v.balances && v.balances.versions.length > 0
@@ -708,7 +720,7 @@ export function leaderboardScreen(v: LeaderboardView): string {
     <p class="small">${v.top.total} joueur${v.top.total > 1 ? 's' : ''} classé${v.top.total > 1 ? 's' : ''} · top ${v.top.entries.length}</p>`;
   }
   const pending = v.pending.length
-    ? `<h3 class="section-title">Mes résultats récents</h3><ul class="lb-pending-list">${v.pending.slice().reverse().map(pendingRow).join('')}</ul>${
+    ? `<h3 class="section-title">Mes résultats récents</h3><ul class="lb-pending-list">${v.pending.slice(-3).reverse().map(pendingRow).join('')}</ul>${
         v.pending.some((p) => p.status === 'pending') ? button({ action: 'lb-flush', label: 'Envoyer maintenant', icon: 'replay', variant: 'secondary', size: 'sm' }) : button({ action: 'lb-clear', label: 'Effacer la liste', variant: 'ghost', size: 'sm' })
       }`
     : '';

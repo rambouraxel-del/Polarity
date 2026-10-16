@@ -48,7 +48,7 @@ export interface SimOptions {
    * Pouvoirs de la Survie : activés seulement pour la Survie. `stock` = charges de Boost et de Gel achetées disponibles pour la première vie
    * (Infinity pour le rejeu du serveur, qui vérifie les stocks à part) ; absent = aucune charge.
    */
-  powers?: { stock?: PowerStock };
+  powers?: { stock?: PowerStock; /** false = mode « Sans bonus » : aucun pouvoir (défaut : actifs). */ bonus?: boolean };
 }
 
 /** Résultat figé de la PREMIÈRE vie (la tentative classée) : inchangé par les reprises. */
@@ -130,7 +130,7 @@ export class Simulation {
     this.invincible = opts.invincible ?? false;
     this.shards = opts.profile.shards ? new ShardSpawner(opts.seed) : null;
     this.shardWorld = { angle: this.angle, dir: this.dir, beacons: this.beacons, speed: this.speedFn };
-    this.powers = new Powers({ enabled: !!opts.powers, stock: opts.powers?.stock }, (e) => this.events.push(e));
+    this.powers = new Powers({ enabled: !!opts.powers, stock: opts.powers?.stock, bonus: opts.powers?.bonus }, (e) => this.events.push(e));
   }
 
   get time(): number {

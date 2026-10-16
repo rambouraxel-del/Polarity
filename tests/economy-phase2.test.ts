@@ -148,7 +148,7 @@ describe('écrans : préparation de la Survie, bonus, confirmations, notificatio
   };
 
   it('préparation : stocks, solde d’Éclats, achats, limite de 3 activations, lancement sans bonus', () => {
-    const html = S.prepScreen(save());
+    const html = S.prepScreen(save(), null, 'bonus');
     expect(html).toContain('Préparation');
     expect(html).toContain('data-stock="boost">2<');
     expect(html).toContain('data-stock="gel">1<');
@@ -165,6 +165,11 @@ describe('écrans : préparation de la Survie, bonus, confirmations, notificatio
     expect(html).not.toContain('Ces montants seront dépensables');
     expect(html).toContain('btn--go');
     expect(S.prepScreen(defaultSave())).toContain('data-action="survival-start"');
+    // Mode choisi à la préparation : « Sans bonus » (défaut) n'affiche aucune carte de bonus ; « Avec bonus » les affiche
+    const plain = S.prepScreen(save(), null, 'plain');
+    expect(plain).toContain('data-action="prep-mode" data-mode="plain"');
+    expect(plain).not.toContain('data-action="bonus-ask"');
+    expect(plain).toContain('désactivés');
     // Achat de 5 Gel (500 Éclats) impossible avec 380 : bouton inactif
     expect(html).toMatch(/data-action="bonus-ask"[^>]*data-bonus="gel" data-qty="5"[^>]*disabled/);
     expect(html).toContain('Boost');
@@ -208,7 +213,7 @@ describe('écrans : préparation de la Survie, bonus, confirmations, notificatio
   it('achat de bonus : après confirmation le stock et le solde changent, une seule fois', () => {
     const s = save();
     expect(buyBonus(s, 'boost', 3)).toMatchObject({ ok: true, stock: 5, balance: 230 });
-    expect(S.prepScreen(s)).toContain('data-stock="boost">5<');
+    expect(S.prepScreen(s, null, 'bonus')).toContain('data-stock="boost">5<');
     expect(grantCharges(s, 'gel', 500)).toBe(BONUS.maxStock - 1);
     expect(s.economy.bonusBought.gel).toBe(0); // un crédit sans achat n'alimente pas les compteurs d'achat
   });
