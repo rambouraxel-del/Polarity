@@ -6,7 +6,7 @@ se réveille derrière l'orbite, l'espace se charge de poussières, d'anneaux et
 (`src/sim/` non modifié, `BALANCE_VERSION` inchangée). Jamais appliqué à la Campagne ni aux Défis classiques (décor fixe d'origine).
 
 ## Phases (noyau, faille, phase 2)
-Le noyau central, les fissures, la traversée et l'apparence de la phase 2 sont décrits dans `docs/PHASES.md` (`render/ambience/Core.ts`, `AmbienceDirector` : `core`, `look`, `calm`, moments forts préparés `AMBIENCE.script`). Les passages calmes de la musique calment aussi l'ambiance.
+Le noyau central, les fissures, la traversée et l'apparence de la phase 2 sont décrits dans `docs/PHASES.md` (`render/ambience/Hole.ts` et `Tunnel.ts`, `AmbienceDirector` : `core`, `look`, `calm`, moments forts préparés `AMBIENCE.script`). Les passages calmes de la musique calment aussi l'ambiance.
 
 ## Les cinq stades (temps de survie actif, la pause l'arrête)
 | Stade | Début | Ce qui change |
@@ -68,13 +68,39 @@ Si la musique change un jour : remplacer les MP3 et leurs repères, puis relance
 | `src/ambience/musicSync.ts` | Lecture de la carte musicale à la position entendue |
 | `src/ambience/director.ts` | Progression des stades, réactions musicales, qualité adaptative (`QualityGovernor`) — logique pure, testée |
 | `src/render/ambience/AmbienceRenderer.ts` | Assemble les calques (tous derrière l'orbite, les menaces et le vaisseau) |
-| `src/render/ambience/StarField.ts` · `Rift.ts` · `Particles.ts` · `Effects.ts` · `textures.ts` | Parallaxe · faille et nébuleuses · poussières et débris · anneaux, ondes, arcs, quadrillage · textures générées par code |
+| `src/render/ambience/StarField.ts` · `Rift.ts` · `Particles.ts` · `Effects.ts` · `textures.ts` | Parallaxe · nébuleuses · poussières/étincelles et débris · anneaux, ondes, quadrillage · textures générées par code |
+| `src/render/ambience/Hole.ts` · `Tunnel.ts` · `Ribbons.ts` · `Bolts.ts` · `Shards.ts` | Faille en formation (phase 1) · tunnel de facettes (phase 2) · rubans d'énergie · éclairs ramifiés · fragments aspirés ou entraînés |
 | `src/render/ArenaRenderer.ts` · `src/app.ts` | Branchement (Survie et défi seulement) |
 | `scripts/analyze-music.py` → `src/data/polar-rift-music-map.json` | Carte musicale |
 | `tests/ambience.test.ts` | Stades, transitions, pause, plafonds, carte, synchronisation, position de lecture |
 
-Ordre des calques : nébuleuses → étoiles → faille → débris → poussières → anneaux/ondes/arcs → **voile sombre de la zone de jeu**
-→ quadrillage → orbite, menaces, vaisseau (inchangés).
+Ordre des calques : nébuleuses → étoiles → tunnel → débris → rubans → poussières/étincelles → anneaux/ondes → vignette → **voile sombre de la zone de jeu**
+→ fragments → faille (halo, cœur sombre, liseré, sphère) → éclairs → quadrillage → orbite, menaces, vaisseau (inchangés).
+
+## Décor animé : faille, traversée, tunnel (tout est dessiné en code)
+Références artistiques : « espace avec faille en formation » (phase 1) et « intérieur électrique de la faille » (phase 2). Aucune image n'est affichée :
+les textures sont générées au lancement (canvas 2D, graine fixe) et animées par le moteur existant. Tous les réglages sont dans `config/ambience.ts`
+(`hole`, `transit`, `tunnel`, `ribbons`, `bolts`, `shards`, `phase2.flow`, qualité).
+- **Phase 1** : espace bleu nuit, étoiles discrètes, quelques courants d'énergie (rubans très faibles), petite sphère lumineuse au centre dès le départ.
+  De 4 min 30 à 5 min (`PHASES.coreGrowFrom` → `phase2At`) elle s'ouvre en un **cœur sombre au contour irrégulier** (harmoniques qui tournent, sommets
+  qui respirent, pointes cristallines) bordé d'un liseré bleu/violet dont l'éclat circule ; des filaments électriques jaillissent du bord (toujours à
+  l'intérieur de l'orbite), des fragments sont aspirés en spirale de plus en plus vite. Elle pulse sur les battements et les basses.
+- **Traversée (6 s existantes)** : le liseré traverse l'écran et la faille l'enveloppe (`transit.engulfBy`) ; étoiles, poussières, rubans et nébuleuses sont
+  aspirés en spirale (traînées) ; le cœur sombre devient transparent à mesure que le **tunnel** apparaît dessous, sous le voile blanc existant. L'ambiance
+  compense le zoom arrière de la caméra de jeu (`AmbienceRenderer.draw(…, zoom)`) : le décor reste plein écran pendant que l'arène est « avalée ».
+- **Phase 2** : tunnel de **plans de facettes brisées** (faces sombres, bleu électrique ou violet, arêtes lumineuses) qui défilent vers la profondeur
+  (échelle exponentielle, rotation propre à chaque plan, un sur deux en sens inverse), vignette sombre sur les bords, grands rubans d'énergie ondulants,
+  éclairs ramifiés entre les structures (apparition rapide, tracé retiré plusieurs fois, extinction courte), fragments flottants et étincelles entraînées
+  vers l'avant, anneaux et ondes sur la musique. La vitesse du défilement, l'éclat des plans, la largeur des rubans et la fréquence des éclairs suivent
+  battements, basses, montées et passages forts (mêmes signaux `MusicFrame` que le reste de l'ambiance).
+- **Lisibilité** : tout est derrière l'orbite, les menaces et le vaisseau ; voile allégé en phase 2 (`tunnel.veilAlpha`) mais jamais retiré ; fragments
+  atténués près de l'orbite ; éclairs décoratifs bleu azur/glace (jamais le magenta-blanc des secteurs électriques, ni le corail/orange des dangers) et
+  jamais sur le rail de l'orbite. Position de l'orbite, commandes et collisions inchangées.
+- **Pause, reprise, redimensionnement** : le pas d'animation est nul en pause (tout se fige) ; `layout()` recalcule le repère à chaque redimensionnement.
+  **Effets réduits** : mouvements à 30 %, ni éclair, ni onde. **Intensité visuelle** : `state.user` multiplie l'opacité de la faille, du tunnel, des
+  rubans et des éclairs (0 % = ciel étoilé seul).
+- **Mobile** : pools fixes (images, tableaux typés), quatre textures de 1 024² au plus, profondeurs des plans recalculées seulement quand un plan boucle,
+  niveaux de qualité (`tunnel` 8/6/4 plans, `ribbons`, `bolts`, `shards`, `holePoints`) pilotés par `QualityGovernor`.
 
 ## Réglages du joueur (écran Options)
 | Réglage | Effet |
@@ -106,8 +132,8 @@ Préférences enregistrées dans `save.options` (`musicVolume`, `sfxVolume`, `vi
 ## Performances
 - Pools fixes (tableaux typés pour étoiles et poussières, images pour les débris, anneaux et arcs pré-alloués) : aucune allocation
   dans la boucle de rendu, aucun calcul audio par image (une recherche binaire dans la carte).
-- Textures générées une fois ; pas de shader de post-traitement. La faille est une fissure irrégulière (bords dentelés, ramifications,
-  graine fixe : même aspect à chaque lancement), pas un ruban lisse.
+- Textures générées une fois ; pas de shader de post-traitement. Les plans du tunnel et les fragments ont
+  une graine fixe (même aspect à chaque lancement) ; la faille de la phase 1 est un polygone redessiné à chaque image (56 points au plus).
 - Coût mesuré (`scripts/perf.mjs`, émulation mobile ×4 ralentie, rendu logiciel, 10 s) : `app.frame` 2,6 ms (sans ambiance) → 3,5 ms
   (stade 1) → 3,9 ms (stade 5), soit ≈ +1,3 ms par image à ×4 de ralentissement. Le coût GPU réel (remplissage des lueurs additives) n'est
   **pas** mesurable sans téléphone : les niveaux de qualité réduisent le nombre de nébuleuses (3/2/1) en plus des particules.

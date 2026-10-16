@@ -64,6 +64,8 @@ export interface AmbienceState {
   core: number;
   /** Apparence de la phase 2 (0 = phase 1, 1 = phase 2) : fondue sous le flash de la traversée. */
   look: number;
+  /** Réglage « intensité visuelle » du joueur (0–1) : multiplie l'opacité de la faille, du tunnel, des rubans et des éclairs. */
+  user: number;
   /** Passage calme de la musique (0 = énergique, 1 = très calme). */
   calm: number;
   /** Demandes de l'image : force d'une fissure (0 = aucune). */
@@ -96,6 +98,7 @@ export class AmbienceDirector {
       transit: 0,
       core: 0,
       look: 0,
+      user: 1,
       calm: 0,
       spawnFissure: 0,
       spawnRing: 0,
@@ -143,6 +146,7 @@ export class AmbienceDirector {
     s.stage = stageAt(survival);
     for (const k of PARAM_KEYS) s.p[k] = paramAt(k, s.stage);
     const user = clamp01(intensity);
+    s.user = user;
     if (user < 1) for (const k of USER_SCALED) s.p[k] *= user;
 
     // Phase 2 : ciel assombri (la rupture visuelle vient de la faille, des cassures et de l'orbite électrique)
@@ -216,6 +220,8 @@ export class AmbienceDirector {
       s.beat = Math.max(s.beat, Math.pow(Math.min(1, music.beat), cfg.beatCurve) * s.p.beatGain * reaction * quiet);
       if (music.beat >= cfg.strongBeat && this.rand() < s.p.ringChance * (1 + s.build) * quiet) s.spawnRing = music.beat * s.p.beatGain * reaction;
       if (music.beat >= cfg.strongBeat && this.rand() < (s.p.fissure + 0.25 * s.look) * quiet * (1 - s.calm)) s.spawnFissure = Math.max(s.spawnFissure, music.beat);
+      // Phase 2 : éclairs entre les structures du tunnel sur les battements marqués
+      if (s.look > 0.5 && (!reduced || AMBIENCE.reduced.arcs) && music.beat >= cfg.beatThreshold && this.rand() < 0.3 * music.beat * quiet) s.spawnArcs += 1;
     }
 
     // Passage fort : impulsion longue, onde, arcs

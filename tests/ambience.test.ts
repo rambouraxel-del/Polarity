@@ -486,3 +486,54 @@ describe('gameplay : l’ambiance ne touche ni la simulation ni les modes hors S
     expect(BALANCE_VERSION).toBe(4);
   });
 });
+
+describe('décor animé : faille en formation, traversée, tunnel de la phase 2', () => {
+  const loud: MusicFrame = { active: true, track: 'loop', bass: 0.8, intensity: 0.9, beat: 1, drop: false, build: 0.3 };
+
+  it('le décor reçoit le réglage du joueur (0 à 1) et les plafonds de qualité des nouveaux calques', () => {
+    const d = new AmbienceDirector(() => 0);
+    expect(d.update(100, 1 / 60, loud, false, 0.4).user).toBeCloseTo(0.4, 9);
+    expect(d.update(100, 1 / 60, loud, false, 7).user).toBe(1);
+    for (const t of Object.values(AMBIENCE.quality.tiers)) {
+      expect(t.tunnel).toBeGreaterThan(0);
+      expect(t.bolts).toBeGreaterThan(0);
+      expect(t.holePoints).toBeGreaterThanOrEqual(24);
+    }
+    const hi = AMBIENCE.quality.tiers.high;
+    const lo = AMBIENCE.quality.tiers.low;
+    expect(lo.tunnel).toBeLessThan(hi.tunnel);
+    expect(lo.shards).toBeLessThan(hi.shards);
+  });
+
+  it('phase 2 : les battements marqués déclenchent des éclairs (jamais en effets réduits)', () => {
+    const d = new AmbienceDirector(() => 0);
+    let n = 0;
+    for (let i = 0; i < 60; i++) n += d.update(320, 1 / 60, loud, false, 1, { phase: 2, transit: 0 }).spawnArcs;
+    expect(n).toBeGreaterThan(0);
+    const r = new AmbienceDirector(() => 0);
+    let m = 0;
+    for (let i = 0; i < 60; i++) m += r.update(320, 1 / 60, loud, true, 1, { phase: 2, transit: 0 }).spawnArcs;
+    expect(m).toBe(0);
+  });
+
+  it('traversée : la faille s’ouvre de 4 min 30 à 5 min, puis le tunnel prend le relais', () => {
+    const d = new AmbienceDirector(() => 0.99);
+    expect(d.update(200, 1 / 60, silent, false).core).toBe(0);
+    const open = d.update(285, 1 / 60, silent, false).core;
+    expect(open).toBeGreaterThan(0.2);
+    expect(open).toBeLessThan(0.8);
+    expect(d.update(299.9, 1 / 60, silent, false).core).toBeGreaterThan(0.99);
+    const mid = d.update(300, 1 / 60, silent, false, 1, { phase: 1, transit: 0.3 });
+    expect(mid.transit).toBeCloseTo(0.3, 9);
+    expect(mid.look).toBe(0);
+    expect(d.update(300, 1 / 60, silent, false, 1, { phase: 1, transit: 0.9 }).look).toBe(1);
+    expect(d.update(330, 1 / 60, silent, false, 1, { phase: 2, transit: 0 }).look).toBe(1);
+  });
+
+  it('le décor reste décoratif : jamais de lecture par la simulation, textures et calques sans Math.random de gameplay', () => {
+    for (const f of ['Tunnel', 'Hole', 'Ribbons', 'Bolts', 'Shards']) {
+      const src = readFileSync(`src/render/ambience/${f}.ts`, 'utf8');
+      expect(src, f).not.toMatch(/from '\.\.\/\.\.\/sim|from '\.\.\/\.\.\/core\/rng|Rng/);
+    }
+  });
+});

@@ -47,23 +47,36 @@ export class StarField {
     const spin = AMBIENCE.motion.starSpin;
     for (let l = 0; l < 3; l++) this.phi[l] += spin[l] * s.p.starSpeed * (1 + s.drop * 0.8) * motion * dt;
     const n = Math.min(MAX, s.quality.stars);
+    const gp = s.transit > 0 ? Math.pow(Math.min(1, s.transit / AMBIENCE.transit.engulfBy), 1.6) : 0;
     const base = s.p.stars;
     for (let i = 0; i < n; i++) {
       const layer = i % 3;
-      const a = this.theta[i] + this.phi[layer];
-      const r = this.rRel[i] * v.halfDiag;
+      // Traversée : le ciel est aspiré en spirale vers la faille (plus vite près du centre), puis disparaît sous son cœur sombre
+      const pull = gp * (0.6 + 0.4 * (1 - this.rRel[i] / 1.16));
+      const a = this.theta[i] + this.phi[layer] + 2.6 * pull;
+      const r = this.rRel[i] * v.halfDiag * (1 - 0.94 * pull);
+      if (r > v.halfDiag * 1.02) continue;
       const x = v.cx + Math.cos(a) * r;
       const y = v.cy + Math.sin(a) * r;
-      if (x < -4 || y < -4 || x > v.width + 4 || y > v.height + 4) continue;
       const twinkle = 0.65 + 0.35 * Math.sin(this.tw[i] + s.time * this.twSpeed[i] * motion);
       // Couleurs chaudes (violet) plus présentes avec le stade
       const c = this.col[i];
       const heat = c === 3 ? 0.3 + 0.7 * s.p.heat : 1;
-      const alpha = clamp01(base * LAYER_ALPHA[layer] * twinkle * heat * (1 + s.beat * LAYER_BEAT[layer] + s.bass * 0.15));
+      const alpha = clamp01(base * LAYER_ALPHA[layer] * twinkle * heat * (1 + s.beat * LAYER_BEAT[layer] + s.bass * 0.15 + 1.4 * gp));
       if (alpha < 0.02) continue;
       const size = LAYER_SIZE[layer] * v.dpr * (1 + s.beat * 0.25 * (layer === 2 ? 1 : 0));
       g.fillStyle(PALETTE[c], alpha);
-      g.fillRect(x - size / 2, y - size / 2, size, size);
+      if (gp > 0.05) {
+        // Aspiration : traînée à l'opposé du déplacement (vers l'extérieur et en arrière de la spirale)
+        const ux = Math.cos(a);
+        const uy = Math.sin(a);
+        const len = (3 + 44 * gp) * v.dpr * (0.5 + 0.25 * layer);
+        const tx = ux + 0.6 * uy;
+        const ty = uy - 0.6 * ux;
+        g.fillTriangle(x - tx * size * 0.3, y - ty * size * 0.3, x + tx * len - uy * size * 0.5, y + ty * len + ux * size * 0.5, x + tx * len + uy * size * 0.5, y + ty * len - ux * size * 0.5);
+      } else {
+        g.fillRect(x - size / 2, y - size / 2, size, size);
+      }
     }
   }
 }

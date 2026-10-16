@@ -4,8 +4,6 @@ import type { AmbienceState } from '../../ambience/director';
 import { clamp01, lerpColor, type AmbienceView } from './view';
 
 const MAX_RINGS = AMBIENCE.quality.tiers.high.rings;
-const MAX_ARCS = AMBIENCE.quality.tiers.high.arcs;
-const ARC_POINTS = 9;
 /** Vitesse d'expansion (unités monde/s) : anneau de battement, onde de passage fort. */
 const RING_SPEED = 300;
 const WAVE_SPEED = 460;
@@ -24,22 +22,8 @@ interface RingSlot {
   wave: boolean;
 }
 
-interface ArcSlot {
-  active: boolean;
-  age: number;
-  life: number;
-  /** Point de départ (unités monde, repère de l'arène) et direction. */
-  bx: number;
-  by: number;
-  dx: number;
-  dy: number;
-  len: number;
-  pts: Float32Array;
-  rejitter: number;
-}
-
 /**
- * Effets rythmiques : anneaux d'énergie (battements forts), ondes (passages forts), arcs d'énergie (hors zone de jeu),
+ * Effets rythmiques : anneaux d'énergie (battements forts), ondes (passages forts)
  * et quadrillage de l'arène légèrement déformé par la gravité de la faille et par les ondes qui le traversent.
  * Pools fixes, aucun flash plein écran, aucun tremblement : tout reste derrière le vaisseau et les menaces.
  */
@@ -47,7 +31,6 @@ export class Effects {
   private readonly g: Phaser.GameObjects.Graphics;
   private readonly grid: Phaser.GameObjects.Graphics;
   private readonly rings: RingSlot[] = [];
-  private readonly arcs: ArcSlot[] = [];
   private readonly gridColor: number;
 
   constructor(scene: Phaser.Scene, depthFx: number, depthGrid: number, gridColor: number) {
@@ -55,7 +38,6 @@ export class Effects {
     this.grid = scene.add.graphics().setDepth(depthGrid).setVisible(false);
     this.gridColor = gridColor;
     for (let i = 0; i < MAX_RINGS; i++) this.rings.push({ active: false, r: 0, strength: 0, wave: false });
-    for (let i = 0; i < MAX_ARCS; i++) this.arcs.push({ active: false, age: 0, life: 0, bx: 0, by: 0, dx: 0, dy: 0, len: 0, pts: new Float32Array(ARC_POINTS * 2), rejitter: 0 });
   }
 
   setVisible(v: boolean): void {
@@ -70,7 +52,6 @@ export class Effects {
   /** Nouvelle partie : plus aucun effet en cours. */
   clear(): void {
     for (const r of this.rings) r.active = false;
-    for (const a of this.arcs) a.active = false;
   }
 
   private spawnRing(strength: number, wave: boolean, limit: number): void {
@@ -94,43 +75,10 @@ export class Effects {
     slot.wave = wave;
   }
 
-  private spawnArc(rot: number, limit: number): void {
-    let used = 0;
-    for (const a of this.arcs) if (a.active) used++;
-    if (used >= limit) return;
-    const slot = this.arcs.find((a) => !a.active);
-    if (!slot) return;
-    const shape = AMBIENCE.shape;
-    // Le long de la faille, au-delà de la zone de jeu, vers l'une ou l'autre extrémité
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const d = shape.arcMinRadius + Math.random() * Math.max(10, shape.riftLength * 0.85 - shape.arcMinRadius);
-    slot.bx = Math.cos(rot) * d * side;
-    slot.by = Math.sin(rot) * d * side;
-    const out = rot + side * (Math.PI / 2) * (Math.random() < 0.5 ? 1 : -1) + (Math.random() - 0.5) * 0.9;
-    slot.dx = Math.cos(out);
-    slot.dy = Math.sin(out);
-    slot.len = 70 + Math.random() * 90;
-    slot.age = 0;
-    slot.life = 0.22 + Math.random() * 0.16;
-    slot.rejitter = 0;
-    slot.active = true;
-    this.jitter(slot);
-  }
-
-  private jitter(a: ArcSlot): void {
-    for (let i = 0; i < ARC_POINTS; i++) {
-      const k = i / (ARC_POINTS - 1);
-      const off = i === 0 ? 0 : (Math.random() - 0.5) * 26 * (1 - k * 0.4);
-      a.pts[i * 2] = a.bx + a.dx * a.len * k - a.dy * off;
-      a.pts[i * 2 + 1] = a.by + a.dy * a.len * k + a.dx * off;
-    }
-  }
-
-  draw(s: AmbienceState, v: AmbienceView, dt: number, riftRotation: number): void {
+  draw(s: AmbienceState, v: AmbienceView, dt: number): void {
     const caps = AMBIENCE.caps;
     if (s.spawnWave > 0) this.spawnRing(s.spawnWave, true, s.quality.rings);
     if (s.spawnRing > 0) this.spawnRing(s.spawnRing, false, s.quality.rings);
-    for (let i = 0; i < s.spawnArcs; i++) this.spawnArc(riftRotation, s.quality.arcs);
 
     const g = this.g;
     g.clear();
@@ -164,38 +112,7 @@ export class Effects {
       }
     }
 
-    // Arcs d'énergie (brefs, fins, violets : jamais l'éclair magenta et blanc des dangers sur l'orbite)
-    for (const a of this.arcs) {
-      if (!a.active) continue;
-      a.age += dt;
-      if (a.age >= a.life) {
-        a.active = false;
-        continue;
-      }
-      a.rejitter += dt;
-      if (a.rejitter > 0.08) {
-        a.rejitter = 0;
-        this.jitter(a);
-      }
-      const alpha = Math.min(caps.arcAlpha, Math.pow(1 - a.age / a.life, 0.7) * (0.6 + 0.4 * s.drop));
-      this.strokeArc(a, v, 5 * v.dpr, heatColor, alpha * 0.3);
-      this.strokeArc(a, v, 1.4 * v.dpr, AMBIENCE_COLORS.ice, alpha);
-    }
-
     this.drawGrid(s, v);
-  }
-
-  private strokeArc(a: ArcSlot, v: AmbienceView, width: number, color: number, alpha: number): void {
-    const g = this.g;
-    g.lineStyle(width, color, alpha);
-    g.beginPath();
-    for (let i = 0; i < ARC_POINTS; i++) {
-      const x = v.cx + a.pts[i * 2] * v.scale;
-      const y = v.cy + a.pts[i * 2 + 1] * v.scale;
-      if (i === 0) g.moveTo(x, y);
-      else g.lineTo(x, y);
-    }
-    g.strokePath();
   }
 
   /** Déformation radiale du quadrillage au rayon ρ (unités monde) et à l'angle θ : ondulation sur les basses, bosse au passage d'une onde. */
@@ -219,7 +136,9 @@ export class Effects {
     const seg = s.quality.gridSegments;
     const color = lerpColor(this.gridColor, AMBIENCE_COLORS.violet, clamp01(0.12 * s.p.heat + 0.3 * s.drop + 0.15 * s.beat));
     const boost = 1 + 0.25 * s.beat + 0.3 * s.drop;
-    g.lineStyle(1 * v.dpr, color, Math.min(1, 0.8 * boost));
+    // Phase 2 : le quadrillage s'estompe (le tunnel est le décor)
+    const fade = 0.62 * (1 - 0.6 * s.look);
+    g.lineStyle(1 * v.dpr, color, Math.min(1, 0.8 * boost * fade));
     for (const rho of GRID_RINGS) {
       g.beginPath();
       for (let i = 0; i <= seg; i++) {
@@ -234,8 +153,8 @@ export class Effects {
     }
     // Rayons : légère torsion gravitationnelle près de la faille
     const twist = s.reduced ? 0 : s.p.gridWarp * 0.07 * Math.sin(s.time * 0.21) + s.drop * 0.04;
-    const far = Math.hypot(v.width, v.height) / v.scale;
-    g.lineStyle(1 * v.dpr, color, Math.min(1, 0.35 * boost));
+    const far = (v.halfDiag * 1.05) / v.scale;
+    g.lineStyle(1 * v.dpr, color, Math.min(1, 0.35 * boost * fade));
     for (let k = 0; k < GRID_RAYS; k++) {
       const a0 = (k * Math.PI * 2) / GRID_RAYS;
       g.beginPath();

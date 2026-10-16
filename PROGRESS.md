@@ -5,6 +5,7 @@
 - [x] Traversée de 6 s à 300 s (session gelée), entrée en phase 2 (`Simulation.enterPhase2`), menaces courbes (`ProjectileHazard.path`), faisceaux rotatifs, 9 motifs de phase 2, plafonds et validateur d'évitement
 - [x] Musique : analyse du MP3 joint (`scripts/analyze-phase2.py`), boucle sans trou par fondu enchaîné en phase, second tour de la phase 1, fondu pendant la traversée, reprise en phase 2
 - [x] Ambiance : noyau → faille, fissures, passages calmes, impulsions de caméra, traversée, apparence de la phase 2
+- [x] Décor animé refait d'après deux références artistiques (dessiné et animé en code) : faille en formation au cœur sombre, traversée qui enveloppe l'écran, tunnel de facettes de la phase 2 (rubans, éclairs, fragments, étincelles, vignette), réactions musicales, qualité mobile — visuel seulement, `BALANCE_VERSION` 4 inchangée
 - [x] Récompenses : prime de phase (150 Éclats, idempotente), apparence exclusive « Faille » (`acquire: reward`), archive des records v3 (Survie et « Avec bonus »)
 - [ ] **Mise à jour du service OVH (service d'abord) : en attente d'autorisation**
 

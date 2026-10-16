@@ -55,7 +55,7 @@ export const STAGE_PARAMS = {
   /** Densité de poussières (fraction du plafond de qualité). */
   dust: [0.06, 0.3, 0.55, 0.8, 1],
   /** Luminosité des nébuleuses (lueurs cyan / violet / magenta). */
-  nebula: [0.03, 0.1, 0.17, 0.23, 0.3],
+  nebula: [0.03, 0.06, 0.09, 0.12, 0.15],
   /** Ouverture de la faille (0 = trait à peine visible, 1 = pleinement ouverte). */
   riftOpen: [0.08, 0.3, 0.6, 0.82, 1],
   /** Luminosité de la faille. */
@@ -89,17 +89,100 @@ export const AMBIENCE = {
   apex: { periods: [47, 71, 113], amplitude: 0.12 },
 
   /**
-   * Noyau central (phase 1) : petite sphère lumineuse au centre dès le départ ; vers 4 min 30 (`PHASES.coreGrowFrom`) elle devient peu à peu une faille
-   * jusqu'à la traversée. Rayons et opacités sont bornés : les menaces, le vaisseau et les objets restent toujours au-dessus et lisibles.
+   * Noyau puis faille (phase 1) : petite sphère lumineuse au centre dès le départ ; vers 4 min 30 (`PHASES.coreGrowFrom`) elle s'ouvre peu à peu en une
+   * faille au cœur sombre, contour irrégulier bleu/violet, filaments électriques, fragments aspirés. Rayons et opacités sont bornés : les menaces,
+   * le vaisseau et les objets restent toujours au-dessus et lisibles (la faille reste largement à l'intérieur de l'orbite, de rayon 300).
    */
-  core: {
-    /** Rayon de la petite sphère (unités monde) au départ, puis à pleine ouverture. */
-    radiusMin: 10,
-    radiusMax: 46,
-    /** Demi-longueur des rayons de la faille à pleine ouverture (unités monde, < orbite). */
-    slitLength: 210,
-    /** Opacité maximale du noyau et de la faille. */
+  hole: {
+    /** Points du contour (qualité haute ; les niveaux inférieurs en gardent moins). */
+    points: 56,
+    /** Demi-taille (unités monde) de la sphère au départ, puis de la faille pleinement ouverte. */
+    radiusMin: 9,
+    radiusMax: 128,
+    /** Allongement le long de l'axe de la faille (le contour est comprimé de la racine de cette valeur de l'autre côté). */
+    stretch: 1.5,
+    /** Amplitude des déformations du contour (fraction du rayon) à pleine ouverture. */
+    roughness: 0.3,
+    /** Pointes cristallines le long du contour (nombre, longueur relative). */
+    spikes: 7,
+    spikeLength: 0.26,
+    /** Cœur sombre (couleur et opacité maximale). */
+    dark: 0x01030b,
+    darkAlpha: 0.97,
+    /** Opacité maximale des lueurs (halo, bord, sphère de départ). */
+    alphaMax: 0.6,
+    /** Bord lumineux : trois passes (épaisseur en unités monde, opacité), de la plus large et diffuse à la plus fine et vive. */
+    rim: [
+      { width: 22, alpha: 0.16 },
+      { width: 9, alpha: 0.34 },
+      { width: 2.8, alpha: 0.95 },
+    ],
+  },
+
+  /**
+   * Traversée (progression 0–1 des 6 s) : la faille s'agrandit jusqu'à envelopper tout l'écran (`engulfBy`), le décor est aspiré (`pull`),
+   * puis le cœur sombre s'efface sous le flash blanc pendant que le tunnel de la phase 2 apparaît.
+   */
+  transit: {
+    engulfBy: 0.52,
+    tunnelFrom: 0.4,
+    tunnelTo: 0.78,
+    /** Force de l'aspiration du décor (étoiles, poussières, fragments) pendant la traversée. */
+    pull: 2.6,
+  },
+
+  /**
+   * Tunnel de la phase 2 : plans de facettes brisées (textures générées par code) qui défilent vers la profondeur avec une rotation lente.
+   * Un plan naît petit au centre, grandit (échelle exponentielle = profondeur) puis s'efface en quittant l'écran ; la musique accélère le défilement.
+   */
+  tunnel: {
+    /** Rayon extérieur d'un plan, en demi-diagonales d'écran : de la naissance (loin) à la sortie (proche). */
+    scaleMin: 0.05,
+    scaleMax: 2.6,
+    /** Part du parcours (0–1) consacrée au fondu d'entrée, et début du fondu de sortie. */
+    fadeIn: 0.14,
+    fadeOut: 0.8,
+    /** Parcours complets par seconde (un plan traverse toute la profondeur en ~11 s) et réponse à la musique. */
+    speed: 0.09,
+    music: { bass: 0.9, build: 0.6, drop: 1.6, intensity: 0.3 },
+    /** Rotation (rad/s) : chaque plan tourne à sa vitesse, un sur deux en sens inverse. */
+    spin: 0.045,
+    /** Opacité maximale d'un plan et opacité du voile de la zone de jeu en phase 2 (le tunnel reste visible sous l'arène). */
+    alphaMax: 0.9,
+    veilAlpha: 0.5,
+    /** Assombrissement des bords de l'écran (vignette) : profondeur et lisibilité de l'arène. */
+    vignette: 0.8,
+    /** Dérive du point de fuite (unités monde) : très faible, l'orbite reste centrée. */
+    sway: 5,
+  },
+
+  /** Grands rubans d'énergie qui ondulent autour de l'arène (hors de la zone de jeu). */
+  ribbons: {
+    points: 30,
+    /** Demi-largeur maximale (unités monde), rayon minimal (au-delà de l'orbite) et opacité maximale. */
+    width: 52,
+    minRadius: 345,
+    alphaMax: 0.3,
+  },
+
+  /** Éclairs ramifiés décoratifs (jamais sur l'orbite : le magenta/blanc des secteurs électriques reste réservé aux dangers). */
+  bolts: {
+    life: [0.14, 0.34],
+    /** Le tracé est retiré toutes les `jitter` secondes pendant la vie de l'éclair. */
+    jitter: 0.045,
+    minRadius: 390,
+    /** Les filaments qui jaillissent de la faille (phase 1) ne dépassent pas ce rayon (unités monde) : ils restent à l'intérieur de l'orbite. */
+    rimReach: 275,
+    alphaMax: 0.85,
+  },
+
+  /** Fragments flottants (phase 1 : aspirés par la faille ; phase 2 : entraînés par les courants du tunnel). */
+  shards: {
+    sizeMin: 4,
+    sizeMax: 12,
     alphaMax: 0.55,
+    /** En deçà de ce rayon (unités), ils s'effacent : l'arène reste lisible. */
+    safeRadius: 300,
   },
 
   /** Phase 2 : univers sombre, fracturé, électrique. Le fondu entre les deux apparences se fait pendant la traversée, sous le flash. */
@@ -111,6 +194,8 @@ export const AMBIENCE = {
     spark: 0xd8e4ff,
     /** Secondes de la traversée avant le flash (progression 0–1 de la traversée) : début, pic et fin du flash blanc. */
     flash: { from: 0.58, peak: 0.7, to: 0.86 },
+    /** Étincelles entraînées vers l'avant : vitesse relative (part du rayon par seconde). */
+    flow: 0.42,
   },
 
   /** Moments forts PRÉPARÉS (instants de survie active, indépendants de l'audio) : s'ajoutent aux réactions issues de l'analyse musicale. */
@@ -206,9 +291,9 @@ export const AMBIENCE = {
   /** Qualité adaptative : plafonds par niveau ; on descend si les images sont trop lentes, on remonte prudemment. */
   quality: {
     tiers: {
-      high: { stars: 220, dust: 150, debris: 12, rings: 6, arcs: 3, nebulae: 3, gridSegments: 128 },
-      medium: { stars: 150, dust: 90, debris: 8, rings: 4, arcs: 2, nebulae: 2, gridSegments: 96 },
-      low: { stars: 90, dust: 45, debris: 4, rings: 2, arcs: 1, nebulae: 1, gridSegments: 64 },
+      high: { stars: 220, dust: 150, debris: 12, rings: 6, arcs: 3, nebulae: 3, gridSegments: 128, tunnel: 8, ribbons: 6, bolts: 5, shards: 26, holePoints: 56 },
+      medium: { stars: 150, dust: 90, debris: 8, rings: 4, arcs: 2, nebulae: 2, gridSegments: 96, tunnel: 6, ribbons: 4, bolts: 3, shards: 16, holePoints: 40 },
+      low: { stars: 90, dust: 45, debris: 4, rings: 2, arcs: 1, nebulae: 1, gridSegments: 64, tunnel: 4, ribbons: 2, bolts: 2, shards: 8, holePoints: 28 },
     },
     /** Durée d'image moyenne (s) au-delà de laquelle on descend d'un niveau, et durée d'observation (s). */
     slowFrame: 1 / 45,

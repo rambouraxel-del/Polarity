@@ -3,13 +3,14 @@ import { AMBIENCE, AMBIENCE_COLORS } from '../../config/ambience';
 
 /**
  * Textures de l'ambiance, générées UNE fois par code (canvas 2D) puis réutilisées : aucune image à télécharger.
- * Blanches (teintées au rendu) sauf le voile, de la couleur du fond.
+ * Blanches (teintées au rendu) sauf le voile (couleur du fond) et les plans du tunnel (facettes colorées).
  */
 export const AMB_TEX = {
   glow: 'amb-glow',
-  riftRim: 'amb-rift-rim',
-  riftCore: 'amb-rift-core',
   veil: 'amb-veil',
+  vignette: 'amb-vignette',
+  tunnel: ['amb-tunnel-a', 'amb-tunnel-b'],
+  shards: ['amb-shard-a', 'amb-shard-b', 'amb-shard-c'],
 } as const;
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -19,7 +20,7 @@ function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContex
   return [c, c.getContext('2d')!];
 }
 
-/** Lueur ronde (dégradé radial doux) : nébuleuses, halo de la faille. */
+/** Lueur ronde (dégradé radial doux) : nébuleuses, halos, sphère centrale. */
 function glow(scene: Phaser.Scene): void {
   const size = 256;
   const [c, ctx] = canvas(size, size);
@@ -33,7 +34,7 @@ function glow(scene: Phaser.Scene): void {
   scene.textures.addCanvas(AMB_TEX.glow, c);
 }
 
-/** Petit générateur à graine fixe : la fissure a le même aspect à chaque lancement (décoratif, sans lien avec le gameplay). */
+/** Petit générateur à graine fixe : les plans du tunnel ont le même aspect à chaque lancement (décoratif, sans lien avec le gameplay). */
 function seeded(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -45,153 +46,154 @@ function seeded(seed: number): () => number {
   };
 }
 
-/** Bruit fractal 1D (somme d'octaves de bruit de valeur) : bords dentelés d'une fissure. */
-function fractal(rand: () => number, octaves: number): (u: number) => number {
-  const tables = Array.from({ length: octaves }, (_, o) => Array.from({ length: 4 << (o + 1) }, () => rand() * 2 - 1));
-  return (u) => {
-    let sum = 0;
-    let amp = 1;
-    let norm = 0;
-    tables.forEach((t) => {
-      const x = u * (t.length - 1);
-      const i = Math.min(t.length - 2, Math.floor(x));
-      const f = x - i;
-      const k = f * f * (3 - 2 * f);
-      sum += amp * (t[i] * (1 - k) + t[i + 1] * k);
-      norm += amp;
-      amp *= 0.55;
-    });
-    return sum / norm;
-  };
-}
-
-/** Hauteur de la lentille (fraction de la hauteur de la texture) : sert au dimensionnement dans Rift.ts. */
-export const RIFT_LENS = 0.5;
+/** Couleurs des arêtes lumineuses (bleu électrique surtout, glace, violet) : jamais de magenta, de corail ni d'orange (réservés aux dangers). */
+const EDGE_COLORS: readonly [number, number, number][] = [
+  [70, 140, 255],
+  [70, 140, 255],
+  [70, 140, 255],
+  [190, 232, 255],
+  [190, 232, 255],
+  [140, 104, 255],
+];
 
 /**
- * Contour de la faille : fissure irrégulière (colonne vertébrale sinueuse, bords dentelés indépendants, quelques
- * ramifications), bord lumineux en trois passes floues, intérieur plus sombre, extrémités effilées.
+ * Un plan du tunnel : anneau de grandes facettes triangulaires brisées (maillage polaire dont les sommets sont décalés au hasard, quelques facettes
+ * manquantes). Trois familles de faces : sombres (presque noires, bleu nuit), éclairées en bleu électrique et éclairées en violet, chacune avec un
+ * dégradé qui donne du volume. Arêtes lumineuses (halo en trois passes sans flou coûteux) ; les arêtes des « bandes » (cercles du maillage) sont plus
+ * souvent allumées que les rayons. Fondu doux au bord intérieur (point de fuite) et extérieur.
  */
-function riftRim(scene: Phaser.Scene): void {
-  const w = 1024;
-  const h = 256;
-  const [c, ctx] = canvas(w, h);
-  const rand = seeded(20241);
-  const mid = h / 2;
-  const half = (h * RIFT_LENS) / 2;
-  const N = 220;
-  const spineNoise = fractal(rand, 3);
-  const topNoise = fractal(rand, 5);
-  const botNoise = fractal(rand, 5);
-  const top: [number, number][] = [];
-  const bot: [number, number][] = [];
-  for (let i = 0; i <= N; i++) {
-    const u = i / N;
-    const x = 8 + u * (w - 16);
-    const spine = mid + spineNoise(u) * 14;
-    const hw = half * Math.pow(Math.sin(Math.PI * u), 0.8);
-    top.push([x, spine - hw * (1 + 0.28 * topNoise(u))]);
-    bot.push([x, spine + hw * (1 + 0.28 * botNoise(u))]);
+function tunnelRing(scene: Phaser.Scene, key: string, seed: number): void {
+  const size = 1024;
+  const [c, ctx] = canvas(size, size);
+  const rand = seeded(seed);
+  const mid = size / 2;
+  const R = size / 2 - 6;
+  const SEG = 14;
+  const levels = [0.2, 0.35, 0.54, 0.76, 1];
+  const grid: [number, number][][] = levels.map((lv, j) =>
+    Array.from({ length: SEG }, (_, i) => {
+      const a = ((i + (rand() - 0.5) * 0.7 + (j % 2) * 0.3) / SEG) * Math.PI * 2;
+      const r = lv * R * (1 + (rand() - 0.5) * (j === 0 ? 0.08 : j === levels.length - 1 ? 0.05 : 0.22));
+      return [mid + Math.cos(a) * r, mid + Math.sin(a) * r] as [number, number];
+    }),
+  );
+  type Pt = [number, number];
+  const tris: { t: [Pt, Pt, Pt]; band: boolean[] }[] = [];
+  for (let j = 0; j < levels.length - 1; j++) {
+    for (let i = 0; i < SEG; i++) {
+      if (rand() < 0.07) continue; // facette manquante : on voit plus loin
+      const n = (i + 1) % SEG;
+      const a = grid[j][i];
+      const b = grid[j][n];
+      const cc = grid[j + 1][n];
+      const d = grid[j + 1][i];
+      if (rand() < 0.5) tris.push({ t: [a, b, cc], band: [true, false, false] }, { t: [a, cc, d], band: [false, true, true] });
+      else tris.push({ t: [a, b, d], band: [true, false, false] }, { t: [b, cc, d], band: [false, true, true] });
+    }
+  }
+  // Faces : sombres, bleu électrique ou violet, avec dégradé du sommet le plus lumineux vers le plus sombre
+  ctx.lineJoin = 'round';
+  for (const { t } of tris) {
+    const k = rand();
+    let c0: string;
+    let c1: string;
+    if (k < 0.34) {
+      c0 = `rgba(${22 + Math.floor(rand() * 20)},${64 + Math.floor(rand() * 30)},${225 + Math.floor(rand() * 30)},0.92)`;
+      c1 = 'rgba(8,20,96,0.96)';
+    } else if (k < 0.44) {
+      c0 = `rgba(${84 + Math.floor(rand() * 24)},${48 + Math.floor(rand() * 20)},${210 + Math.floor(rand() * 40)},0.9)`;
+      c1 = 'rgba(22,12,76,0.96)';
+    } else {
+      const m = rand();
+      c0 = `rgba(${6 + Math.floor(m * 10)},${12 + Math.floor(m * 20)},${44 + Math.floor(m * 40)},0.97)`;
+      c1 = 'rgba(2,5,22,0.98)';
+    }
+    const which = Math.floor(rand() * 3);
+    const o = t[which];
+    const mx = (t[0][0] + t[1][0] + t[2][0]) / 3;
+    const my = (t[0][1] + t[1][1] + t[2][1]) / 3;
+    const g = ctx.createLinearGradient(o[0], o[1], mx - (o[0] - mx) * 0.6, my - (o[1] - my) * 0.6);
+    g.addColorStop(0, c0);
+    g.addColorStop(1, c1);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(t[0][0], t[0][1]);
+    ctx.lineTo(t[1][0], t[1][1]);
+    ctx.lineTo(t[2][0], t[2][1]);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Arêtes lumineuses : trois passes (large et faible, moyenne, fine et vive)
+  const passes: [number, number][] = [
+    [18, 0.07],
+    [8, 0.2],
+    [2.8, 0.95],
+  ];
+  const lit: { a: Pt; b: Pt; col: readonly [number, number, number]; w: number }[] = [];
+  for (const { t, band } of tris) {
+    for (let e = 0; e < 3; e++) {
+      if (rand() > (band[e] ? 0.86 : 0.5)) continue;
+      lit.push({ a: t[e], b: t[(e + 1) % 3], col: EDGE_COLORS[Math.floor(rand() * EDGE_COLORS.length)], w: 0.6 + rand() * 0.9 });
+    }
+  }
+  ctx.lineCap = 'round';
+  for (const [width, alpha] of passes) {
+    for (const e of lit) {
+      ctx.strokeStyle = `rgba(${e.col[0]},${e.col[1]},${e.col[2]},${alpha})`;
+      ctx.lineWidth = width * e.w;
+      ctx.beginPath();
+      ctx.moveTo(e.a[0], e.a[1]);
+      ctx.lineTo(e.b[0], e.b[1]);
+      ctx.stroke();
+    }
+  }
+  // Fondu doux : bord intérieur (vers le point de fuite) et bord extérieur
+  ctx.globalCompositeOperation = 'destination-in';
+  const m = ctx.createRadialGradient(mid, mid, 0, mid, mid, R);
+  m.addColorStop(0, 'rgba(0,0,0,0)');
+  m.addColorStop(0.18, 'rgba(0,0,0,0)');
+  m.addColorStop(0.3, 'rgba(0,0,0,1)');
+  m.addColorStop(0.94, 'rgba(0,0,0,1)');
+  m.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = m;
+  ctx.fillRect(0, 0, size, size);
+  scene.textures.addCanvas(key, c);
+}
+
+/** Fragment : polygone irrégulier sombre aux arêtes lumineuses (teinté au rendu). */
+function shard(scene: Phaser.Scene, key: string, seed: number): void {
+  const size = 96;
+  const [c, ctx] = canvas(size, size);
+  const rand = seeded(seed);
+  const n = 5 + Math.floor(rand() * 2);
+  const pts: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + (rand() - 0.5) * 0.5;
+    const r = size * (0.2 + 0.2 * rand()) * (i % 2 === 0 ? 1.25 : 0.8);
+    pts.push([size / 2 + Math.cos(a) * r, size / 2 + Math.sin(a) * r]);
   }
   const trace = (): void => {
     ctx.beginPath();
-    ctx.moveTo(top[0][0], top[0][1]);
-    for (const [x, y] of top) ctx.lineTo(x, y);
-    for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i][0], bot[i][1]);
+    pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
     ctx.closePath();
   };
-  // Intérieur : lueur faible, plus sombre au cœur
-  ctx.save();
+  const g = ctx.createLinearGradient(0, 0, size, size);
+  g.addColorStop(0, 'rgba(90,120,230,0.95)');
+  g.addColorStop(1, 'rgba(20,30,90,0.95)');
+  ctx.fillStyle = g;
   trace();
-  ctx.clip();
-  const inner = ctx.createLinearGradient(0, mid - half, 0, mid + half);
-  inner.addColorStop(0, 'rgba(255,255,255,0.4)');
-  inner.addColorStop(0.5, 'rgba(255,255,255,0.05)');
-  inner.addColorStop(1, 'rgba(255,255,255,0.4)');
-  ctx.fillStyle = inner;
-  ctx.fillRect(0, 0, w, h);
-  // Filaments d'énergie à l'intérieur
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 1.2;
-  for (let k = 0; k < 5; k++) {
-    const off = (rand() - 0.5) * half * 1.1;
-    const ph = rand() * 6;
-    ctx.beginPath();
-    for (let i = 0; i <= N; i += 2) {
-      const u = i / N;
-      const y = mid + spineNoise(u) * 14 + off * Math.sin(Math.PI * u) + Math.sin(u * 14 + ph) * 4;
-      if (i === 0) ctx.moveTo(8 + u * (w - 16), y);
-      else ctx.lineTo(8 + u * (w - 16), y);
-    }
+  ctx.fill();
+  ctx.lineJoin = 'round';
+  for (const [w, a] of [
+    [5, 0.25],
+    [1.8, 0.95],
+  ] as const) {
+    ctx.strokeStyle = `rgba(210,235,255,${a})`;
+    ctx.lineWidth = w;
+    trace();
     ctx.stroke();
   }
-  ctx.restore();
-  // Bords lumineux (trois passes floues) + ramifications
-  ctx.strokeStyle = 'rgba(255,255,255,1)';
-  ctx.lineJoin = 'round';
-  const edge = (): void => {
-    for (const side of [top, bot]) {
-      ctx.beginPath();
-      side.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
-      ctx.stroke();
-    }
-  };
-  const branches: [number, number, number, number][] = [];
-  for (let k = 0; k < 7; k++) {
-    const i = 30 + Math.floor(rand() * (N - 60));
-    const sideTop = rand() < 0.5;
-    const [x, y] = (sideTop ? top : bot)[i];
-    const dir = (sideTop ? -1 : 1) * (0.5 + rand() * 0.8);
-    const len = 22 + rand() * 24;
-    branches.push([x, y, x + (rand() < 0.5 ? -1 : 1) * len * 0.8, y + dir * len]);
-  }
-  for (const [blur, width, alpha] of [
-    [26, 9, 0.25],
-    [11, 4.5, 0.5],
-    [3, 1.8, 1],
-  ] as const) {
-    ctx.shadowColor = 'rgba(255,255,255,1)';
-    ctx.shadowBlur = blur;
-    ctx.lineWidth = width;
-    ctx.globalAlpha = alpha;
-    edge();
-    ctx.lineWidth = width * 0.6;
-    for (const [x0, y0, x1, y1] of branches) {
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo((x0 + x1) / 2 + (rand() - 0.5) * 6, (y0 + y1) / 2 + (rand() - 0.5) * 6);
-      ctx.lineTo(x1, y1);
-      ctx.stroke();
-    }
-  }
-  // Effilement aux extrémités : la faille se perd dans l'espace
-  ctx.globalAlpha = 1;
-  ctx.shadowBlur = 0;
-  ctx.globalCompositeOperation = 'destination-in';
-  const fade = ctx.createLinearGradient(0, 0, w, 0);
-  fade.addColorStop(0, 'rgba(0,0,0,0)');
-  fade.addColorStop(0.16, 'rgba(0,0,0,1)');
-  fade.addColorStop(0.84, 'rgba(0,0,0,1)');
-  fade.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = fade;
-  ctx.fillRect(0, 0, w, h);
-  scene.textures.addCanvas(AMB_TEX.riftRim, c);
-}
-
-/** Filament central de la faille : trait fin, intense au centre, effilé. */
-function riftCore(scene: Phaser.Scene): void {
-  const w = 1024;
-  const h = 32;
-  const [c, ctx] = canvas(w, h);
-  const along = ctx.createLinearGradient(0, 0, w, 0);
-  along.addColorStop(0, 'rgba(255,255,255,0)');
-  along.addColorStop(0.5, 'rgba(255,255,255,1)');
-  along.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = along;
-  ctx.shadowColor = 'rgba(255,255,255,1)';
-  ctx.shadowBlur = 8;
-  ctx.fillRect(0, h / 2 - 1.5, w, 3);
-  scene.textures.addCanvas(AMB_TEX.riftCore, c);
+  scene.textures.addCanvas(key, c);
 }
 
 /** Voile sombre (couleur du fond) : opaque au centre, transparent au bord — protège la zone de jeu. */
@@ -211,11 +213,28 @@ function veil(scene: Phaser.Scene): void {
   scene.textures.addCanvas(AMB_TEX.veil, c);
 }
 
+/** Vignette : transparente au centre, sombre sur les bords et dans les coins (phase 2). */
+function vignette(scene: Phaser.Scene): void {
+  const size = 256;
+  const [c, ctx] = canvas(size, size);
+  const col = AMBIENCE_COLORS.veil;
+  const rgb = `${(col >> 16) & 255},${(col >> 8) & 255},${col & 255}`;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, `rgba(${rgb},0)`);
+  g.addColorStop(0.5, `rgba(${rgb},0)`);
+  g.addColorStop(0.78, `rgba(${rgb},0.45)`);
+  g.addColorStop(1, `rgba(${rgb},1)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  scene.textures.addCanvas(AMB_TEX.vignette, c);
+}
+
 /** Crée les textures une seule fois par scène. */
 export function ensureAmbienceTextures(scene: Phaser.Scene): void {
   if (scene.textures.exists(AMB_TEX.glow)) return;
   glow(scene);
-  riftRim(scene);
-  riftCore(scene);
   veil(scene);
+  vignette(scene);
+  AMB_TEX.shards.forEach((k, i) => shard(scene, k, 700 + i * 31));
+  AMB_TEX.tunnel.forEach((k, i) => tunnelRing(scene, k, 20241 + i * 977));
 }

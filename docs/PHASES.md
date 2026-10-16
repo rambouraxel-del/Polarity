@@ -27,7 +27,7 @@ Analyse hors ligne `python3 -I scripts/analyze-phase2.py` → `src/data/polar-ri
 - **Apparence exclusive « Faille »** (`PHASE_REWARD_SKIN`) : débloquée à la première traversée réussie du profil, une seule fois (`save.owned`), jamais achetable (`acquire: { type: 'reward' }`, état « À débloquer en jouant »).
 
 ## Ambiance (décorative)
-Noyau → faille, fissures, ondes et arcs sur les battements (moments forts préparés `AMBIENCE.script` + analyse musicale), passages calmes qui calment l'ambiance, légères impulsions de caméra (jamais lues par la simulation), traversée (zoom arrière + rotation + voile blanc, effets réduits : voile seul), apparence de la phase 2 fondue sous le flash. Les menaces, le vaisseau et les objets restent au-dessus et lisibles.
+Noyau → faille au cœur sombre (4 min 30 – 5 min), filaments électriques, ondes sur les battements, traversée qui enveloppe l'écran puis **tunnel de facettes** de la phase 2 avec rubans d'énergie et éclairs (voir `docs/AMBIANCE.md`, « Décor animé ») (moments forts préparés `AMBIENCE.script` + analyse musicale), passages calmes qui calment l'ambiance, légères impulsions de caméra (jamais lues par la simulation), traversée (zoom arrière + rotation + voile blanc, effets réduits : voile seul), apparence de la phase 2 fondue sous le flash. Les menaces, le vaisseau et les objets restent au-dessus et lisibles.
 
 ## Déploiement
 Le service doit être mis à jour **avant** le jeu (`BALANCE_VERSION` 4 : un jeu v4 face à un service v3 verrait ses parties refusées `unsupported_balance`). Aucun changement de schéma SQLite. Un rejeu de partie longue coûte davantage de calcul (validateur d'évitement sur toute la durée) ; `MAX_REPLAYS_PER_MINUTE` borne déjà la charge.

@@ -156,6 +156,8 @@ export class ArenaRenderer {
   private dpr = 1;
   private shake = 0;
   private flashAlpha = 0;
+  /** Zoom courant de la caméra de jeu (transmis à l'ambiance pour compenser l'aspiration de la traversée). */
+  private camZoom = 1;
   private ringT = -1;
   private ringColor = 0xffffff;
   private readonly trail = new Float32Array(TRAIL_LEN);
@@ -327,18 +329,19 @@ export class ArenaRenderer {
       this.oy = 0;
     }
 
+    // Caméra d'abord (la traversée l'éloigne) : l'ambiance compense le zoom pour rester plein écran
+    this.clockNow = clock;
+    const transit = session.transitLeft > 0 ? 1 - session.transitLeft / PHASES.transit : 0;
+    this.applyCamera(transit);
+
     // Ambiance (Survie, défi quotidien) : figée en pause ; ailleurs, décor fixe inchangé
     if (this.ambience) {
-      this.ambienceLayers.draw(this.ambience, session.phase === 'paused' ? 0 : realDt);
+      this.ambienceLayers.draw(this.ambience, session.phase === 'paused' ? 0 : realDt, this.camZoom);
       this.gridG.setVisible(false);
     } else {
       this.ambienceLayers.setVisible(false);
       this.gridG.setVisible(true);
     }
-
-    this.clockNow = clock;
-    const transit = session.transitLeft > 0 ? 1 - session.transitLeft / PHASES.transit : 0;
-    this.applyCamera(transit);
     const sim = session.sim;
     const extra = session.phase === 'running' ? session.acc : 0;
     const dir: 1 | -1 = sim.dir;
@@ -435,7 +438,8 @@ export class ArenaRenderer {
       zoom = 1 + (a.phase === 2 ? 0.011 : 0.006) * a.beat + 0.014 * a.drop;
       zoom = Math.min(1.03, zoom);
     }
-    cam.setZoom(Math.max(0.04, zoom));
+    this.camZoom = Math.max(0.04, zoom);
+    cam.setZoom(this.camZoom);
     cam.setRotation(rot);
     this.setFlash(flash);
   }
