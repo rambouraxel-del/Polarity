@@ -790,49 +790,63 @@ export interface ReviveView {
  * Écran de reprise : propose une chance supplémentaire (facultative). Le résultat classé est déjà enregistré ; la suite est une survie libre non
  * classée. La publicité n'est proposée que si un vrai fournisseur est prêt ; le paiement en Prismes est vérifié et débité par le service.
  */
+/** Statut court du résultat classé : l'état réel, sans explication technique. */
+function reviveStatus(lb: RunLbStatus): { text: string; cls: string } {
+  switch (lb.kind) {
+    case 'accepted': return { text: 'Validé', cls: 'ok' };
+    case 'sending':
+    case 'pending': return { text: 'En attente', cls: 'wait' };
+    case 'rejected': return { text: 'Non validé', cls: 'bad' };
+    default: return { text: 'Local uniquement', cls: 'info' };
+  }
+}
+
 export function reviveScreen(v: ReviveView): string {
   const ordinal = v.life === 2 ? 'Deuxième' : 'Troisième';
-  const msg = v.message ? `<div role="${v.message.kind === 'error' ? 'alert' : 'status'}" class="notice${v.message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(v.message.text)}</div>` : '';
-  const ad = v.ad.offered && !v.ad.hidden
-    ? button({ action: 'revive-ad', label: 'Regarder une publicité', sub: v.ad.available ? 'Reprendre gratuitement' : v.ad.reason ?? 'Indisponible dans cette version', icon: 'play', variant: 'secondary', attrs: v.ad.available && !v.busy ? '' : 'disabled' })
-    : '';
+  const msg = v.message ? `<div role="${v.message.kind === 'error' ? 'alert' : 'status'}" class="notice notice--compact${v.message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(v.message.text)}</div>` : '';
+  const busy = v.busy ? '<p class="small revive__busy" role="status">Vérification en cours…</p>' : '';
   if (v.confirm) {
     const left = v.prisms.balance !== null ? v.prisms.balance - v.prisms.price : null;
-    return `<div class="panel panel--pause revive">
-      <h2 class="title title--cyan">Confirmer la dépense</h2>
+    return `<div class="panel panel--pause revive revive--compact">
+      <h2 class="title title--cyan">Confirmer</h2>
       <div class="confirm">
         <div class="confirm__row"><span>${ordinal} chance</span><strong>${v.prisms.price} Prismes</strong></div>
-        ${v.prisms.balance !== null ? `<div class="confirm__row"><span>Solde confirmé</span><strong>${formatScore(v.prisms.balance)} → ${formatScore(Math.max(0, left ?? 0))}</strong></div>` : ''}
+        ${v.prisms.balance !== null ? `<div class="confirm__row"><span>Solde</span><strong>${formatScore(v.prisms.balance)} → ${formatScore(Math.max(0, left ?? 0))}</strong></div>` : ''}
       </div>
-      <p class="small">Les Prismes sont débités par le service, une seule fois pour cette reprise. La suite est une survie libre, non classée ; votre résultat classé reste enregistré.</p>
       ${msg}
-      <div class="btn-stack" style="margin-top:14px">
+      <div class="btn-stack">
         ${button({ action: 'revive-prisms-confirm', label: `Dépenser ${v.prisms.price} Prismes`, icon: 'check', variant: 'primary', attrs: v.busy ? 'disabled' : 'data-autofocus' })}
         ${button({ action: 'revive-prisms-back', label: 'Retour', variant: 'ghost', attrs: v.busy ? 'disabled' : '' })}
       </div>
-      ${v.busy ? '<p class="small" role="status">Paiement en cours de vérification par le service… Aucune reprise n’est accordée tant qu’il n’est pas confirmé.</p>' : ''}
+      ${busy}
     </div>`;
   }
+  const st = reviveStatus(v.lb);
+  const ad = v.ad.offered && !v.ad.hidden
+    ? button({ action: 'revive-ad', label: 'Publicité', sub: v.ad.available ? undefined : 'Indisponible', icon: 'play', variant: 'secondary', attrs: v.ad.available && !v.busy ? '' : 'disabled' })
+    : '';
+  // Paiement impossible : « Solde insuffisant » si le solde confirmé est inférieur au prix, sinon « Indisponible »
+  const short = v.prisms.balance !== null && v.prisms.balance < v.prisms.price;
   const pay = button({
     action: 'revive-prisms',
-    label: `Reprendre — ${v.prisms.price} Prismes`,
-    sub: v.prisms.blocked ?? (v.prisms.balance !== null ? `Solde confirmé : ${formatScore(v.prisms.balance)} Prismes` : 'Paiement vérifié par le service'),
+    label: `Reprendre · ${v.prisms.price} Prismes`,
+    sub: v.prisms.blocked ? (short ? 'Solde insuffisant' : 'Indisponible') : undefined,
     icon: 'play',
     variant: 'primary',
     attrs: `${v.prisms.blocked || v.busy ? 'disabled' : 'data-autofocus'}`,
   });
-  return `<div class="panel panel--pause revive">
+  return `<div class="panel panel--pause revive revive--compact">
     <h2 class="title title--cyan">${ordinal} chance</h2>
-    <p class="sub">Votre résultat classé est enregistré : <strong>${formatTime(v.time)}</strong> · ${formatScore(v.score)} points · ${v.category === 'bonus' ? 'classement Avec bonus' : 'classement Sans bonus'}.</p>
-    <div id="lb-status">${runLbStatusHtml(v.lb)}</div>
+    <p class="revive__sum"><strong>${formatTime(v.time)}</strong> · ${formatScore(v.score)} pts · ${v.category === 'bonus' ? 'Avec bonus' : 'Sans bonus'}</p>
+    <p class="lb-status lb-status--${st.cls} revive__status" id="lb-status" role="status">${st.text}</p>
     ${msg}
-    <p class="small">La suite est une <strong>survie libre</strong> : non classée, sans Éclats, sans progression de succès. Boost et Gel y sont gratuits, avec leurs temps de recharge, et vous restez invulnérable 3 secondes après la reprise.</p>
+    <p class="small revive__rule">Reprise non classée · sans gains</p>
     <div class="btn-stack">
       ${ad}
       ${pay}
-      ${button({ action: 'revive-decline', label: 'Terminer la partie', icon: 'home', variant: 'ghost', attrs: v.busy ? 'disabled' : '' })}
+      ${button({ action: 'revive-decline', label: 'Terminer', icon: 'home', variant: 'ghost', attrs: v.busy ? 'disabled' : '' })}
     </div>
-    ${v.busy ? '<p class="small" role="status">Paiement en cours de vérification par le service… Aucune reprise n’est accordée tant qu’il n’est pas confirmé.</p>' : ''}
+    ${busy}
   </div>`;
 }
 

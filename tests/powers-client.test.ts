@@ -242,10 +242,14 @@ describe('Écran de reprise : honnêteté sur la publicité et les Prismes', () 
     const html = S.reviveScreen(view());
     expect(html).toContain('Deuxième chance');
     expect(html).toMatch(/data-action="revive-ad"[^>]*disabled/);
-    expect(html).toContain('Indisponible dans cette version');
-    expect(html).toContain('Reprendre — 5 Prismes');
-    expect(html).toContain('classement Sans bonus');
-    expect(html).toContain('survie libre');
+    expect(html).toContain('Indisponible');
+    expect(html).toContain('Publicité');
+    expect(html).toContain('Reprendre · 5 Prismes');
+    expect(html).toContain('Sans bonus');
+    expect(html).toContain('Reprise non classée · sans gains');
+    expect(html).toContain('Local uniquement');
+    expect(html).toContain('>Terminer<');
+    expect(html).not.toContain('survie libre');
     expect(html).toContain('data-action="revive-decline"');
   });
 
@@ -253,11 +257,12 @@ describe('Écran de reprise : honnêteté sur la publicité et les Prismes', () 
     const html = S.reviveScreen(view({ life: 3, ad: { offered: false, available: false }, prisms: { price: REVIVE.prisms[3], balance: 12, blocked: 'Hors connexion : paiement impossible' } }));
     expect(html).toContain('Troisième chance');
     expect(html).not.toContain('revive-ad');
-    expect(html).toContain('Reprendre — 10 Prismes');
+    expect(html).toContain('Reprendre · 10 Prismes');
     expect(html).toMatch(/data-action="revive-prisms"[^>]*disabled/);
-    expect(html).toContain('Hors connexion');
+    expect(html).toContain('Solde insuffisant'.slice(0, 0) + 'Indisponible'); // solde suffisant (12 ≥ 10) : le blocage est « Indisponible »
+    expect(S.reviveScreen(view({ life: 3, ad: { offered: false, available: false }, prisms: { price: 10, balance: 4, blocked: 'x' } }))).toContain('Solde insuffisant');
     const busy = S.reviveScreen(view({ busy: true }));
-    expect(busy).toContain('Aucune reprise n’est accordée tant qu’il n’est pas confirmé');
+    expect(busy).toContain('Vérification en cours');
     expect(busy).toMatch(/data-action="revive-decline"[^>]*disabled/);
   });
 

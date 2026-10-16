@@ -371,23 +371,30 @@ describe('Reprise : confirmation avant dépense de Prismes, option publicité', 
 
   it('confirmation : montant, solde avant → après, débit par le service ; confirmer / retour', () => {
     const c = S.reviveScreen({ ...base, confirm: true });
-    expect(c).toContain('Confirmer la dépense');
+    expect(c).toContain('Confirmer');
     expect(c).toContain('5 Prismes');
     expect(c).toContain('12 → 7');
     expect(c).toContain('revive-prisms-confirm');
     expect(c).toContain('revive-prisms-back');
-    expect(c).toContain('débités par le service');
     const third = S.reviveScreen({ ...base, life: 3, ad: { offered: false, available: false }, prisms: { price: 10, balance: 12, blocked: null }, confirm: true });
     expect(third).toContain('10 Prismes');
     expect(third).toContain('12 → 2');
   });
 
+  it('statut court du résultat classé : Validé / En attente / Local uniquement, sans explication technique', () => {
+    expect(S.reviveScreen({ ...base, lb: { kind: 'accepted', rank: 3, best: true } })).toContain('Validé');
+    expect(S.reviveScreen({ ...base, lb: { kind: 'sending' } })).toContain('En attente');
+    expect(S.reviveScreen({ ...base, lb: { kind: 'pending', offline: true } })).toContain('En attente');
+    for (const kind of ['hidden', 'no-identity', 'no-ticket'] as const) expect(S.reviveScreen({ ...base, lb: { kind } })).toContain('Local uniquement');
+    expect(S.reviveScreen({ ...base, time: 112.2, score: 16600 })).toMatch(/1:52,2<\/strong> · 16.600 pts · Sans bonus/);
+  });
+
   it('publicité : prête (active), indisponible (expliquée), masquée si le fournisseur n’a rien de prêt ; jamais pour la 3ᵉ chance', () => {
     expect(S.reviveScreen({ ...base, ad: { offered: true, available: true } })).not.toMatch(/data-action="revive-ad"[^>]*disabled/);
-    expect(S.reviveScreen({ ...base, ad: { offered: true, available: true } })).toContain('Reprendre gratuitement');
+    expect(S.reviveScreen({ ...base, ad: { offered: true, available: true } })).toContain('Publicité');
     const none = S.reviveScreen({ ...base, ad: { offered: true, available: false, reason: 'Indisponible dans cette version' } });
     expect(none).toMatch(/data-action="revive-ad"[^>]*disabled/);
-    expect(none).toContain('Indisponible dans cette version');
+    expect(none).toContain('Indisponible');
     expect(S.reviveScreen({ ...base, ad: { offered: true, available: false, hidden: true } })).not.toContain('revive-ad');
     expect(S.reviveScreen({ ...base, life: 3, ad: { offered: false, available: false }, prisms: { price: 10, balance: 12, blocked: null } })).not.toContain('revive-ad');
   });

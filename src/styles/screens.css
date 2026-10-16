@@ -1855,3 +1855,44 @@
   width: 30px;
   height: 30px;
 }
+
+/* Écran « Deuxième chance » compact : titre, résumé sur une ligne, statut court, une règle, trois boutons */
+.revive--compact {
+  gap: 0;
+}
+
+.revive--compact .title {
+  margin-bottom: 4px;
+}
+
+.revive__sum {
+  margin: 0;
+  font-size: 16px;
+  text-align: center;
+  color: var(--c-text);
+}
+
+.revive--compact .revive__status {
+  margin: 6px auto 0;
+  padding: 3px 12px;
+  width: fit-content;
+  font-size: 12px;
+}
+
+.revive--compact .revive__rule {
+  margin: 8px 0 10px;
+  text-align: center;
+}
+
+.revive--compact .btn-stack {
+  gap: 8px;
+}
+
+.revive--compact .confirm {
+  margin: 6px 0 10px;
+}
+
+.revive__busy {
+  margin: 8px 0 0;
+  text-align: center;
+}
