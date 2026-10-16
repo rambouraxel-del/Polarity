@@ -100,6 +100,8 @@ export class Music {
   /** Second tour de la phase 1 : raccord à programmer (voir `planSecondPass`). */
   private pendingSecond: { at: number; first: Voice; loop: AudioBuffer } | null = null;
   private phase2Loading: Promise<void> | null = null;
+  /** Position de la musique au moment de la fin de partie (mort) : une reprise payée repart de là, jamais du début. */
+  private stoppedAt: { pos: number; mode2: boolean } | null = null;
 
   constructor(
     private readonly host: AudioHost,
@@ -195,6 +197,7 @@ export class Music {
     if (!ctx) return;
     this.want = true;
     this.mode2 = false;
+    this.stoppedAt = null;
     this.pausedWhileLoading = false;
     const g = ++this.gen;
     const hadVoices = this.voices.length > 0;
@@ -248,6 +251,8 @@ export class Music {
     this.gen++; // annule un démarrage en attente de décodage
     if (!ctx) return;
     if (this.state !== 'playing' && this.state !== 'paused') return;
+    // Mémorise où la musique s'est arrêtée : une reprise (2ᵉ ou 3ᵉ vie) repart de cet endroit
+    this.stoppedAt = { pos: this.state === 'paused' ? this.pausedPos : Math.max(0, ctx.currentTime - this.t0), mode2: this.mode2 };
     if (this.mode2) {
       // Phase 2 : fondu sortant (l'outro de la phase 1 est un autre morceau), jamais d'attente d'un tour de boucle
       this.fadeOutVoices(ctx, PHASE2_MUSIC.endFade);
@@ -281,6 +286,7 @@ export class Music {
   stop(): void {
     const ctx = this.host.context();
     this.want = false;
+    this.stoppedAt = null;
     this.pausedWhileLoading = false;
     this.gen++;
     if (!ctx) return;
@@ -477,7 +483,28 @@ export class Music {
     return true;
   }
 
-  /** Reprise (deuxième ou troisième vie) en phase 2 : la musique de phase 2 repart directement dans sa boucle (jamais l'intro de la phase 1). Faux si non décodée. */
+  /**
+   * Reprise (deuxième ou troisième vie) : la musique repart EXACTEMENT là où elle s'était arrêtée à la mort (même morceau, même position : intro, boucle,
+   * ou phase 2), avec un court fondu entrant ; l'outro en cours est coupée. Faux si aucune position n'est mémorisée ou si le morceau n'est pas décodé.
+   */
+  resumeAfterDeath(): boolean {
+    const ctx = this.host.context();
+    const saved = this.stoppedAt;
+    if (!ctx || !saved) return false;
+    if (saved.mode2 ? !this.buffers.phase2 : !this.ready) return false;
+    this.stoppedAt = null;
+    this.want = true;
+    this.pausedWhileLoading = false;
+    this.gen++;
+    if (this.voices.length > 0) this.fadeOutVoices(ctx, MUSIC.restartFade);
+    const at = ctx.currentTime + MUSIC.restartFade + 0.02;
+    this.mode2 = saved.mode2;
+    if (saved.mode2) this.play2(ctx, saved.pos, at, true);
+    else this.play(ctx, saved.pos, at, true);
+    return true;
+  }
+
+  /** Reprise (deuxième ou troisième vie) en phase 2 sans position mémorisée : la musique de phase 2 repart dans sa boucle (jamais l'intro de la phase 1). Faux si non décodée. */
   startPhase2Loop(): boolean {
     const ctx = this.host.context();
     if (!ctx || !this.buffers.phase2) return false;

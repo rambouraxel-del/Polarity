@@ -501,4 +501,38 @@ describe('musique : séquence de la phase 1 (second tour) et phase 2', () => {
     expect(v.starts[0].offset).toBeCloseTo(PHASE2_MUSIC.loopStart, 6);
     expect(ctx.sources.some((s) => name(s) === 'intro')).toBe(false);
   });
+
+  it('reprise payée (2ᵉ chance) : la musique repart là où elle s’est arrêtée (boucle de phase 1, puis phase 2), jamais du début', () => {
+    const { ctx, music } = setup();
+    music.setBuffers({ phase2: buf('phase2') });
+    music.startGame();
+    // Mort 50 s après le début : en pleine boucle de la phase 1
+    ctx.currentTime = MUSIC.startDelay + 50;
+    music.endGame();
+    ctx.currentTime += 12; // temps passé sur l'écran de reprise : la musique ne compte pas ce temps
+    const n = ctx.sources.length;
+    expect(music.resumeAfterDeath()).toBe(true);
+    const v = ctx.sources.slice(n).find((s) => name(s) === 'loop')!;
+    expect(v.starts[0].offset).toBeCloseTo(MUSIC.loopStart + (50 - I), 1);
+    expect(ctx.sources.slice(n).some((s) => name(s) === 'intro')).toBe(false);
+    expect(music.mode).toBe('playing');
+    // Position entendue après la reprise : même endroit, qui avance ensuite
+    ctx.currentTime = ctx.currentTime + MUSIC.restartFade + 0.02 + 1;
+    const p = music.position({ track: null, time: 0, playing: false });
+    expect(p.track).toBe('loop');
+    expect(p.time).toBeCloseTo(50 - I + 1, 1);
+    // Mort en phase 2 : reprise au même point du morceau de phase 2
+    music.startGame();
+    music.enterPhase2();
+    const t0 = ctx.currentTime + 0.03;
+    ctx.currentTime = t0 + 40;
+    music.endGame();
+    ctx.currentTime += 30;
+    const m = ctx.sources.length;
+    expect(music.resumeAfterDeath()).toBe(true);
+    const v2 = ctx.sources.slice(m).find((s) => name(s) === 'phase2')!;
+    expect(v2.starts[0].offset).toBeCloseTo(40, 1);
+    // Sans position mémorisée : repli habituel
+    expect(music.resumeAfterDeath()).toBe(false);
+  });
 });

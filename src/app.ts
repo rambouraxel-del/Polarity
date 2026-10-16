@@ -1222,8 +1222,8 @@ export class App {
     this.screenEl.classList.add('hidden');
     this.screenEl.classList.remove('dim');
     this.screenEl.innerHTML = '';
-    // Reprise en phase 2 : la musique de phase 2 repart dans sa boucle ; sinon (phase 1) comportement habituel
-    if (!(s.sim.phase === 2 && this.music.startPhase2Loop())) this.music.startGame();
+    // La musique repart là où elle s'était arrêtée à la mort ; à défaut : boucle de la phase 2, ou démarrage habituel
+    if (!this.music.resumeAfterDeath() && !(s.sim.phase === 2 && this.music.startPhase2Loop())) this.music.startGame();
     this.hud.show(true);
     this.setPowersVisible(this.lastConfig?.bonus !== false);
     this.lastCountdownShown = -1;
