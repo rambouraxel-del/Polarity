@@ -1,3 +1,4 @@
+import { BALANCE_VERSION } from '../src/config/version';
 import { describe, expect, it } from 'vitest';
 import { INCOMPATIBLE_MESSAGE, LeaderboardClient } from '../src/net/leaderboard';
 import { API_LEVEL } from '../src/net/protocol';
@@ -137,7 +138,7 @@ describe('le service à jour annonce son niveau d’API', () => {
   it('GET /api/health : { ok, balance, api } — l’ancien service n’a pas ce champ', () => {
     const app = createApp(openDb(':memory:'), { ticketSecret: 'secret-de-test-pour-les-tickets-0123456789', now: () => NOW0 });
     const r = app({ method: 'GET', path: '/api/health', query: new URLSearchParams(), headers: {}, body: undefined, ip: '10.0.0.1' } as HttpRequest);
-    expect(r.body).toMatchObject({ ok: true, balance: 3, api: API_LEVEL });
+    expect(r.body).toMatchObject({ ok: true, balance: BALANCE_VERSION, api: API_LEVEL });
     expect(API_LEVEL).toBeGreaterThanOrEqual(2);
   });
 });

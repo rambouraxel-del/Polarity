@@ -11,7 +11,7 @@ import { BONUS, LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../co
 import { LOYALTY, LOYALTY_LENGTH } from '../config/rewards';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import type { LoyaltyState } from '../net/rewardsProtocol';
-import { BALANCE_VERSION } from '../config/version';
+import { BALANCE_VERSION, DAILY_RULES_VERSION } from '../config/version';
 
 /**
  * Versions du format :
@@ -81,6 +81,8 @@ export interface Options {
 /** Records de Survie et de défi obtenus sous un ancien équilibrage. */
 export interface ArchivedRecords {
   survival: RunRecord;
+  /** Record « Avec bonus » de cette version (absent dans les archives antérieures à la v4). */
+  survivalBonus?: RunRecord;
   daily: Record<string, RunRecord>;
 }
 
@@ -180,6 +182,11 @@ export interface EconomySave {
   bonusUsed: Inventory;
   /** Part de `bonusUsed` consommée par la partie EN COURS (pas encore tranchée : envoyée avec son ticket ou déclarée). Jamais envoyée telle quelle. */
   liveUse: Inventory;
+  /**
+   * Primes de phase déjà versées : « identifiant de partie:phase » (les 20 dernières). Empêche tout double versement (reprise, synchronisation,
+   * événement répété) ; l'identifiant de partie est aléatoire et propre à l'appareil.
+   */
+  phaseClaims: string[];
 }
 
 export function defaultEconomy(): EconomySave {
@@ -197,6 +204,7 @@ export function defaultEconomy(): EconomySave {
     bonusProcessed: { boost: 0, gel: 0 },
     bonusUsed: { boost: 0, gel: 0 },
     liveUse: { boost: 0, gel: 0 },
+    phaseClaims: [],
   };
 }
 
@@ -393,7 +401,7 @@ export function sanitize(raw: unknown): SaveData {
   if (isObj(raw.archive)) {
     for (const [k, v] of Object.entries(raw.archive)) {
       if (!/^\d+$/.test(k) || !isObj(v)) continue;
-      out.archive[k] = { survival: sanitizeRun(v.survival), daily: isObj(v.daily) ? sanitizeDaily(v.daily) : {} };
+      out.archive[k] = { survival: sanitizeRun(v.survival), ...(isObj(v.survivalBonus) ? { survivalBonus: sanitizeRun(v.survivalBonus) } : {}), daily: isObj(v.daily) ? sanitizeDaily(v.daily) : {} };
     }
   }
   out.balanceNoticeSeen = Math.floor(num(raw.balanceNoticeSeen, BALANCE_VERSION, 0));
@@ -401,10 +409,12 @@ export function sanitize(raw: unknown): SaveData {
   const balance = Math.floor(num(raw.balance, BALANCE_VERSION, 1));
   if (balance < BALANCE_VERSION) {
     const key = String(balance);
-    if (!out.archive[key]) out.archive[key] = { survival: out.survival, daily: out.daily };
+    // Les règles du défi quotidien n'ont pas changé depuis DAILY_RULES_VERSION : ses records locaux restent en place
+    const dailyReset = balance < DAILY_RULES_VERSION;
+    if (!out.archive[key]) out.archive[key] = { survival: out.survival, survivalBonus: out.survivalBonus, daily: dailyReset ? out.daily : {} };
     out.survival = defaultSave().survival;
     out.survivalBonus = defaultSave().survivalBonus;
-    out.daily = {};
+    if (dailyReset) out.daily = {};
     out.balanceNoticeSeen = Math.min(out.balanceNoticeSeen, balance);
   }
   out.balance = BALANCE_VERSION;
@@ -517,6 +527,7 @@ function sanitizeEconomy(raw: Record<string, unknown>): EconomySave {
   if (isObj(raw.bonusUsed)) out.bonusUsed = sanitizeCounts(raw.bonusUsed, 1e9);
   // Une partie en cours au moment d'une fermeture brutale est abandonnée : ses charges consommées sont déclarées comme un usage non classé
   out.liveUse = { boost: 0, gel: 0 };
+  if (Array.isArray(raw.phaseClaims)) out.phaseClaims = raw.phaseClaims.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length < 60).slice(-20);
   return out;
 }
 

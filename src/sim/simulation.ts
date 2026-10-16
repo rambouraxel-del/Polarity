@@ -13,6 +13,7 @@ import { ShardSpawner, type ShardEvent, type ShardWorld } from './shards';
 import { omegaAt, type SpeedFn } from './speed';
 import { GEL_SHIFT, Powers, type PowerAct, type PowerEvent, type PowerKind, type PowerStock } from './powers';
 import { POWERS, REVIVE } from '../config/powers';
+import { PHASES } from '../config/phases';
 
 export type SimEvent =
   | { type: 'flip' }
@@ -30,6 +31,8 @@ export type SimEvent =
   | PowerEvent
   /** Le Bouclier a absorbé un impact (position du vaisseau et du contact). */
   | { type: 'shield-absorb'; x: number; y: number; hitX: number; hitY: number; by: Hazard['kind'] }
+  /** Entrée en phase 2 (survie ACTIVE = 300 s) : l'arène a été aspirée, plus aucune menace n'existe. */
+  | { type: 'phase'; phase: 2 }
   /** Reprise après une mort : numéro de la nouvelle vie (2 ou 3). */
   | { type: 'revive'; life: number }
   /** Éclat sur l'orbite : apparition, collecte (gain unique), disparition. */
@@ -113,6 +116,8 @@ export class Simulation {
 
   state: SimState = 'running';
   stepIndex = 0;
+  /** Phase de la Survie : 1 jusqu'à 300 s de survie active, 2 ensuite (jamais en niveaux ni au défi quotidien). */
+  phase: 1 | 2 = 1;
   angle: number = PLAYER.startAngle;
   dir: 1 | -1 = PLAYER.startDirection;
   flips = 0;
@@ -197,6 +202,9 @@ export class Simulation {
     }
     // 1 bis. Pouvoirs demandés (après les inversions, dans l'ordre des demandes)
     this.powers.apply(this.stepIndex);
+
+    // 1 ter. Phase 2 : à 300 s de survie active, l'arène est aspirée (la traversée de 6 s a eu lieu AVANT ce pas : elle n'est pas du temps de jeu)
+    if (this.phase === 1 && this.director.phased && this.stepIndex >= PHASES.phase2Step) this.enterPhase2();
 
     // 2. Nouvelle vague éventuelle (un seul directeur : normal, annonce, événement ou respiration)
     const added = this.director.update(t0, this);
@@ -306,6 +314,18 @@ export class Simulation {
 
     // Garde l'angle borné pour la précision sur de très longues parties
     if (this.stepIndex % 1024 === 0) this.angle = wrapAngle(this.angle);
+  }
+
+  /**
+   * Entrée en phase 2 : toutes les menaces sont effacées, aucune ne peut toucher le vaisseau au retour de la traversée, le directeur repart
+   * (première vague retardée). Rien d'autre ne change : score, combo, balises, bonus, vitesse et vies sont conservés tels quels.
+   */
+  private enterPhase2(): void {
+    this.phase = 2;
+    this.hazards.length = 0;
+    this.absorbed.clear();
+    this.director.enterPhase2(this.time);
+    this.events.push({ type: 'phase', phase: 2 });
   }
 
   /** Ajoute un motif tout de suite, sans validation d'évitement (outil de démonstration `?demo` et tests). */

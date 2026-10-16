@@ -41,3 +41,68 @@ export const LASER = {
   /** Zone de refuge minimale hors secteur balayé (rad), vérifiée avant la validation d'évitement. */
   minRefuge: 2.4,
 } as const;
+
+/**
+ * Menaces de la PHASE 2 (≥ 300 s de survie active). Toutes les durées d'annonce et vitesses restent bornées par CAPS (config/balance.ts) et
+ * adaptées à la vitesse du vaisseau comme les menaces de la phase 1 ; chaque vague est vérifiée par le validateur d'évitement.
+ */
+export const ARC_SHOT = {
+  /** Rayon (unités) du point le plus profond du grand arc : il plonge vers le centre. */
+  depth: { min: 110, max: 240 },
+  /** Ouverture angulaire de l'arc autour de l'angle visé (rad) : points d'entrée et de sortie hors champ. */
+  spread: { min: 1.15, max: 1.8 },
+  /** Vitesse de parcours par rapport à celle des projectiles droits. */
+  speedScale: 0.92,
+  /** Annonce supplémentaire (s) : la courbe entière est tracée. */
+  extraWarn: 0.2,
+} as const;
+
+export const SPIRAL = {
+  /** Nombre de bras (projectiles sur la même spirale, décalés d'un tour fractionné). */
+  arms: { min: 1, max: 3 },
+  /** Vitesse angulaire (rad/s) de la spirale. */
+  spin: { min: 0.95, max: 1.6 },
+  /** Vitesse radiale par rapport à celle des projectiles droits. */
+  speedScale: 0.78,
+  /** Décalage de départ entre deux bras (s). */
+  armStagger: { min: 0.12, max: 0.24 },
+  extraWarn: 0.25,
+  /** Part des spirales qui partent du centre vers l'extérieur (les autres entrent depuis le bord). */
+  outwardShare: 0.35,
+} as const;
+
+export const ROT_BEAM = {
+  /** Vitesse de rotation (rad/s) : toujours nettement inférieure à celle du vaisseau (≥ 1,8 rad/s en phase 2), sinon il serait inévitable. */
+  rate: { min: 0.55, max: 0.9 },
+  /** Durée de rotation (s) : l'horizon du validateur est de 6 s. */
+  duration: { min: 3.4, max: 4.8 },
+  half: 0.045,
+  warn: 1.45,
+  /** Part des vagues avec deux faisceaux opposés. */
+  twinShare: 0.4,
+  /** Couverture comptée pour les plafonds (rad). */
+  coverage: 0.9,
+} as const;
+
+export const SWEEP_BEAM = {
+  rate: { min: 1.25, max: 1.7 },
+  span: { min: 2.5, max: 3.3 },
+  half: 0.04,
+  warn: 1.5,
+} as const;
+
+export const ALT_BEAMS = {
+  half: 0.055,
+  /** Étapes (une direction active à la fois) et battements par étape. */
+  steps: { min: 4, max: 6 },
+  beatsPerStep: 1,
+  /** Écart angulaire entre les directions annoncées (rad). */
+  spread: { min: 1.9, max: 2.7 },
+  warn: 1.25,
+} as const;
+
+/** Plafonds de la phase 2 (secteurs et faisceaux annoncés ou actifs en même temps, couverture angulaire). */
+export const PHASE2_CAPS = {
+  maxSectors: 6,
+  maxCoverage: 0.5,
+} as const;

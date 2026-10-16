@@ -40,8 +40,8 @@ describe('V1 — isolation du gameplay (mêmes règles sur le web, Android et iO
     }
   });
 
-  it('BALANCE_VERSION inchangée par la préparation V1 (les records et le classement restent valides)', () => {
-    expect(BALANCE_VERSION).toBe(3);
+  it('BALANCE_VERSION = 4 (Survie à phases) : records de la v3 archivés', () => {
+    expect(BALANCE_VERSION).toBe(4);
   });
 });
 

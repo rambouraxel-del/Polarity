@@ -1,4 +1,5 @@
 import type { CatalogItem } from '../config/catalog';
+import { PHASE_BONUS, PHASE_REWARD_SKIN } from '../config/phases';
 import type { SaveData } from '../save/save';
 
 /**
@@ -16,4 +17,26 @@ export function noteEarned(save: SaveData, amount: number): void {
 export function notePurchase(save: SaveData, item: CatalogItem, paid: number): void {
   save.economy.purchases[item.id] = Math.max(1, Math.floor(paid));
   save.economy.confirmedPurchases = save.economy.confirmedPurchases.filter((id) => id !== item.id);
+}
+
+/**
+ * Prime d'Éclats d'une NOUVELLE phase franchie (config/phases.ts, PHASE_BONUS) : versée UNE fois par partie et par phase (registre `phaseClaims`,
+ * clé « identifiant de partie:phase »), jamais pour une reprise ni une partie assistée (l'appelant l'exclut). Gain répétable : il alimente le compteur
+ * monotone envoyé au service (seau à jetons) comme les éclats d'orbite. Renvoie le montant versé (0 si déjà versé ou phase sans prime).
+ */
+export function claimPhaseBonus(save: SaveData, runKey: string, phase: number): number {
+  const amount = PHASE_BONUS[phase] ?? 0;
+  const key = `${runKey}:${phase}`;
+  if (amount <= 0 || !runKey || save.economy.phaseClaims.includes(key)) return 0;
+  save.economy.phaseClaims = [...save.economy.phaseClaims, key].slice(-20);
+  save.wallet.shards += amount;
+  noteEarned(save, amount);
+  return amount;
+}
+
+/** Apparence exclusive de la première traversée réussie : ajoutée UNE fois à `owned` (jamais retirée ni refacturée). Renvoie vrai si elle vient d'être obtenue. */
+export function grantPhaseSkin(save: SaveData): boolean {
+  if (save.owned.includes(PHASE_REWARD_SKIN)) return false;
+  save.owned = [...save.owned, PHASE_REWARD_SKIN];
+  return true;
 }

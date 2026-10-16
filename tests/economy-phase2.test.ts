@@ -56,7 +56,7 @@ describe('migration de la sauvegarde v6 vers la v8 : aucun acquis perdu, Médail
     expect(s.rewarded).toHaveLength(7); // registre des anciens Éclats intact
     expect(s.achievements.survive_300).toBe(30);
     expect(s.stats.totalCycles).toBe(120);
-    expect(s.survival.bestTime).toBe(320);
+    expect(s.archive['3'].survival.bestTime).toBe(320); // records de la v3 archivés (équilibrage 4)
     expect(s.campaign.reserve).toBe(55);
     // Cosmétiques débloqués autrefois par les succès : conservés (passés dans « possédés »), jamais re-facturés
     for (const id of ['solaire', 'glace', 'citron', 'boreale', 'prisme', 'aurore']) expect(isOwned(s, id), id).toBe(true);

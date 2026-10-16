@@ -5,6 +5,9 @@ se réveille derrière l'orbite, l'espace se charge de poussières, d'anneaux et
 **Purement décoratif** : simulation, collisions, vitesse, difficulté, hitbox, scores, monnaies et classement sont inchangés
 (`src/sim/` non modifié, `BALANCE_VERSION` inchangée). Jamais appliqué à la Campagne ni aux Défis classiques (décor fixe d'origine).
 
+## Phases (noyau, faille, phase 2)
+Le noyau central, les fissures, la traversée et l'apparence de la phase 2 sont décrits dans `docs/PHASES.md` (`render/ambience/Core.ts`, `AmbienceDirector` : `core`, `look`, `calm`, moments forts préparés `AMBIENCE.script`). Les passages calmes de la musique calment aussi l'ambiance.
+
 ## Les cinq stades (temps de survie actif, la pause l'arrête)
 | Stade | Début | Ce qui change |
 |---|---|---|

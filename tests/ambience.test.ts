@@ -8,6 +8,7 @@ import { AMBIENCE, AMBIENCE_MODES, STAGES, STAGE_PARAMS, ambienceApplies } from 
 import { Sfx } from '../src/audio/sfx';
 import { defaultSave, sanitize } from '../src/save/save';
 import { MUSIC } from '../src/config/music';
+import { PHASE1_PLAN } from '../src/config/phases';
 import timing from '../src/data/polar-rift-audio.json';
 
 const silent: MusicFrame = { active: false, track: null, bass: 0, intensity: 0, beat: 0, drop: false, build: 0 };
@@ -62,13 +63,23 @@ describe('ambience : stades et transitions', () => {
 
   it('battement significatif : impulsion immédiate puis décroissance rapide ; battement faible ignoré', () => {
     const d = new AmbienceDirector(() => 1);
-    let st = d.update(130, 1 / 60, { ...silent, active: true, beat: 0.2 }, false);
+    // Musique énergique (intensité haute, lissée) : l'ambiance n'est pas dans un passage calme
+    let st = d.update(130, 1 / 60, { ...silent, active: true, beat: 0.2, intensity: 0.9 }, false);
+    for (let i = 0; i < 60; i++) st = d.update(130, 1 / 60, { ...silent, active: true, beat: 0.2, intensity: 0.9 }, false);
     expect(st.beat).toBe(0);
-    st = d.update(130, 1 / 60, { ...silent, active: true, beat: 1 }, false);
+    st = d.update(130, 1 / 60, { ...silent, active: true, beat: 1, intensity: 0.9 }, false);
     const peak = st.beat;
     expect(peak).toBeCloseTo(paramAt('beatGain', stageAt(130)), 6);
-    for (let i = 0; i < 30; i++) st = d.update(130, 1 / 60, { ...silent, active: true }, false);
+    for (let i = 0; i < 30; i++) st = d.update(130, 1 / 60, { ...silent, active: true, intensity: 0.9 }, false);
     expect(st.beat).toBeLessThan(peak * 0.1);
+  });
+
+  it('passage calme de la musique : impulsions réduites, aucune fissure ni arc', () => {
+    const d = new AmbienceDirector(() => 0);
+    let calm = d.update(130, 1 / 60, { ...silent, active: true, beat: 1, intensity: 0.05 }, false);
+    for (let i = 0; i < 90; i++) calm = d.update(130, 1 / 60, { ...silent, active: true, beat: i === 89 ? 1 : 0, intensity: 0.05 }, false);
+    expect(calm.calm).toBeGreaterThan(0.9);
+    expect(calm.beat).toBeLessThan(paramAt('beatGain', stageAt(130)) * 0.5);
   });
 
   it('sans musique : aucune réaction (pas de fausse pulsation)', () => {
@@ -239,11 +250,18 @@ describe('position de lecture de la musique (horloge audio)', () => {
     const p = music.position(out());
     expect(p.track).toBe('intro');
     expect(p.time).toBeCloseTo(3, 6);
-    // Après 10 tours de boucle
-    ctx.currentTime = start + 0.05 + MUSIC.introDuration + 10 * MUSIC.loopDuration + 12.5;
+    // Premier tour de boucle : temps depuis loopStart
+    ctx.currentTime = start + 0.05 + MUSIC.introDuration + 12.5;
+    const q0 = music.position(out());
+    expect(q0.track).toBe('loop');
+    expect(q0.time).toBeCloseTo(12.5, 6);
+    // Après le raccord du second tour (séquence de cinq minutes) puis de nombreux tours : toujours dans la région en boucle, sans dérive
+    ctx.currentTime = start + 0.05 + MUSIC.introDuration + MUSIC.loopDuration + 5;
+    expect(music.position(out()).time).toBeCloseTo(PHASE1_PLAN.secondPassFrom + 5, 6);
+    ctx.currentTime = start + 0.05 + MUSIC.introDuration + MUSIC.loopDuration + 10 * MUSIC.loopDuration + 12.5;
     const q = music.position(out());
     expect(q.track).toBe('loop');
-    expect(q.time).toBeCloseTo(12.5, 6);
+    expect(q.time).toBeCloseTo((PHASE1_PLAN.secondPassFrom + 12.5) % MUSIC.loopDuration, 6);
   });
 
   it('pause : position figée ; reprise au même endroit ; outro après la fin', () => {
@@ -463,8 +481,8 @@ describe('gameplay : l’ambiance ne touche ni la simulation ni les modes hors S
     expect(ambienceApplies('level')).toBe(false);
   });
 
-  it('BALANCE_VERSION inchangée', async () => {
+  it('BALANCE_VERSION = 4 (Survie à phases)', async () => {
     const { BALANCE_VERSION } = await import('../src/config/version');
-    expect(BALANCE_VERSION).toBe(3);
+    expect(BALANCE_VERSION).toBe(4);
   });
 });

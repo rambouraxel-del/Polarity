@@ -14,7 +14,11 @@
  */
 export type Currency = 'shards' | 'medals' | 'prisms';
 
-export type Acquire = { type: 'default' } | { type: 'price'; currency: Currency; amount: number };
+/**
+ * `reward` : obtenu en jouant (jamais acheté) — ex. l'apparence de la première traversée de la faille (config/phases.ts). Débloqué une seule fois
+ * par profil en l'ajoutant à `save.owned` ; `condition` est le texte affiché dans la boutique.
+ */
+export type Acquire = { type: 'default' } | { type: 'price'; currency: Currency; amount: number } | { type: 'reward'; condition: string };
 
 export type ItemKind = 'ship' | 'trail' | 'pack';
 
@@ -43,6 +47,8 @@ export const CATALOG: CatalogItem[] = [
   { id: 'solaire', kind: 'ship', name: 'Solaire', blurb: 'Ailes dorées, cockpit lumineux.', acquire: medals(190) },
   { id: 'prisme', kind: 'ship', name: 'Prisme', blurb: 'Coque cristalline, ailes irisées.', acquire: medals(200) },
   { id: 'neon', kind: 'ship', name: 'Néon', blurb: 'Ailes rose néon, cockpit et réacteur cyan.', acquire: prisms(150) },
+  // Exclusif : récompense de la première traversée de la faille (Survie, fin de la phase 1)
+  { id: 'faille', kind: 'ship', name: 'Faille', blurb: 'Coque sombre, ailes électriques : traverser la faille de la Survie.', acquire: { type: 'reward', condition: 'Récompense : franchir la faille en Survie (5 minutes), une seule fois par profil.' } },
   // Traînées
   { id: 'auto', kind: 'trail', name: 'Assortie', blurb: 'Suit la couleur du vaisseau équipé.', acquire: { type: 'default' } },
   { id: 'emeraude', kind: 'trail', name: 'Émeraude', blurb: 'Traînée vert émeraude.', acquire: medals(70) },

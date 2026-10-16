@@ -248,7 +248,7 @@ function itemBadge(state: ItemState, item: CatalogItem, save?: SaveData): string
 function itemCard(save: SaveData, item: CatalogItem, selected: boolean): string {
   const st = itemState(save, item);
   return `<button class="skin item item--${st}${selected ? ' skin--selected' : ''}" data-action="select-item" data-item="${item.id}" aria-pressed="${selected}" aria-label="${escapeHtml(item.name)}">
-    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'soon' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'soon' || st === 'locked' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
     <span class="skin__name">${escapeHtml(item.name)}</span>
     <span class="item__badge">${itemBadge(st, item, save)}</span>
   </button>`;
@@ -275,6 +275,11 @@ function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: s
       return {
         note: 'Article premium : les Prismes ne sont pas encore disponibles dans cette version. Aucun achat n’est possible pour l’instant ; rien n’est débité.',
         button: button({ action: 'buy', label: 'Bientôt disponible', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
+      };
+    case 'locked':
+      return {
+        note: item.acquire.type === 'reward' ? item.acquire.condition : '',
+        button: button({ action: 'buy', label: 'À débloquer en jouant', icon: 'lock', variant: 'secondary', attrs: 'disabled' }),
       };
     case 'owned':
       return item.kind === 'pack'
@@ -432,13 +437,15 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
   const act = itemAction(save, sel, st);
   const prev = previewOf(save, sel);
   const p = effectivePrice(save, sel);
-  const regular = items.filter((i) => !isPremium(i));
+  const rewards = items.filter((i) => i.acquire.type === 'reward');
+  const regular = items.filter((i) => !isPremium(i) && i.acquire.type !== 'reward');
   const premium = items.filter((i) => isPremium(i));
   const medalGrid = regular.length > 0 ? `<h3 class="section-title">${coin('medals')} En Médailles</h3>${itemGrid(save, regular, sel.id, 'Cosmétiques en Médailles')}` : '';
   const prismGrid = premium.length > 0 ? `<h3 class="section-title">${coin('prisms')} Premium · en Prismes</h3>${itemGrid(save, premium, sel.id, 'Cosmétiques premium en Prismes')}` : '';
+  const rewardGrid = rewards.length > 0 ? `<h3 class="section-title">${ICONS.medal} Récompenses de jeu</h3>${itemGrid(save, rewards, sel.id, 'Cosmétiques à débloquer en jouant')}` : '';
   return `<div class="panel panel--wide compact">${head}
     <div class="skin-stage">
-      <div class="skin-preview${st === 'soon' ? ' skin-preview--locked' : ''}">
+      <div class="skin-preview${st === 'soon' || st === 'locked' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
       </div>
       <div class="skin-info">
@@ -451,7 +458,7 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
         ${act.button}
       </div>
     </div>
-    ${medalGrid}${prismGrid}
+    ${medalGrid}${prismGrid}${rewardGrid}
     <p class="small shop-foot">Purement cosmétique : aucun effet sur le jeu. Médailles (succès) pour les articles standard, Prismes pour le premium (onglet Prismes). Les « Éclats de campagne » sont une réserve séparée.</p>
   </div>`;
 }
@@ -464,6 +471,7 @@ export function purchaseRefusal(save: SaveData, item: CatalogItem): string {
     case 'owned':
     case 'equipped': return `${item.name} est déjà possédé : rien n’a été débité.`;
     case 'insufficient': return p ? `Solde insuffisant pour ${item.name} : il manque ${formatScore(p.amount - spendable(save, p.currency))} ${CURRENCY_NAME[p.currency]}. Rien n’a été débité.` : 'Solde insuffisant : rien n’a été débité.';
+    case 'locked': return `${item.name} est une récompense : il se débloque en jouant, il ne s’achète pas.`;
     case 'soon': return `${item.name} est un article premium : les Prismes ne sont pas encore disponibles, aucun achat n’est possible pour l’instant.`;
     default: return 'Achat impossible : rien n’a été débité.';
   }

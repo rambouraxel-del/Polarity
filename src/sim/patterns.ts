@@ -1,9 +1,10 @@
 import { ARENA } from '../config/balance';
-import { CONVOY, FRAGMENT, LASER } from '../config/hazards';
+import { ALT_BEAMS, ARC_SHOT, CONVOY, FRAGMENT, LASER, ROT_BEAM, SPIRAL, SWEEP_BEAM } from '../config/hazards';
+import { beatPeriodAt, nextBeat } from '../config/phases';
 import { TAU } from '../core/math';
 import type { Rng } from '../core/rng';
 import type { DifficultyParams } from './difficulty';
-import { makeChordProjectile, makeLaser, makeRayProjectile, makeSector, type Hazard } from './hazards';
+import { makeArcProjectile, makeChordProjectile, makeLaser, makeRayProjectile, makeSector, makeSpiralProjectile, shiftHazard, firstOrbitContact, type Hazard } from './hazards';
 import { angularTravel, type SpeedFn } from './speed';
 
 export type PatternId =
@@ -20,9 +21,21 @@ export type PatternId =
   | 'echo'
   | 'fragment'
   | 'convoy'
-  | 'laser';
+  | 'laser'
+  // Phase 1 et 2 : tirs dont les passages sur l'orbite tombent sur des battements consécutifs de la musique
+  | 'beatShots'
+  // Phase 2
+  | 'arcShot'
+  | 'arcConvoy'
+  | 'spiral'
+  | 'rotBeam'
+  | 'sweepBeam'
+  | 'altBeams'
+  | 'arcSector'
+  | 'spiralArc'
+  | 'beamShot';
 
-export type Family = 'projectile' | 'sector' | 'combo' | 'fragment' | 'convoy' | 'laser';
+export type Family = 'projectile' | 'sector' | 'combo' | 'fragment' | 'convoy' | 'laser' | 'rhythm' | 'bigarc' | 'spiral' | 'rotbeam' | 'sweepbeam' | 'altbeams';
 
 export interface PatternContext {
   now: number;
@@ -304,7 +317,209 @@ export const PATTERNS: Record<PatternId, PatternDef> = {
       return [makeLaser('laser', ws, p.laserWarn, center - (sign * swept) / 2, sign * p.laserRate, swept, LASER.half)];
     },
   },
+  beatShots: {
+    id: 'beatShots', family: 'rhythm', name: 'Tirs en rythme', cost: 1.9,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const n = rng.int(3, 4);
+      const sweep = ctx.playerDir * rng.range(0.55, 0.9);
+      const base = aimAngle(ctx, crossingTime(ctx, ctx.now)) - sweep;
+      const out: Hazard[] = [];
+      let from = ctx.now;
+      for (let i = 0; i < n; i++) {
+        const h = shotThrough(ctx, 'beatShots', ctx.now, base + i * sweep, rng.range(1.7, 2.5));
+        // Le passage sur l'orbite tombe sur un battement ; les tirs suivants tombent sur les battements suivants
+        const target = nextBeat(Math.max(from, firstOrbitContact(h)));
+        shiftHazard(h, target - firstOrbitContact(h));
+        from = target + 0.2 * beatPeriodAt(target);
+        out.push(h);
+      }
+      void p;
+      return out;
+    },
+  },
+  arcShot: {
+    id: 'arcShot', family: 'bigarc', name: 'Grand arc', cost: 1.4,
+    build(ctx) {
+      const h = bigArc(ctx, 'arcShot', ctx.now, 0);
+      return h ? [h] : [shotThrough(ctx, 'arcShot', ctx.now, aimAngle(ctx, crossingTime(ctx, ctx.now)))];
+    },
+  },
+  arcConvoy: {
+    id: 'arcConvoy', family: 'bigarc', name: 'Convoi en arc', cost: 1.9,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const n = rng.int(CONVOY.count.min, CONVOY.count.max);
+      const stagger = Math.max(CONVOY.minStagger, p.comboStagger * rng.range(CONVOY.stagger.min, CONVOY.stagger.max));
+      const first = bigArc(ctx, 'arcConvoy', ctx.now, 0);
+      if (!first || !first.path) return [shotThrough(ctx, 'arcConvoy', ctx.now, aimAngle(ctx, crossingTime(ctx, ctx.now)))];
+      // Même courbe, mêmes vitesses : les astéroïdes se suivent à `stagger` secondes d'intervalle
+      const out: Hazard[] = [first];
+      for (let i = 1; i < n; i++) {
+        const c = { ...first, path: { ...first.path }, warned: false };
+        shiftHazard(c, i * stagger);
+        out.push(c);
+      }
+      return out;
+    },
+  },
+  spiral: {
+    id: 'spiral', family: 'spiral', name: 'Spirale', cost: 1.8,
+    build(ctx) {
+      return spiralArms(ctx, 'spiral', ctx.now);
+    },
+  },
+  rotBeam: {
+    id: 'rotBeam', family: 'rotbeam', name: 'Faisceau rotatif', cost: 2.1,
+    build(ctx) {
+      return rotatingBeams(ctx, 'rotBeam', ctx.now);
+    },
+  },
+  sweepBeam: {
+    id: 'sweepBeam', family: 'sweepbeam', name: 'Faisceau balayeur', cost: 2,
+    build(ctx) {
+      const { rng } = ctx;
+      const ws = ctx.now;
+      const warn = Math.max(CAPS_LASER_WARN, SWEEP_BEAM.warn * (ctx.p.laserWarn / 1.15) ** 0.5);
+      const span = rng.range(SWEEP_BEAM.span.min, SWEEP_BEAM.span.max);
+      const rate = rng.range(SWEEP_BEAM.rate.min, SWEEP_BEAM.rate.max) / paceBeam(ctx);
+      const sign = rng.sign();
+      const center = predict(ctx, ws + warn) + rng.range(-1.1, 1.1);
+      return [makeLaser('sweepBeam', ws, warn, center - (sign * span) / 2, sign * rate, span, SWEEP_BEAM.half)];
+    },
+  },
+  altBeams: {
+    id: 'altBeams', family: 'altbeams', name: 'Faisceaux alternés', cost: 2.2,
+    build(ctx) {
+      return alternatingBeams(ctx, 'altBeams', ctx.now);
+    },
+  },
+  arcSector: {
+    id: 'arcSector', family: 'combo', name: 'Grand arc + arc électrique', cost: 2,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const ws = ctx.now;
+      const arc = bigArc(ctx, 'arcSector', ws + p.comboStagger, 0);
+      if (!arc) return PATTERNS.shotArc.build(ctx);
+      const center = rng.next() < 0.5 ? ctx.playerAngle : predict(ctx, ws + p.sectorWarn);
+      return [makeSector('arcSector', ws, p.sectorWarn, p.sectorActive, center, p.sectorHalfWidth), arc];
+    },
+  },
+  spiralArc: {
+    id: 'spiralArc', family: 'combo', name: 'Spirale + arc électrique', cost: 2.2,
+    build(ctx) {
+      const { p } = ctx;
+      const ws = ctx.now;
+      const sp = spiralArms(ctx, 'spiralArc', ws + p.comboStagger, 1);
+      const side = ctx.rng.sign();
+      const center = predict(ctx, ws + p.sectorWarn) + side * ctx.rng.range(1.0, 1.8);
+      return [makeSector('spiralArc', ws, p.sectorWarn, p.sectorActive, center, p.sectorHalfWidth * 0.9), ...sp];
+    },
+  },
+  beamShot: {
+    id: 'beamShot', family: 'combo', name: 'Faisceau + tir', cost: 2.3,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const ws = ctx.now;
+      const beams = rotatingBeams(ctx, 'beamShot', ws, 1);
+      const aim = predict(ctx, ws + p.projectileWarn + approachTime(p.projectileSpeed)) + rng.range(-0.6, 0.6);
+      return [...beams, shotThrough(ctx, 'beamShot', ws + p.comboStagger * 2, aim, rng.range(1.8, 2.6))];
+    },
+  },
 };
+
+// ————————————————————————————————————————————— menaces de la phase 2 (constructions)
+
+const CAPS_LASER_WARN = 0.9;
+
+/** Vitesse du vaisseau → rotation des faisceaux : même adaptation que le laser de la phase 1 (le vaisseau lent tolère des faisceaux plus lents). */
+function paceBeam(ctx: PatternContext): number {
+  const m = ctx.speed(ctx.now);
+  return m >= 1 ? 1 : Math.pow(1 / m, 0.8);
+}
+
+/** Grand arc : part d'un côté, plonge vers le centre au niveau de l'angle visé et ressort de l'autre côté. `stagger` retarde le départ. */
+function bigArc(ctx: PatternContext, pattern: string, warnStart: number, stagger: number): (Hazard & { kind: 'projectile' }) | null {
+  const { rng, p } = ctx;
+  const speed = p.projectileSpeed * ARC_SHOT.speedScale;
+  const warn = p.projectileWarn + ARC_SHOT.extraWarn;
+  const aimA = aimAngle(ctx, warnStart + warn + approachTime(speed));
+  const depth = rng.range(ARC_SHOT.depth.min, ARC_SHOT.depth.max);
+  const spread = rng.range(ARC_SHOT.spread.min, ARC_SHOT.spread.max);
+  const asym = rng.range(0.8, 1.2);
+  const side = rng.sign();
+  const a0 = aimA - side * spread;
+  const a2 = aimA + side * spread * asym;
+  const h = makeArcProjectile(
+    pattern, warnStart + stagger, warn, speed,
+    [S * Math.cos(a0), S * Math.sin(a0)],
+    [depth * Math.cos(aimA), depth * Math.sin(aimA)],
+    [S * Math.cos(a2), S * Math.sin(a2)],
+  );
+  return h;
+}
+
+/** Spirale à 1 à 3 bras : chaque bras est un projectile qui tourne en entrant (ou en sortant) ; les bras partent à quelques dixièmes d'intervalle. */
+function spiralArms(ctx: PatternContext, pattern: string, warnStart: number, maxArms: number = SPIRAL.arms.max): Hazard[] {
+  const { rng, p } = ctx;
+  const speed = p.projectileSpeed * SPIRAL.speedScale;
+  const warn = p.projectileWarn + SPIRAL.extraWarn;
+  const arms = rng.int(SPIRAL.arms.min, Math.min(maxArms, SPIRAL.arms.max));
+  const spin = rng.sign() * rng.range(SPIRAL.spin.min, SPIRAL.spin.max);
+  const outward = rng.next() < SPIRAL.outwardShare;
+  const r0 = outward ? 30 : S;
+  const vr = outward ? speed : -speed;
+  const tc = (R - r0) / vr; // durée jusqu'à l'orbite
+  const aim = predict(ctx, warnStart + warn + tc) + rng.range(-0.5, 0.5);
+  const base = aim - spin * tc;
+  const stagger = rng.range(SPIRAL.armStagger.min, SPIRAL.armStagger.max);
+  const out: Hazard[] = [];
+  for (let k = 0; k < arms; k++) {
+    out.push(makeSpiralProjectile(pattern, warnStart + k * stagger, warn, r0, vr, base + (k * TAU) / arms, spin));
+  }
+  return out;
+}
+
+/** Faisceaux rotatifs : un rayon (ou deux, opposés) qui tourne pendant quelques secondes, bien plus lentement que le vaisseau. */
+function rotatingBeams(ctx: PatternContext, pattern: string, warnStart: number, maxBeams = 2): Hazard[] {
+  const { rng, p } = ctx;
+  const ws = warnStart;
+  const warn = Math.max(CAPS_LASER_WARN, ROT_BEAM.warn * Math.min(1.2, (p.laserWarn / 1.15) ** 0.5));
+  const rate = (rng.range(ROT_BEAM.rate.min, ROT_BEAM.rate.max) / paceBeam(ctx)) * rng.sign();
+  const dur = rng.range(ROT_BEAM.duration.min, ROT_BEAM.duration.max);
+  const span = Math.abs(rate) * dur;
+  const start = predict(ctx, ws + warn) + rng.sign() * rng.range(1.3, 2.4);
+  const n = maxBeams >= 2 && rng.next() < ROT_BEAM.twinShare ? 2 : 1;
+  const out: Hazard[] = [];
+  for (let i = 0; i < n; i++) {
+    const b = makeLaser(pattern, ws, warn, start + (i * Math.PI), rate, span, ROT_BEAM.half);
+    b.rotating = true;
+    b.coverage = ROT_BEAM.coverage;
+    out.push(b);
+  }
+  return out;
+}
+
+/**
+ * Faisceaux alternés : 2 directions annoncées d'emblée, activées l'une après l'autre sur les battements de la musique (grille de rythme :
+ * mêmes instants pour tous, son coupé ou non). Chaque étape est un secteur très fin actif pendant un battement.
+ */
+function alternatingBeams(ctx: PatternContext, pattern: string, warnStart: number): Hazard[] {
+  const { rng, p } = ctx;
+  const ws = warnStart;
+  const b = beatPeriodAt(ws) * ALT_BEAMS.beatsPerStep;
+  const first = nextBeat(ws + Math.max(ALT_BEAMS.warn, p.sectorWarn));
+  const steps = rng.int(ALT_BEAMS.steps.min, ALT_BEAMS.steps.max);
+  const sep = rng.range(ALT_BEAMS.spread.min, ALT_BEAMS.spread.max) * rng.sign();
+  const c0 = predict(ctx, first) + rng.range(-0.8, 0.8);
+  const dirs = [c0, c0 + sep];
+  const out: Hazard[] = [];
+  for (let i = 0; i < steps; i++) {
+    const at = first + i * b;
+    out.push(makeSector(pattern, ws, at - ws, b * 0.92, dirs[i % 2], ALT_BEAMS.half));
+  }
+  return out;
+}
 
 export const PATTERN_IDS = Object.keys(PATTERNS) as PatternId[];
 
@@ -315,6 +530,12 @@ export const FAMILY_INTRO: Record<Family, string> = {
   fragment: 'Astéroïde fragmenté : après avoir traversé l’orbite il se divise ; les trajectoires des deux fragments sont annoncées.',
   convoy: 'Convoi : plusieurs astéroïdes suivent la même trajectoire, l’un après l’autre. Anticipez les suivants.',
   laser: 'Laser balayeur : un rayon pivote sur la zone annoncée. Rejoignez la zone de refuge, en dehors de l’arc.',
+  rhythm: 'Tirs en rythme : les passages sur l’orbite tombent sur les battements de la musique.',
+  bigarc: 'Grand arc : le projectile décrit une courbe ; la trajectoire entière est tracée.',
+  spiral: 'Spirale : un ou plusieurs projectiles tournent en entrant (ou en sortant) ; suivez le tracé.',
+  rotbeam: 'Faisceau rotatif : un rayon tourne lentement, bien moins vite que votre vaisseau. Gardez vos distances.',
+  sweepbeam: 'Faisceau balayeur : un rayon balaie une large zone annoncée ; la zone de refuge est de l’autre côté.',
+  altbeams: 'Faisceaux alternés : les directions annoncées s’allument l’une après l’autre, sur le rythme.',
 };
 
 export type PatternWeights = Partial<Record<PatternId, number>>;

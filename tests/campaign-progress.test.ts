@@ -161,7 +161,7 @@ describe('sauvegarde v6', () => {
     expect(status).toBe('migrated');
     expect(data.version).toBe(SAVE_VERSION);
     expect(data.wallet).toEqual({ shards: 321, medals: 0, prisms: 4 });
-    expect(data.survival.bestTime).toBe(123.4);
+    expect(data.archive['3'].survival.bestTime).toBe(123.4); // records de la v3 archivés (équilibrage 4)
     expect(data.skin).toBe('aurore');
     expect(data.owned).toEqual(['aurore']);
     expect(data.rewarded).toEqual(['first_cycle']);

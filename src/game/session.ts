@@ -1,4 +1,5 @@
 import { SIM, UI } from '../config/balance';
+import { PHASES } from '../config/phases';
 import { CampaignSimulation, NO_UPGRADES, type CampaignEvent } from '../campaign/simulation';
 import { createSimulation, type RunConfig } from '../modes/run';
 import type { RunSummary } from '../progression/progress';
@@ -21,6 +22,8 @@ export interface SessionHooks {
   onFirstDeath?(summary: RunSummary, session: GameSession): void;
   /** Une reprise est-elle proposable après cette mort ? (absent ou faux : la partie se termine directement) */
   canOffer?(session: GameSession): boolean;
+  /** Traversée de la faille (Survie, 300 s de survie active) : `start` (tout est suspendu) puis `end` (la phase 2 commence au pas suivant). */
+  onTransit?(stage: 'start' | 'end', session: GameSession): void;
   /** Phase « offer » atteinte : l'application affiche l'écran de reprise. */
   onOffer?(life: number, session: GameSession): void;
 }
@@ -42,6 +45,10 @@ export class GameSession {
   private endTimer = 0;
   private ended = false;
   private firstDeathDone = false;
+  /** Secondes de traversée restantes (0 = pas de traversée en cours). Pendant la traversée, la simulation n'avance PAS. */
+  transitLeft = 0;
+  /** La traversée a déjà eu lieu pendant cette partie (une seule fois, reprises comprises). */
+  private transitDone = false;
 
   constructor(readonly config: RunConfig, private readonly hooks: SessionHooks = {}) {
     if (config.mode === 'campaign') {
@@ -59,8 +66,25 @@ export class GameSession {
     const dt = Math.max(0, Math.min(realDt, SIM.maxFrameTime));
     switch (this.phase) {
       case 'running': {
+        // Traversée de la faille : le temps de jeu est gelé (chronomètre, score, dangers, collisions, bonus, commandes) ; seul le décor avance
+        if (this.transitLeft > 0) {
+          this.acc = 0;
+          this.transitLeft -= dt;
+          if (this.transitLeft <= 0) {
+            this.transitLeft = 0;
+            this.hooks.onTransit?.('end', this);
+          }
+          break;
+        }
         this.acc += dt;
         while (this.acc >= SIM.dt && this.sim.state === 'running') {
+          if (this.shouldTransit()) {
+            this.transitDone = true;
+            this.transitLeft = PHASES.transit;
+            this.acc = 0;
+            this.hooks.onTransit?.('start', this);
+            break;
+          }
           this.hooks.onBeforeStep?.(this);
           this.sim.step();
           this.acc -= SIM.dt;
@@ -99,9 +123,14 @@ export class GameSession {
     }
   }
 
-  /** Action de jeu (clic, toucher, Espace) : une inversion, uniquement en jeu. */
+  /** La traversée commence-t-elle maintenant ? (Survie à phases, exactement à 300 s de survie active, une seule fois) */
+  private shouldTransit(): boolean {
+    return this.config.mode === 'survival' && !this.transitDone && this.sim.director.phased && this.sim.phase === 1 && this.sim.stepIndex >= PHASES.phase2Step;
+  }
+
+  /** Action de jeu (clic, toucher, Espace) : une inversion, uniquement en jeu (jamais pendant la traversée). */
   action(): boolean {
-    if (this.phase !== 'running') return false;
+    if (this.phase !== 'running' || this.transitLeft > 0) return false;
     this.sim.flip();
     return true;
   }
@@ -113,7 +142,7 @@ export class GameSession {
 
   /** Activation d'un pouvoir (Boost, Gel, Bouclier) : jamais une inversion. Appliquée au début du prochain pas, seulement en jeu. */
   power(kind: PowerKind): boolean {
-    if (this.phase !== 'running') return false;
+    if (this.phase !== 'running' || this.transitLeft > 0) return false;
     this.sim.power(kind);
     return true;
   }
@@ -178,6 +207,7 @@ export class GameSession {
       events: f?.events ?? s.director.eventCount,
       // Survie : le mode choisi au départ fait foi (sans choix explicite : déduit des pouvoirs utilisés)
       category: this.config.mode === 'survival' ? (this.config.bonus !== undefined ? (this.config.bonus ? 'bonus' : 'plain') : used.boost + used.gel + used.shield > 0 ? 'bonus' : 'plain') : undefined,
+      phase: this.config.mode === 'survival' && s.director.phased ? ((f?.steps ?? s.stepIndex) >= PHASES.phase2Step ? 2 : 1) : undefined,
       free: this.config.mode === 'survival' && s.life > 1 ? { time: s.time, score: s.scoring.score, lives: s.life } : undefined,
       missionId: this.config.mission?.id,
       report: this.campaign?.report(),

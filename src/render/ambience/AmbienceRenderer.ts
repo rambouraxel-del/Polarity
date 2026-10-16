@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { AMBIENCE } from '../../config/ambience';
 import type { AmbienceState } from '../../ambience/director';
+import { Core } from './Core';
 import { Effects } from './Effects';
 import { Particles } from './Particles';
 import { Rift, riftRotation } from './Rift';
@@ -21,6 +22,7 @@ export class AmbienceRenderer {
   private readonly particles: Particles;
   private readonly effects: Effects;
   private readonly veil: Phaser.GameObjects.Image;
+  private readonly core: Core;
   private visible = false;
   private readonly view: AmbienceView = { cx: 0, cy: 0, scale: 1, dpr: 1, width: 1, height: 1, halfDiag: 1 };
 
@@ -31,6 +33,8 @@ export class AmbienceRenderer {
     this.particles = new Particles(scene, 0.3, 0.35, debrisTextures);
     this.effects = new Effects(scene, 0.4, 0.7, gridColor);
     this.veil = scene.add.image(0, 0, AMB_TEX.veil).setDepth(0.6).setVisible(false);
+    // Noyau central et fissures : au-dessus du voile (visibles au centre), sous l'orbite, les menaces et le vaisseau
+    this.core = new Core(scene, 0.65);
   }
 
   layout(cx: number, cy: number, scale: number, width: number, height: number, dpr: number): void {
@@ -57,12 +61,14 @@ export class AmbienceRenderer {
     this.particles.setVisible(v);
     this.effects.setVisible(v);
     this.veil.setVisible(v);
+    this.core.setVisible(v);
     if (!v) this.effects.clear();
   }
 
   /** Nouvelle partie : plus d'anneau ni d'arc en vol. */
   reset(): void {
     this.effects.clear();
+    this.core.clear();
   }
 
   /** @param dt pas d'animation (0 en pause : tout se fige) */
@@ -73,6 +79,7 @@ export class AmbienceRenderer {
     this.stars.draw(s, v, dt);
     this.particles.draw(s, v, dt);
     this.effects.draw(s, v, dt, riftRotation(s));
+    this.core.draw(s, v, dt);
     // Voile : plus l'ambiance est lumineuse, plus la zone de jeu est protégée (plafonné)
     const d = AMBIENCE.shape.veilRadius * 2 * v.scale;
     this.veil.setPosition(v.cx, v.cy).setDisplaySize(d, d);

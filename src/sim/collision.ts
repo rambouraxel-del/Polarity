@@ -1,7 +1,7 @@
 import { ARENA, SECTOR } from '../config/balance';
 import { projectileHitRadius } from '../config/hitbox';
 import { minDistanceLinear, sweepOverlapsArc } from '../core/math';
-import { laserAngle, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from './hazards';
+import { laserAngle, projectileX, projectileY, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from './hazards';
 
 /**
  * Détection continue : le joueur se déplace de l'angle a0 à a0 + delta pendant [t0, t1].
@@ -31,10 +31,11 @@ export function projectileHits(
   const py0 = R * Math.sin(pa0);
   const px1 = R * Math.cos(pa1);
   const py1 = R * Math.sin(pa1);
-  const bx0 = h.x0 + h.vx * (s0 - h.launch);
-  const by0 = h.y0 + h.vy * (s0 - h.launch);
-  const bx1 = h.x0 + h.vx * (s1 - h.launch);
-  const by1 = h.y0 + h.vy * (s1 - h.launch);
+  // Ligne droite ou trajectoire courbe (phase 2) : sur un pas court, la corde entre deux positions est exacte à moins d'un dixième d'unité
+  const bx0 = projectileX(h, s0);
+  const by0 = projectileY(h, s0);
+  const bx1 = projectileX(h, s1);
+  const by1 = projectileY(h, s1);
   const dist = minDistanceLinear(px0, py0, px1, py1, bx0, by0, bx1, by1);
   return dist < playerRadius + projectileHitRadius() * (h.scale ?? 1) + extraMargin;
 }

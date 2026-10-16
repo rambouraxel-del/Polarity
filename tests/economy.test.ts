@@ -322,7 +322,7 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     expect([...s.rewarded].sort()).toEqual(['first_cycle', 'max_combo', 'survive_60']);
     expect(s.rewardNotice).toEqual({ shards: 75, count: 3 });
     expect(s.levels['1']).toEqual({ completed: true, bestScore: 52000, stars: 3 });
-    expect(s.survival.bestTime).toBe(100);
+    expect(s.archive['3'].survival.bestTime).toBe(100); // records de la v3 archivés (équilibrage 4)
     expect(s.achievements.max_combo).toBe(3);
     // Cosmétiques obtenus avant la mise à jour
     expect([...s.owned].sort()).toEqual(['ambre', 'aurore', 'glace']);

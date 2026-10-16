@@ -89,6 +89,10 @@ export const SKINS: SkinDef[] = [
     colors: { hull: 0xe9e1ff, wings: 0x7a4dff, cockpit: 0xc9a8ff, thruster: { core: 0xf3edff, glow: 0x9b6bff }, orbit: 0x9b6bff, beacon: 0xffd84a, trail: 0xc7a8ff },
   },
   {
+    id: 'faille', name: 'Faille', asset: 'classic',
+    colors: { hull: 0x6f7cff, wings: 0x3a4cff, cockpit: 0xd8e4ff, thruster: { core: 0xe8f0ff, glow: 0x5a8bff }, orbit: 0x6f8bff, beacon: 0xfff2a8, trail: 0x9fb6ff },
+  },
+  {
     id: 'neon', name: 'Néon', asset: 'classic',
     colors: { hull: 0xffffff, wings: 0xff4fd8, cockpit: 0x00e5ff, thruster: { core: 0xeafcff, glow: 0x00e5ff }, orbit: 0x00e5ff, beacon: 0xfff2a8, trail: 0x7df3ff },
   },

@@ -49,9 +49,10 @@ export const balanceOf = (save: Pick<SaveData, 'wallet'>, currency: Currency): n
  * Situation d'un article :
  * - owned : possédé, non équipé ; equipped : possédé et équipé ;
  * - buy : achetable maintenant (fonds dépensables suffisants) ; insufficient : fonds insuffisants ;
- * - soon : article premium alors qu'aucun service de comptes n'est configuré (« Bientôt disponible »).
+ * - soon : article premium alors qu'aucun service de comptes n'est configuré (« Bientôt disponible ») ;
+ * - locked : récompense à obtenir en jouant (jamais achetable).
  */
-export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'soon';
+export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'soon' | 'locked';
 
 export function itemState(save: SaveData, item: CatalogItem): ItemState {
   if (isOwned(save, item.id)) {
@@ -65,6 +66,7 @@ export function itemState(save: SaveData, item: CatalogItem): ItemState {
     const due = effectivePrice(save, item) ?? { currency: a.currency, amount: a.amount };
     return spendable(save, due.currency) >= due.amount ? 'buy' : 'insufficient';
   }
+  if (a.type === 'reward') return 'locked';
   return 'owned';
 }
 
@@ -84,6 +86,7 @@ export function purchase(save: SaveData, id: string): PurchaseResult {
   if (!item) return { ok: false, reason: 'unknown' };
   if (isOwned(save, id)) return { ok: false, reason: 'owned' };
   const a = item.acquire;
+  if (a.type === 'reward') return { ok: false, reason: 'unavailable' };
   if (a.type !== 'price') return { ok: false, reason: 'owned' };
   if (a.currency === 'prisms') return { ok: false, reason: save.economy.managed ? 'premium' : 'unavailable' };
   const due = effectivePrice(save, item)?.amount ?? a.amount;

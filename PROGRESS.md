@@ -1,5 +1,13 @@
 # Suivi d'avancement
 
+## Survie à phases (travail sur `main`, `BALANCE_VERSION` 4)
+- [x] Config centralisée (`config/phases.ts`), difficulté par paliers (phase 1), mise en rythme par grilles (analyses hors ligne), motifs `beatShots` / `altBeams`
+- [x] Traversée de 6 s à 300 s (session gelée), entrée en phase 2 (`Simulation.enterPhase2`), menaces courbes (`ProjectileHazard.path`), faisceaux rotatifs, 9 motifs de phase 2, plafonds et validateur d'évitement
+- [x] Musique : analyse du MP3 joint (`scripts/analyze-phase2.py`), boucle sans trou par fondu enchaîné en phase, second tour de la phase 1, fondu pendant la traversée, reprise en phase 2
+- [x] Ambiance : noyau → faille, fissures, passages calmes, impulsions de caméra, traversée, apparence de la phase 2
+- [x] Récompenses : prime de phase (150 Éclats, idempotente), apparence exclusive « Faille » (`acquire: reward`), archive des records v3 (Survie et « Avec bonus »)
+- [ ] **Mise à jour du service OVH (service d'abord) : en attente d'autorisation**
+
 ## Allègement de l'interface et diagnostic (travail sur `main`)
 - [x] Méthode Git : `scripts/git-backup.sh` (sauvegarde `backup/pre-…`, 3 conservées), règles dans `CLAUDE.md`
 - [x] Diagnostic : nouveau jeu face à l'ancien service (reproduit en local) ; détection « service pas à jour » + messages ; `/api/health` annonce `api: 2` ; tests `tests/service-compat.test.ts`

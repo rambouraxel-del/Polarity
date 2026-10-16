@@ -25,6 +25,9 @@ Intro (une fois) → boucle (aussi longtemps que la partie dure) → outro (à l
 - **Mobile** : le contexte est créé et repris au premier geste du joueur (`Sfx.unlock()`), qui lance aussi le téléchargement et le décodage (intro, boucle, puis outro). Rien n'est chargé avant. Si le décodage n'est pas fini au tout premier lancement, la musique démarre dès qu'il l'est (et seulement si la partie est toujours en cours).
 - **Mémoire** : un seul jeu de buffers décodés, jamais dupliqué ni rechargé (≈ 68 Mo de PCM à 44,1 kHz, dont ≈ 54 Mo pour la boucle ; plus si le contexte tourne à 48 kHz).
 
+## Séquence de cinq minutes et phase 2
+Phase 1 : intro, un tour de boucle, puis un second tour qui **entre dans la boucle à `PHASE1_PLAN.secondPassFrom`** (fondu enchaîné de 0,5 s calé sur un battement, programmé tardivement par `Music.maintain()`) : la montée finale de la boucle (intensité maximale vers 150 s) tombe sur 300 s. Phase 2 : le morceau joint (`polar-rift-phase2.mp3`, jamais réencodé) entre en fondu pendant la traversée et boucle sans trou (fondu enchaîné de 2 s à puissance constante, en phase de battement, entre `loopStart` et `loopEnd` ; le silence final n'est jamais lu) ; fin de partie en phase 2 : fondu sans l'outro de la phase 1. Détails, valeurs analysées et budget mémoire : `docs/PHASES.md`.
+
 ## Mixage, niveaux et saturation
 - Chaîne : voix de la musique → **bus musique** (`MUSIC.gain` 0,5 × mixage joueur²) → **sortie générale** (volume général² × 0,5, sourdine) → destination ;
   effets sonores → **bus effets** (mixage joueur²) → même sortie générale. Un seul contexte, un seul volume général, une seule sourdine.

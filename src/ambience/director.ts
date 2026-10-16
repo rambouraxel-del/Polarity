@@ -1,4 +1,5 @@
 import { AMBIENCE, STAGES, STAGE_PARAMS, type QualitySpec, type QualityTier, type StageParam } from '../config/ambience';
+import { PHASES } from '../config/phases';
 import type { MusicFrame } from './musicSync';
 
 /**
@@ -56,6 +57,17 @@ export interface AmbienceState {
   reduced: boolean;
   tier: QualityTier;
   quality: QualitySpec;
+  /** Phase de la Survie (1 ou 2) et avancement de la traversée (0 hors traversée, 0 → 1 pendant). Décoratif : copie lue, jamais écrite vers la simulation. */
+  phase: 1 | 2;
+  transit: number;
+  /** Noyau central : 0 = petite sphère, 1 = faille ouverte (phase 1, de 4 min 30 à 5 min). */
+  core: number;
+  /** Apparence de la phase 2 (0 = phase 1, 1 = phase 2) : fondue sous le flash de la traversée. */
+  look: number;
+  /** Passage calme de la musique (0 = énergique, 1 = très calme). */
+  calm: number;
+  /** Demandes de l'image : force d'une fissure (0 = aucune). */
+  spawnFissure: number;
   /** Demandes de l'image : force d'un nouvel anneau (0 = aucun), d'une onde (passage fort), nombre d'arcs. */
   spawnRing: number;
   spawnWave: number;
@@ -80,6 +92,12 @@ export class AmbienceDirector {
       reduced: false,
       tier: 'high',
       quality: AMBIENCE.quality.tiers.high,
+      phase: 1,
+      transit: 0,
+      core: 0,
+      look: 0,
+      calm: 0,
+      spawnFissure: 0,
       spawnRing: 0,
       spawnWave: 0,
       spawnArcs: 0,
@@ -92,8 +110,18 @@ export class AmbienceDirector {
     s.stage = 0;
     s.beat = s.bass = s.intensity = s.build = s.drop = 0;
     s.time = 0;
-    s.spawnRing = s.spawnWave = s.spawnArcs = 0;
+    s.spawnRing = s.spawnWave = s.spawnArcs = s.spawnFissure = 0;
+    s.phase = 1;
+    s.transit = 0;
+    s.core = 0;
+    s.look = 0;
+    s.calm = 0;
+    this.scriptIdx = 0;
+    this.lastSurvival = 0;
   }
+
+  private scriptIdx = 0;
+  private lastSurvival = 0;
 
   /**
    * @param survival temps de survie actif (s) — la pause l'arrête
@@ -101,15 +129,30 @@ export class AmbienceDirector {
    * @param music image musicale courante
    * @param intensity réglage du joueur (0–1) : 1 = ambiance complète ; 0 = ciel étoilé seul (ni faille, ni nébuleuses, ni réaction musicale)
    */
-  update(survival: number, dt: number, music: MusicFrame, reduced: boolean, intensity = 1): AmbienceState {
+  update(survival: number, dt: number, music: MusicFrame, reduced: boolean, intensity = 1, ph: { phase: 1 | 2; transit: number; phased?: boolean } = { phase: 1, transit: 0 }): AmbienceState {
     const s = this.state;
     s.reduced = reduced;
-    s.spawnRing = s.spawnWave = s.spawnArcs = 0;
+    s.spawnRing = s.spawnWave = s.spawnArcs = s.spawnFissure = 0;
     s.time += dt;
+    s.phase = ph.phase;
+    s.transit = ph.transit;
+    // Noyau : petite sphère, puis faille de 4 min 30 à 5 min ; en phase 2 il reste un foyer de fissures. Apparence de la phase 2 : fondue sous le flash.
+    s.core = ph.phase === 2 ? 0.35 : ph.phased === false ? 0 : smoothstep((survival - PHASES.coreGrowFrom) / (PHASES.phase2At - PHASES.coreGrowFrom));
+    const look = ph.phase === 2 ? 1 : ph.transit > 0 ? smoothstep((ph.transit - AMBIENCE.phase2.flash.from) / (AMBIENCE.phase2.flash.peak - AMBIENCE.phase2.flash.from)) : 0;
+    s.look = look;
     s.stage = stageAt(survival);
     for (const k of PARAM_KEYS) s.p[k] = paramAt(k, s.stage);
     const user = clamp01(intensity);
     if (user < 1) for (const k of USER_SCALED) s.p[k] *= user;
+
+    // Phase 2 : ciel assombri (la rupture visuelle vient de la faille, des cassures et de l'orbite électrique)
+    if (s.look > 0) {
+      const dim = AMBIENCE.phase2.dimSky * s.look;
+      s.p.stars *= 1 - dim;
+      s.p.nebula *= 1 - 1.1 * dim;
+      s.p.riftGlow *= 1 - 0.9 * dim;
+      s.p.debris *= 1 - dim;
+    }
 
     // Apogée : variations lentes pour que l'ambiance ne se fige jamais
     const apex = clamp01(s.stage - (LAST - 1));
@@ -125,6 +168,25 @@ export class AmbienceDirector {
       s.p.heat = clamp01(s.p.heat * (2 - v));
     }
 
+    // Passages calmes de la musique : l'ambiance se calme aussi (jamais sans musique : elle ne réagit alors à rien)
+    const cm = AMBIENCE.calm;
+    s.calm = music.active ? 1 - smoothstep((s.intensity - cm.low) / (cm.high - cm.low)) : 0;
+    // Moments forts préparés (instants de survie active) : ondes et fissures, en plus des réactions issues de l'analyse
+    if (dt > 0 && ph.transit === 0) {
+      const prev = this.lastSurvival;
+      this.lastSurvival = survival;
+      const sc = AMBIENCE.script;
+      if (survival < prev) this.scriptIdx = 0;
+      while (this.scriptIdx < sc.length && sc[this.scriptIdx].at <= survival) {
+        const ev = sc[this.scriptIdx++];
+        // Un grand saut de temps (aperçu, reprise) n'enchaîne pas les événements manqués
+        if (survival - ev.at < 2) {
+          s.spawnWave = Math.max(s.spawnWave, ev.wave);
+          s.spawnFissure = Math.max(s.spawnFissure, ev.fissure);
+          s.drop = Math.max(s.drop, ev.wave * 0.8);
+        }
+      }
+    }
     const reaction = reduced ? AMBIENCE.reduced.reaction : 1;
     if (reduced && !AMBIENCE.reduced.gridWarp) s.p.gridWarp = 0;
     if (dt > 0) this.react(dt, music, reduced, reaction); // pause : tout reste figé
@@ -148,9 +210,12 @@ export class AmbienceDirector {
 
     // Battements significatifs : impulsion qui décroît vite
     s.beat *= Math.exp(-dt / cfg.beatDecay);
+    // Passage calme : impulsions réduites, anneaux et fissures rares
+    const quiet = 1 - AMBIENCE.calm.reaction * s.calm;
     if (music.beat >= cfg.beatThreshold) {
-      s.beat = Math.max(s.beat, Math.pow(Math.min(1, music.beat), cfg.beatCurve) * s.p.beatGain * reaction);
-      if (music.beat >= cfg.strongBeat && this.rand() < s.p.ringChance * (1 + s.build)) s.spawnRing = music.beat * s.p.beatGain * reaction;
+      s.beat = Math.max(s.beat, Math.pow(Math.min(1, music.beat), cfg.beatCurve) * s.p.beatGain * reaction * quiet);
+      if (music.beat >= cfg.strongBeat && this.rand() < s.p.ringChance * (1 + s.build) * quiet) s.spawnRing = music.beat * s.p.beatGain * reaction;
+      if (music.beat >= cfg.strongBeat && this.rand() < (s.p.fissure + 0.25 * s.look) * quiet * (1 - s.calm)) s.spawnFissure = Math.max(s.spawnFissure, music.beat);
     }
 
     // Passage fort : impulsion longue, onde, arcs
@@ -163,7 +228,7 @@ export class AmbienceDirector {
 
     // Arcs occasionnels : plus fréquents avec l'intensité, les montées et les passages forts
     if (!reduced || AMBIENCE.reduced.arcs) {
-      const rate = s.p.arcRate * (1 + s.intensity * 0.6 + s.build + s.drop * 2);
+      const rate = s.p.arcRate * (1 + s.intensity * 0.6 + s.build + s.drop * 2) * (1 - 0.85 * s.calm) * (1 + 0.8 * s.look);
       if (this.rand() < rate * dt) s.spawnArcs += 1;
     }
   }

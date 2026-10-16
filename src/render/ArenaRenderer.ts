@@ -8,7 +8,9 @@ import type { Simulation } from '../sim/simulation';
 import type { GameSession } from '../game/session';
 import { SHARDS } from '../config/economy';
 import { trailById } from '../config/trails';
-import { laserAngle, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
+import { laserAngle, pathX, pathY, projectileX, projectileY, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
+import { PHASES } from '../config/phases';
+import { AMBIENCE } from '../config/ambience';
 import type { Skin } from '../progression/skins';
 import { shipTextureFor } from './shipTextures';
 import { hexNum, THEME } from '../ui/theme';
@@ -33,6 +35,8 @@ export const COLORS = {
 /** Rotation lente (rad) d'un objet de mission. */
 const clockSpin = (t: number, speed: number): number => t * speed * TAU * 0.5;
 
+const AMBIENCE_FLASH = AMBIENCE.phase2.flash;
+const AMBIENCE_FLASH_FROM = AMBIENCE_FLASH.peak;
 const R = ARENA.orbitRadius;
 const TRAIL_LEN = 10;
 const MAX_PARTICLES = FX.maxParticles;
@@ -264,6 +268,11 @@ export class ArenaRenderer {
 
   private ox = 0;
   private oy = 0;
+  /** Horloge de rendu (s) de l'image courante (effets décoratifs). */
+  private clockNow = 0;
+  /** Voile blanc de la traversée (DOM : reste plein écran malgré le zoom de la caméra). */
+  private flashEl: HTMLDivElement | null = null;
+  private camKey = '';
 
   private sx(x: number): number {
     return this.cx + this.ox + x * this.scale;
@@ -277,6 +286,7 @@ export class ArenaRenderer {
 
   /** Menus : le décor spatial est celui du DOM (ui/space.ts) ; l'arène ne dessine rien. */
   private idle(): void {
+    this.applyCamera(0);
     this.g.clear();
     this.trailG.clear();
     this.shipG.clear();
@@ -326,6 +336,9 @@ export class ArenaRenderer {
       this.gridG.setVisible(true);
     }
 
+    this.clockNow = clock;
+    const transit = session.transitLeft > 0 ? 1 - session.transitLeft / PHASES.transit : 0;
+    this.applyCamera(transit);
     const sim = session.sim;
     const extra = session.phase === 'running' ? session.acc : 0;
     const dir: 1 | -1 = sim.dir;
@@ -342,7 +355,9 @@ export class ArenaRenderer {
     this.drawMissionObjects(camp, t);
 
     let asteroids = 0;
-    if (sim) {
+    // Traversée : à partir du flash, les menaces de la phase 1 ont été aspirées (la simulation les efface au pas suivant la traversée)
+    const swallowed = transit > AMBIENCE_FLASH_FROM;
+    if (sim && !swallowed) {
       for (const h of sim.hazards) {
         if (h.kind === 'sector') this.drawSector(h, t, clock);
         else if (h.kind === 'laser') this.drawLaser(h, t, clock);
@@ -383,6 +398,63 @@ export class ArenaRenderer {
     if (this.debug) this.drawDebug(sim, angle);
   }
 
+  /**
+   * Caméra (décorative : le gameplay ne la lit jamais, aucune collision ne dépend de l'écran) : légères impulsions sur les battements et les moments forts,
+   * et traversée de la faille — l'arène entière est aspirée (zoom arrière et rotation), voile blanc au pic, puis arrivée en phase 2 (zoom avant qui se pose).
+   */
+  private applyCamera(transit: number): void {
+    const cam = this.scene.cameras.main;
+    const key = `${this.cx}|${this.cy}`;
+    if (key !== this.camKey) {
+      this.camKey = key;
+      cam.setBackgroundColor(COLORS.background);
+      cam.setOrigin(cam.width > 0 ? this.cx / cam.width : 0.5, cam.height > 0 ? this.cy / cam.height : 0.5);
+    }
+    const a = this.ambience;
+    let zoom = 1;
+    let rot = 0;
+    let flash = 0;
+    if (transit > 0) {
+      const F = AMBIENCE_FLASH;
+      if (!this.reducedEffects) {
+        if (transit < F.peak) {
+          const e = Math.pow(transit / F.peak, 2.2);
+          zoom = 1 - 0.95 * e;
+          rot = 2.6 * e;
+        } else {
+          const v = Math.min(1, (transit - F.peak) / (1 - F.peak));
+          const e = 1 - Math.pow(1 - v, 3);
+          zoom = 2.6 - 1.6 * e;
+          rot = -1.4 * (1 - e);
+        }
+      }
+      const rise = Math.min(1, Math.max(0, (transit - F.from) / (F.peak - F.from)));
+      const fall = Math.min(1, Math.max(0, (transit - F.peak) / (F.to - F.peak)));
+      flash = transit < F.peak ? rise * rise * (3 - 2 * rise) : 1 - fall * fall * (3 - 2 * fall);
+    } else if (a && !this.reducedEffects) {
+      zoom = 1 + (a.phase === 2 ? 0.011 : 0.006) * a.beat + 0.014 * a.drop;
+      zoom = Math.min(1.03, zoom);
+    }
+    cam.setZoom(Math.max(0.04, zoom));
+    cam.setRotation(rot);
+    this.setFlash(flash);
+  }
+
+  /** Voile blanc plein écran de la traversée (élément DOM créé à la demande, sans interception des touchers). */
+  private setFlash(alpha: number): void {
+    if (alpha <= 0.001 && !this.flashEl) return;
+    if (!this.flashEl) {
+      const parent = this.scene.game.canvas.parentElement;
+      if (!parent) return;
+      const el = document.createElement('div');
+      el.setAttribute('aria-hidden', 'true');
+      Object.assign(el.style, { position: 'absolute', inset: '0', background: '#ffffff', opacity: '0', pointerEvents: 'none', zIndex: '2' });
+      parent.appendChild(el);
+      this.flashEl = el;
+    }
+    this.flashEl.style.opacity = String(Math.max(0, Math.min(1, alpha)));
+  }
+
   private drawOrbit(skin: Skin): void {
     const g = this.g;
     const x = this.sx(0);
@@ -395,6 +467,26 @@ export class ArenaRenderer {
     this.orbitGlow.setVisible(true).setPosition(x, y).setDisplaySize(glowPx, glowPx).setTint(c);
     g.lineStyle(Math.max(2 * this.dpr, 3 * s), c, 1);
     g.strokeCircle(x, y, r);
+    // Phase 2 : l'orbite reste un cercle parfait mais devient électrique (arcs fins qui crépitent le long du rail, plus vifs sur les battements)
+    const look = this.ambience?.look ?? 0;
+    if (look > 0.02 && !this.reducedEffects) {
+      const beat = this.ambience?.beat ?? 0;
+      const N = 48;
+      const t = Math.floor(this.clockNow * 14);
+      for (let i = 0; i < N; i++) {
+        const h = hash01(i + t * 61, 7);
+        if (h > 0.34 + 0.4 * beat) continue;
+        const a0 = (i / N) * TAU;
+        const a1 = ((i + 1) / N) * TAU;
+        g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), 0xd8e4ff, look * (0.35 + 0.45 * h + 0.3 * beat));
+        const off = (hash01(i + t * 17, 3) - 0.5) * 7 * s;
+        g.beginPath();
+        g.moveTo(x + Math.cos(a0) * (r + off), y + Math.sin(a0) * (r + off));
+        g.lineTo(x + Math.cos((a0 + a1) / 2) * (r - off * 0.6), y + Math.sin((a0 + a1) / 2) * (r - off * 0.6));
+        g.lineTo(x + Math.cos(a1) * (r + off * 0.3), y + Math.sin(a1) * (r + off * 0.3));
+        g.strokePath();
+      }
+    }
   }
 
   /**
@@ -714,8 +806,66 @@ export class ArenaRenderer {
     this.g.lineBetween(x - size, y + size, x + size, y - size);
   }
 
+  /**
+   * Annonce d'un projectile à trajectoire COURBE (grand arc, spirale) : la courbe entière est tracée en pointillés (échantillonnée), jauge qui avance du
+   * point d'entrée vers l'orbite, chevrons de sens, repères aux passages sur l'orbite. Mêmes codes visuels que l'annonce d'une trajectoire droite.
+   */
+  private drawCurveWarning(h: ProjectileHazard, t: number, clock: number): void {
+    const path = h.path;
+    if (!path) return;
+    const g = this.g;
+    const s = this.scale;
+    const color = COLORS.projectile;
+    const dur = h.end - h.launch;
+    const N = 56;
+    const beat = this.ambience?.beat ?? 0;
+    const warning = t < h.launch;
+    const pulse = this.reducedEffects ? 0.85 : 0.7 + 0.2 * Math.sin(clock * 12) + 0.1 * beat;
+    g.lineStyle(Math.max((warning ? 2 : 1) * this.dpr, (warning ? 3.5 : 2) * s), color, warning ? pulse : 0.22);
+    let px = this.sx(pathX(path, 0));
+    let py = this.sy(pathY(path, 0));
+    for (let i = 1; i <= N; i++) {
+      const x = this.sx(pathX(path, (dur * i) / N));
+      const y = this.sy(pathY(path, (dur * i) / N));
+      if (i % 2 === 0) g.lineBetween(px, py, x, y);
+      px = x;
+      py = y;
+    }
+    if (!warning) return;
+    // Jauge : un trait plein avance le long de la courbe jusqu'au premier passage sur l'orbite
+    const k = (t - h.warnStart) / Math.max(0.001, h.launch - h.warnStart);
+    const firstS = Math.max(0.001, Math.min(h.crossTime1, h.crossTime2) - h.launch);
+    const upto = Math.min(firstS, firstS * k);
+    g.lineStyle(Math.max(2 * this.dpr, 4 * s), color, 0.9);
+    g.beginPath();
+    g.moveTo(this.sx(pathX(path, 0)), this.sy(pathY(path, 0)));
+    const M = 24;
+    for (let i = 1; i <= M; i++) g.lineTo(this.sx(pathX(path, (upto * i) / M)), this.sy(pathY(path, (upto * i) / M)));
+    g.strokePath();
+    // Chevrons de sens le long de la courbe
+    g.lineStyle(Math.max(2 * this.dpr, 3.5 * s), color, 0.9);
+    for (const f of [0.18, 0.38, 0.58, 0.78]) {
+      const sTime = dur * f;
+      const x = pathX(path, sTime);
+      const y = pathY(path, sTime);
+      let ux = pathX(path, sTime + 0.01) - x;
+      let uy = pathY(path, sTime + 0.01) - y;
+      const n = Math.hypot(ux, uy) || 1;
+      ux /= n;
+      uy /= n;
+      const c = 11;
+      g.lineBetween(this.sx(x - ux * c - uy * c), this.sy(y - uy * c + ux * c), this.sx(x), this.sy(y));
+      g.lineBetween(this.sx(x - ux * c + uy * c), this.sy(y - uy * c - ux * c), this.sx(x), this.sy(y));
+    }
+  }
+
   private drawProjectileWarning(h: ProjectileHazard, t: number, clock: number): void {
     if (t < h.warnStart) return;
+    if (h.path) {
+      this.drawCurveWarning(h, t, clock);
+      this.drawCrossings(h, t);
+      return;
+    }
     const g = this.g;
     const s = this.scale;
     const L = ARENA.spawnRadius * 2;
@@ -770,20 +920,49 @@ export class ArenaRenderer {
       g.strokeCircle(this.sx(sp.x), this.sy(sp.y), 16 * s + c * 0.3);
     }
 
-    // Croix aux points où la trajectoire coupe l'orbite (tant qu'ils ne sont pas passés)
+    this.drawCrossings(h, t);
+  }
+
+  /**
+   * Repères aux points où la trajectoire coupe l'orbite (tant qu'ils ne sont pas passés) : croix + anneau qui se resserre à l'approche
+   * (dernière seconde), pour lire l'instant du passage sans le chercher des yeux.
+   */
+  private drawCrossings(h: ProjectileHazard, t: number): void {
+    const g = this.g;
+    const s = this.scale;
+    const color = COLORS.projectile;
     g.lineStyle(Math.max(2.5 * this.dpr, 4 * s), color, 1);
-    if (t < h.crossTime1 + 0.05) this.cross(this.sx(R * Math.cos(h.cross1)), this.sy(R * Math.sin(h.cross1)), 11 * s);
-    if (t < h.crossTime2 + 0.05) this.cross(this.sx(R * Math.cos(h.cross2)), this.sy(R * Math.sin(h.cross2)), 11 * s);
+    const mark = (ang: number, at: number): void => {
+      if (t >= at + 0.05) return;
+      const x = this.sx(R * Math.cos(ang));
+      const y = this.sy(R * Math.sin(ang));
+      this.cross(x, y, 11 * s);
+      const lead = at - t;
+      if (lead > 0 && lead < 1 && !this.reducedEffects) {
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.2 * s), color, 0.55 * (1 - lead));
+        g.strokeCircle(x, y, (14 + 22 * lead) * s);
+        g.lineStyle(Math.max(2.5 * this.dpr, 4 * s), color, 1);
+      }
+    };
+    mark(h.cross1, h.crossTime1);
+    if (h.crossTime2 !== h.crossTime1) mark(h.cross2, h.crossTime2);
   }
 
   /** Astéroïde : sprite tournant, avec traînée et braises derrière lui (opposées au déplacement). Décoratif. */
   private drawAsteroid(h: ProjectileHazard, t: number, slotIndex: number, emitting: boolean, dt: number): void {
     const slot = this.asteroidSlot(slotIndex);
-    const x = h.x0 + h.vx * (t - h.launch);
-    const y = h.y0 + h.vy * (t - h.launch);
-    const speed = Math.hypot(h.vx, h.vy);
-    const ux = h.vx / speed;
-    const uy = h.vy / speed;
+    const x = projectileX(h, t);
+    const y = projectileY(h, t);
+    // Direction du déplacement : droite constante, ou tangente de la courbe (grand arc, spirale)
+    let ux = h.vx;
+    let uy = h.vy;
+    if (h.path) {
+      ux = projectileX(h, t + 0.01) - x;
+      uy = projectileY(h, t + 0.01) - y;
+    }
+    const speed = Math.hypot(ux, uy) || 1;
+    ux /= speed;
+    uy /= speed;
     const variant = Math.floor(hash01(h.id, 1) * ASTEROID_TEXTURES.length);
     const tex = ASTEROID_TEXTURES[variant];
     if (slot.tex !== tex) {
@@ -925,6 +1104,10 @@ export class ArenaRenderer {
     const cx0 = this.sx(0);
     const cy0 = this.sy(0);
     const tip = (a: number, r: number): [number, number] => [this.sx(r * Math.cos(a)), this.sy(r * Math.sin(a))];
+    if (h.rotating) {
+      this.drawRotatingBeam(h, t, clock, sign, tip);
+      return;
+    }
     if (t < h.activeStart) {
       const k = (t - h.warnStart) / Math.max(0.001, h.activeStart - h.warnStart);
       const pulse = this.reducedEffects ? 0.8 : 0.65 + 0.25 * Math.sin(clock * 11);
@@ -976,6 +1159,59 @@ export class ArenaRenderer {
     this.arcPath(R - 30, lo, hi);
     const [tx2, ty2] = tip(ang, reach);
     // Rayon : halo, corps, cœur blanc (additif) ; largeur = hitbox du rayon
+    f.lineStyle(wHalf * 4.4, color, 0.14);
+    f.lineBetween(cx0, cy0, tx2, ty2);
+    f.lineStyle(wHalf * 2.2, color, 0.38);
+    f.lineBetween(cx0, cy0, tx2, ty2);
+    f.lineStyle(Math.max(1.5 * this.dpr, wHalf * 0.9), 0xffffff, 0.95);
+    f.lineBetween(cx0, cy0, tx2, ty2);
+    f.fillStyle(color, 0.5);
+    f.fillCircle(cx0, cy0, 11 * s);
+    f.fillStyle(0xffffff, 0.9);
+    f.fillCircle(cx0, cy0, 5 * s);
+  }
+
+  /**
+   * Faisceau rotatif (phase 2) : annonce = rayon de départ pointillé + chevrons qui tournent autour de l'orbite dans le sens de la rotation + jauge ;
+   * actif = rayon plein qui tourne (la rotation peut dépasser un tour : pas de secteur balayé à tracer, un anneau pointillé suffit).
+   */
+  private drawRotatingBeam(h: LaserHazard, t: number, clock: number, sign: number, tip: (a: number, r: number) => [number, number]): void {
+    const g = this.g;
+    const s = this.scale;
+    const color = COLORS.sector;
+    const reach = R + 56;
+    const cx0 = this.sx(0);
+    const cy0 = this.sy(0);
+    if (t < h.activeStart) {
+      const k = (t - h.warnStart) / Math.max(0.001, h.activeStart - h.warnStart);
+      const pulse = this.reducedEffects ? 0.8 : 0.65 + 0.25 * Math.sin(clock * 11);
+      g.lineStyle(Math.max(2 * this.dpr, 3.5 * s), color, pulse);
+      const [x1, y1] = tip(h.startAngle, reach);
+      this.dashedLine(cx0, cy0, x1, y1, 12 * s, 10 * s);
+      // Chevrons de sens de rotation, en avant du rayon de départ, sur l'orbite
+      for (let i = 1; i <= 4; i++) {
+        const a = h.startAngle + sign * 0.28 * i;
+        const [px, py] = tip(a, R);
+        const tx = -Math.sin(a) * sign;
+        const ty = Math.cos(a) * sign;
+        const nx = Math.cos(a);
+        const ny = Math.sin(a);
+        const c = 9 * s;
+        g.lineStyle(Math.max(2 * this.dpr, 3.2 * s), color, 0.95 - 0.15 * i);
+        g.lineBetween(px - tx * c + nx * c, py - ty * c + ny * c, px + tx * c * 0.4, py + ty * c * 0.4);
+        g.lineBetween(px - tx * c - nx * c, py - ty * c - ny * c, px + tx * c * 0.4, py + ty * c * 0.4);
+      }
+      g.lineStyle(Math.max(2.5 * this.dpr, 5 * s), color, 0.9);
+      this.arcPath(R + 36, h.startAngle, h.startAngle + sign * 1.4 * k);
+      g.strokeCircle(cx0, cy0, (10 + 4 * k) * s);
+      return;
+    }
+    const ang = laserAngle(h, t);
+    const f = this.trailG;
+    const wHalf = h.half * R * s;
+    g.lineStyle(Math.max(1.5 * this.dpr, 2.2 * s), color, 0.32);
+    this.arcPath(R + 30, ang - sign * 0.9, ang);
+    const [tx2, ty2] = tip(ang, reach);
     f.lineStyle(wHalf * 4.4, color, 0.14);
     f.lineBetween(cx0, cy0, tx2, ty2);
     f.lineStyle(wHalf * 2.2, color, 0.38);

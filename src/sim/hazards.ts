@@ -6,6 +6,15 @@ import { wrapAngle } from '../core/math';
  * Cela rend la simulation déterministe et permet au validateur d'anticiper exactement leur trajectoire.
  */
 
+/**
+ * Trajectoire courbe (phase 2) : position = fonction pure de s = t − launch.
+ * - `arc` : grand arc de cercle (centre (cx, cy), rayon rho, angle de départ a0, vitesse angulaire signée w).
+ * - `spiral` : spirale autour du centre de l'arène (rayon r0 + vr·s, angle a0 + w·s) ; vr < 0 : vers le centre, vr > 0 : vers l'extérieur.
+ */
+export type ProjectilePath =
+  | { type: 'arc'; cx: number; cy: number; rho: number; a0: number; w: number }
+  | { type: 'spiral'; r0: number; vr: number; a0: number; w: number };
+
 export interface ProjectileHazard {
   kind: 'projectile';
   /** Attribué par la simulation (séquentiel, déterministe). */
@@ -37,6 +46,8 @@ export interface ProjectileHazard {
   crossTime1: number;
   crossTime2: number;
   warned: boolean;
+  /** Trajectoire courbe (phase 2) ; absente = ligne droite (x0, y0, vx, vy). */
+  path?: ProjectilePath;
 }
 
 export interface SectorHazard {
@@ -76,6 +87,10 @@ export interface LaserHazard {
   half: number;
   warned: boolean;
   activated: boolean;
+  /** Faisceau rotatif (phase 2) : peut tourner plus d'un tour ; l'annonce montre le rayon et son sens plutôt qu'un secteur. */
+  rotating?: boolean;
+  /** Couverture comptée pour les plafonds (rad) à la place de `span + 2·half` (faisceau rotatif). */
+  coverage?: number;
 }
 
 export type Hazard = ProjectileHazard | SectorHazard | LaserHazard;
@@ -162,13 +177,24 @@ export function makeSector(
   };
 }
 
+/** Position sur une trajectoire courbe à l'instant s = t − launch. */
+export function pathX(p: ProjectilePath, s: number): number {
+  if (p.type === 'arc') return p.cx + p.rho * Math.cos(p.a0 + p.w * s);
+  return (p.r0 + p.vr * s) * Math.cos(p.a0 + p.w * s);
+}
+
+export function pathY(p: ProjectilePath, s: number): number {
+  if (p.type === 'arc') return p.cy + p.rho * Math.sin(p.a0 + p.w * s);
+  return (p.r0 + p.vr * s) * Math.sin(p.a0 + p.w * s);
+}
+
 /** Position d'un projectile à l'instant t (non borné : extrapole avant le départ). */
 export function projectileX(h: ProjectileHazard, t: number): number {
-  return h.x0 + h.vx * (t - h.launch);
+  return h.path ? pathX(h.path, t - h.launch) : h.x0 + h.vx * (t - h.launch);
 }
 
 export function projectileY(h: ProjectileHazard, t: number): number {
-  return h.y0 + h.vy * (t - h.launch);
+  return h.path ? pathY(h.path, t - h.launch) : h.y0 + h.vy * (t - h.launch);
 }
 
 /** Instant à partir duquel la menace peut tuer. */
@@ -195,7 +221,7 @@ export function laserAngle(h: LaserHazard, t: number): number {
 /** Part de la circonférence mobilisée par un secteur ou un laser (radians) : sert aux plafonds de couverture. */
 export function arcCoverage(h: Hazard): number {
   if (h.kind === 'sector') return 2 * h.half;
-  if (h.kind === 'laser') return h.span + 2 * h.half;
+  if (h.kind === 'laser') return h.coverage ?? h.span + 2 * h.half;
   return 0;
 }
 
@@ -318,4 +344,131 @@ export function makeLaser(
     warned: false,
     activated: false,
   };
+}
+
+/**
+ * Projectile sur une trajectoire courbe (phase 2). Les passages sur l'orbite et la fin de menace sont calculés par échantillonnage de la
+ * trajectoire (pas de 1/240 s) à la création : la fonction reste pure et déterministe.
+ * @param duration durée de vol (s) ; le projectile disparaît à `launch + duration`.
+ */
+export function makeCurveProjectile(
+  pattern: string,
+  warnStart: number,
+  warn: number,
+  path: ProjectilePath,
+  duration: number,
+  scale = 1,
+): ProjectileHazard {
+  const launch = warnStart + warn;
+  const STEP = 1 / 240;
+  const n = Math.max(2, Math.ceil(duration / STEP));
+  let s1 = -1;
+  let s2 = -1;
+  let lastNear = -1;
+  let prevSide = 0;
+  let nearest = 0;
+  let nearestD = Infinity;
+  for (let i = 0; i <= n; i++) {
+    const s = Math.min(duration, i * STEP);
+    const x = pathX(path, s);
+    const y = pathY(path, s);
+    const r = Math.hypot(x, y);
+    const side = r >= R_ORBIT ? 1 : -1;
+    if (i > 0 && side !== prevSide) {
+      if (s1 < 0) s1 = s;
+      s2 = s;
+    }
+    prevSide = side;
+    if (Math.abs(r - R_ORBIT) <= NEAR) lastNear = s;
+    if (Math.abs(r - R_ORBIT) < nearestD) {
+      nearestD = Math.abs(r - R_ORBIT);
+      nearest = s;
+    }
+  }
+  if (s1 < 0) {
+    s1 = nearest;
+    s2 = nearest;
+  }
+  const ang = (s: number): number => wrapAngle(Math.atan2(pathY(path, s), pathX(path, s)));
+  const e = 1 / 240;
+  const x0 = pathX(path, 0);
+  const y0 = pathY(path, 0);
+  return {
+    kind: 'projectile',
+    id: 0,
+    pattern,
+    warnStart,
+    launch,
+    end: launch + duration,
+    threatEnd: launch + Math.max(0, lastNear),
+    x0,
+    y0,
+    vx: (pathX(path, e) - x0) / e,
+    vy: (pathY(path, e) - y0) / e,
+    cross1: ang(s1),
+    cross2: ang(s2),
+    crossTime1: launch + s1,
+    crossTime2: launch + s2,
+    warned: false,
+    scale,
+    path,
+  };
+}
+
+/** Cercle passant par trois points (centre et rayon) ; null si les points sont presque alignés. */
+export function circleThrough(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): { cx: number; cy: number; rho: number } | null {
+  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+  if (Math.abs(d) < 1e-6) return null;
+  const a2 = ax * ax + ay * ay;
+  const b2 = bx * bx + by * by;
+  const c2 = cx * cx + cy * cy;
+  const ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+  const uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+  return { cx: ux, cy: uy, rho: Math.hypot(ax - ux, ay - uy) };
+}
+
+/**
+ * Grand arc : projectile qui part du point P0 (hors champ), passe par M (près de l'orbite) et sort en P2 (hors champ), à la vitesse
+ * de parcours `speed` (unités/s le long de la courbe). Repli sur une ligne droite si les trois points sont presque alignés.
+ */
+export function makeArcProjectile(
+  pattern: string,
+  warnStart: number,
+  warn: number,
+  speed: number,
+  p0: readonly [number, number],
+  m: readonly [number, number],
+  p2: readonly [number, number],
+): ProjectileHazard | null {
+  const c = circleThrough(p0[0], p0[1], m[0], m[1], p2[0], p2[1]);
+  if (!c || c.rho > 4000) return null;
+  const a0 = Math.atan2(p0[1] - c.cy, p0[0] - c.cx);
+  const aM = Math.atan2(m[1] - c.cy, m[0] - c.cx);
+  const a2 = Math.atan2(p2[1] - c.cy, p2[0] - c.cx);
+  const d0m = wrapAngle(aM - a0);
+  const dm2 = wrapAngle(a2 - aM);
+  // Les trois points doivent se parcourir dans le même sens
+  if (d0m * dm2 <= 0) return null;
+  const dir = d0m > 0 ? 1 : -1;
+  const sweep = Math.abs(d0m) + Math.abs(dm2);
+  const w = (dir * speed) / c.rho;
+  const duration = (sweep * c.rho) / speed;
+  return makeCurveProjectile(pattern, warnStart, warn, { type: 'arc', cx: c.cx, cy: c.cy, rho: c.rho, a0, w }, duration);
+}
+
+/** Spirale (phase 2) : part du rayon `r0` à l'angle `a0`, vitesse radiale `vr`, vitesse angulaire `w` ; s'arrête à `rEnd` (ou à l'arène). */
+export function makeSpiralProjectile(
+  pattern: string,
+  warnStart: number,
+  warn: number,
+  r0: number,
+  vr: number,
+  a0: number,
+  w: number,
+  rEnd?: number,
+): ProjectileHazard {
+  const inward = vr < 0;
+  const stop = rEnd ?? (inward ? 70 : ARENA.spawnRadius);
+  const duration = Math.abs(stop - r0) / Math.abs(vr);
+  return makeCurveProjectile(pattern, warnStart, warn, { type: 'spiral', r0, vr, a0, w }, duration);
 }

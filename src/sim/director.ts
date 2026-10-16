@@ -1,9 +1,12 @@
 import { CAPS, RESPITE, SAFETY, SECTOR } from '../config/balance';
+import { PHASE2_CAPS } from '../config/hazards';
+import { PHASES, nextAccent, nextBeat } from '../config/phases';
+import { SURVIVAL } from '../config/survival';
 import { EVENTS, eventDef, type EventDef, type EventKind } from '../config/events';
 import { TAU } from '../core/math';
 import { Rng } from '../core/rng';
 import { paramsFor, type DifficultyParams } from './difficulty';
-import { arcCoverage, type Hazard } from './hazards';
+import { arcCoverage, firstOrbitContact, shiftHazard, type Hazard } from './hazards';
 import { PATTERNS, PATTERN_IDS, type PatternId, type PatternWeights } from './patterns';
 import { hasEscapePath } from './safety';
 
@@ -30,6 +33,13 @@ export interface DifficultyProfile {
   spawnUntil: number | null;
   /** Répit accordé à chaque cycle complet. */
   respite: boolean;
+  /**
+   * Survie à PHASES (phase 1 → faille → phase 2) : plus de nouvelle vague juste avant la traversée, remise à zéro du directeur à l'entrée
+   * en phase 2, plafonds de la phase 2. Absent = ancien comportement (niveaux, défi quotidien).
+   */
+  phased?: boolean;
+  /** Part des vagues dont le premier contact avec l'orbite est calé sur un battement de la grille de rythme (config/phases.ts) ; absent = aucune. */
+  beatChance?(t: number): number;
 }
 
 export interface BreathParams {
@@ -81,6 +91,8 @@ export class Director {
   breathEnd = Infinity;
   eventCount = 0;
   private readonly eventRng: Rng;
+  /** Tirages de la mise en rythme : générateur dédié (indépendant des tirages des vagues). */
+  private readonly rhythmRng: Rng;
   private readonly scratch: Hazard[] = [];
   private readonly weightBuf: number[] = [];
   private readonly idBuf: PatternId[] = [];
@@ -92,6 +104,7 @@ export class Director {
     this.nextBreathWave = b0 ? rng.int(b0.every.min, b0.every.max) : rng.int(6, 9);
     // Calendrier des événements : générateur dédié (indépendant des actions du joueur et des tirages des vagues)
     this.eventRng = new Rng(Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) >>> 0);
+    this.rhythmRng = new Rng(Math.imul(seed ^ 0x7f4a7c15, 0xc2b2ae35) >>> 0);
     if (profile.events) {
       this.eventStart = this.eventRng.range(EVENTS.first.min, EVENTS.first.max);
       this.eventKind = this.pickKind();
@@ -145,6 +158,24 @@ export class Director {
     }
   }
 
+  /** Survie à phases (traversée à 300 s) ? */
+  get phased(): boolean {
+    return this.profile.phased === true;
+  }
+
+  /** Phase 2 : tout ce qui existait a été aspiré ; le calendrier d'événements de la phase 1 s'arrête et la première vague est retardée. */
+  enterPhase2(now: number): void {
+    this.phase = 'normal';
+    this.eventStart = Infinity;
+    this.eventEnd = Infinity;
+    this.breathEnd = Infinity;
+    this.nextWaveAt = now + PHASES.firstWaveDelay;
+    const b = this.profile.breath?.(now);
+    this.nextBreathWave = this.waveCount + (b ? this.rng.int(b.every.min, b.every.max) : 6);
+    this.lastRespiteAt = -Infinity;
+    this.respiteThisWave = 0;
+  }
+
   /** Construit un motif donné à l'instant `now`, sans validation (outil de démonstration et de test). */
   buildPattern(id: PatternId, now: number, world: DirectorWorld): Hazard[] {
     const p = paramsFor(this.profile.difficulty(now), undefined, { warnScale: this.profile.warnScale ?? 1, speed: this.profile.speed(now) });
@@ -156,6 +187,8 @@ export class Director {
     this.advancePhase(now);
     if (this.phase === 'announce' || this.phase === 'breath') return null;
     if (now < this.nextWaveAt) return null;
+    // Juste avant la traversée : le noyau s'ouvre, plus aucune vague
+    if (this.profile.phased && now >= PHASES.phase2At - PHASES.quietBefore && now < PHASES.phase2At) return null;
     const until = this.profile.spawnUntil;
     if (until !== null && now >= until) {
       this.nextWaveAt = Infinity;
@@ -183,6 +216,7 @@ export class Director {
       const id = this.idBuf[this.rng.weighted(this.weightBuf)];
       const def = PATTERNS[id];
       const added = def.build(ctx);
+      if (def.family !== 'rhythm' && def.family !== 'altbeams') this.snapToRhythm(now, added);
       if (!this.fitsCaps(now, world.hazards, added, p)) continue;
       const all = this.scratch;
       all.length = 0;
@@ -204,6 +238,29 @@ export class Director {
     this.deferred++;
     this.nextWaveAt = now + SAFETY.retryDelay;
     return null;
+  }
+
+  /**
+   * Mise en rythme : une part des vagues est décalée (jamais avancée) pour que leur premier contact avec l'orbite tombe sur un moment fort de la
+   * musique (drop) ou, à défaut, sur un battement de la grille. Les instants viennent de config/phases.ts, jamais de l'audio en direct :
+   * identiques chez le joueur et chez le service qui rejoue la partie. Le tirage utilise un générateur dédié.
+   */
+  private snapToRhythm(now: number, added: Hazard[]): void {
+    const chance = this.profile.beatChance?.(now);
+    if (chance === undefined || added.length === 0) return;
+    let contact = Infinity;
+    for (const h of added) contact = Math.min(contact, firstOrbitContact(h));
+    const roll = this.rhythmRng.next();
+    const accent = nextAccent(contact);
+    let target = Infinity;
+    if (accent - contact <= SURVIVAL.beat.accentWindow) target = accent;
+    else if (roll < chance) {
+      const beat = nextBeat(contact);
+      if (beat - contact <= SURVIVAL.beat.maxShift) target = beat;
+    }
+    if (!Number.isFinite(target) || target <= contact) return;
+    const d = target - contact;
+    for (const h of added) shiftHazard(h, d);
   }
 
   private accept(now: number, pattern: PatternId, cost: number, p: DifficultyParams): void {
@@ -234,8 +291,10 @@ export class Director {
     }
     if (count > p.maxHazards) return false;
     for (const h of added) if (h.kind !== 'projectile') { sectors++; coverage += arcCoverage(h); }
-    if (sectors > SECTOR.maxSimultaneous) return false;
-    if (coverage / TAU > SECTOR.maxCoverage) return false;
+    // Phase 2 : davantage de faisceaux simultanés (faisceaux alternés), couverture un peu plus large
+    const late = this.profile.phased === true && now >= PHASES.phase2At;
+    if (sectors > (late ? PHASE2_CAPS.maxSectors : SECTOR.maxSimultaneous)) return false;
+    if (coverage / TAU > (late ? PHASE2_CAPS.maxCoverage : SECTOR.maxCoverage)) return false;
     return true;
   }
 

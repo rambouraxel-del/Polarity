@@ -35,5 +35,5 @@ export function createSimulation(cfg: RunConfig): Simulation {
   // Éclats sur l'orbite : réglage par mode dans config/economy.ts (Survie seulement pour l'instant)
   const shards = cfg.mode === 'daily' ? SHARDS.modes.daily : SHARDS.modes.survival;
   // Pouvoirs : Survie seulement (jamais le défi quotidien, les niveaux ni la campagne)
-  return new Simulation({ seed, profile: survivalProfile(shards), timeLimit: null, powers: cfg.mode === 'survival' ? { stock: cfg.stock, bonus: cfg.bonus } : undefined });
+  return new Simulation({ seed, profile: survivalProfile(shards, cfg.mode === 'survival'), timeLimit: null, powers: cfg.mode === 'survival' ? { stock: cfg.stock, bonus: cfg.bonus } : undefined });
 }

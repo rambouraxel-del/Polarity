@@ -299,7 +299,7 @@ describe('Migration de la sauvegarde v1.1 → v1.2 (équilibrage 3)', () => {
   it('distingue la nouvelle version d’équilibrage : records de la v1.1 archivés, ceux de la v1.0 intacts', () => {
     const { res } = load();
     expect(res.data.balance).toBe(BALANCE_VERSION);
-    expect(BALANCE_VERSION).toBe(3);
+    expect(BALANCE_VERSION).toBe(4);
     expect(res.data.survival).toEqual({ bestTime: 0, bestScore: 0, runs: 0 });
     expect(res.data.daily).toEqual({});
     expect(res.data.archive['2'].survival).toEqual(V2_SAVE.survival);

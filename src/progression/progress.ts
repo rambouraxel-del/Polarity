@@ -28,6 +28,8 @@ export interface RunSummary {
   report?: MissionReport;
   /** Survie : catégorie de classement de la PREMIÈRE vie (déduite des activations réussies). */
   category?: 'plain' | 'bonus';
+  /** Survie : phase atteinte pendant la PREMIÈRE vie (2 = la faille a été franchie : 300 s de survie active). */
+  phase?: 1 | 2;
   /** Survie : survie libre après reprise (partie non classée) — durée, score et nombre de vies utilisées. Jamais enregistrée comme record. */
   free?: { time: number; score: number; lives: number };
 }

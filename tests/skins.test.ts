@@ -21,7 +21,7 @@ describe('configuration des apparences', () => {
     for (const sk of SKINS) {
       const item = catalogItem(sk.id);
       expect(item?.kind, sk.id).toBe('ship');
-      expect(['default', 'price'], sk.id).toContain(item?.acquire.type);
+      expect(['default', 'price', 'reward'], sk.id).toContain(item?.acquire.type);
     }
     // Les vaisseaux débloqués autrefois par un succès s'achètent désormais en Médailles
     expect(['glace', 'solaire', 'prisme'].every((id) => { const a = catalogItem(id)?.acquire; return a?.type === 'price' && a.currency === 'medals'; })).toBe(true);

@@ -123,6 +123,9 @@ Ordre en cas de retour arrière complet : jeu (R0) **puis** service (R3).
 4. **Publicité récompensée** : compte AdMob, bloc récompensé avec vérification côté serveur, plugin natif, consentement.
 5. **Prestataire de paiement web** : choix du propriétaire (aucun n'est intégré).
 
+## 9 bis. Mise à jour « Survie à phases » (BALANCE_VERSION 4)
+Aucun schéma SQLite à migrer. **Service d'abord, jeu ensuite** : le jeu v4 envoie `balance: 4` ; un service v3 refuserait ses parties (`unsupported_balance`), et un service v4 refuse les parties d'un jeu v3. Les records de la v3 restent consultables (sélecteur de version du classement) ; côté joueur, les records locaux de la v3 sont rangés dans l'archive (Survie et « Avec bonus » ; le défi quotidien, inchangé, garde ses records). Le rejeu de parties longues (phase 2) coûte plus de calcul : surveiller le CPU du service après publication.
+
 ## 10. Jeu publié avant le service (cas constaté) : diagnostic et résolution
 **Constat** : la branche `feat/polar-rift-economie-v3` a été fusionnée dans `main` (PR n° 1) : GitHub Pages publie donc le **nouveau jeu**, alors que le service OVH est resté **à l'ancienne version** (celle de `836be7d` : classement seulement). L'ordre prévu au § 4 (service d'abord) n'a pas été suivi ; ce n'est pas un défaut du nouveau code.
 **Reproduit en local** (ancien service lancé sur une base de test + nouveau jeu construit pour lui) : les trois anomalies apparaissent exactement :

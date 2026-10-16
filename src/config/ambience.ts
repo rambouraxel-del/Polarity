@@ -76,6 +76,8 @@ export const STAGE_PARAMS = {
   waveGain: [0.45, 0.6, 0.8, 0.92, 1],
   /** Chaleur des couleurs : 0 = cyan dominant, 1 = violet et magenta très présents. */
   heat: [0, 0.25, 0.5, 0.75, 1],
+  /** Fissures lumineuses autour du noyau (probabilité sur un battement fort). */
+  fissure: [0.05, 0.12, 0.25, 0.4, 0.6],
 } as const;
 
 export type StageParam = keyof typeof STAGE_PARAMS;
@@ -85,6 +87,45 @@ export const AMBIENCE = {
   transition: 10,
   /** Au-delà du dernier stade : variations lentes de l'intensité (périodes en s, amplitude relative). */
   apex: { periods: [47, 71, 113], amplitude: 0.12 },
+
+  /**
+   * Noyau central (phase 1) : petite sphère lumineuse au centre dès le départ ; vers 4 min 30 (`PHASES.coreGrowFrom`) elle devient peu à peu une faille
+   * jusqu'à la traversée. Rayons et opacités sont bornés : les menaces, le vaisseau et les objets restent toujours au-dessus et lisibles.
+   */
+  core: {
+    /** Rayon de la petite sphère (unités monde) au départ, puis à pleine ouverture. */
+    radiusMin: 10,
+    radiusMax: 46,
+    /** Demi-longueur des rayons de la faille à pleine ouverture (unités monde, < orbite). */
+    slitLength: 210,
+    /** Opacité maximale du noyau et de la faille. */
+    alphaMax: 0.55,
+  },
+
+  /** Phase 2 : univers sombre, fracturé, électrique. Le fondu entre les deux apparences se fait pendant la traversée, sous le flash. */
+  phase2: {
+    /** Voile du ciel : les étoiles et nébuleuses de la phase 1 sont atténuées de cette part. */
+    dimSky: 0.55,
+    /** Couleurs : fissures et arcs électriques (bleu électrique, blanc-bleu) ; jamais le corail, l'orange ni le magenta des dangers. */
+    crack: 0x6f8bff,
+    spark: 0xd8e4ff,
+    /** Secondes de la traversée avant le flash (progression 0–1 de la traversée) : début, pic et fin du flash blanc. */
+    flash: { from: 0.58, peak: 0.7, to: 0.86 },
+  },
+
+  /** Moments forts PRÉPARÉS (instants de survie active, indépendants de l'audio) : s'ajoutent aux réactions issues de l'analyse musicale. */
+  script: [
+    { at: 60, wave: 0.55, fissure: 0.4 },
+    { at: 120, wave: 0.7, fissure: 0.6 },
+    { at: 180, wave: 0.8, fissure: 0.8 },
+    { at: 240, wave: 0.9, fissure: 1 },
+    { at: 270, wave: 0.8, fissure: 1 },
+    { at: 285, wave: 0.9, fissure: 1 },
+    { at: 295, wave: 1, fissure: 1 },
+  ] as readonly { at: number; wave: number; fissure: number }[],
+
+  /** Passages calmes de la musique : sous ce niveau d'intensité l'ambiance se calme (réactions réduites, fissures et arcs rares). */
+  calm: { low: 0.2, high: 0.5, reaction: 0.55 },
 
   /** Réactions musicales. */
   music: {

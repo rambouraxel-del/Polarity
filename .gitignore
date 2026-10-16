@@ -16,3 +16,5 @@ dist-native/
 *.ipa
 *.xcarchive
 dist-e2e/
+
+__pycache__/

@@ -25,6 +25,9 @@ import { GameSession, type Phase } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
+import { claimPhaseBonus, grantPhaseSkin } from './economy/local';
+import { PHASES } from './config/phases';
+import { PHASE2_PRELOAD_AT } from './config/music';
 import { reconcileAchievements } from './progression/achievements';
 import { catalogItem, type CatalogItem } from './config/catalog';
 import { creditShards, equip, isOwned, itemState, purchase } from './progression/shop';
@@ -475,6 +478,11 @@ export class App {
     if (session) {
       session.frame(realDt);
       if (this.session === session) this.updateInGameUi(session);
+      // Musique de phase 2 : décodée tardivement (budget mémoire) et boucle programmée sur l'horloge audio (aucun minuteur)
+      if (session.config.mode === 'survival') {
+        if (session.sim.time >= PHASE2_PRELOAD_AT) void this.music.preloadPhase2();
+        this.music.maintain();
+      }
     }
     // Le bandeau est un chronomètre comme les autres : la pause l'arrête
     if (this.bannerTimer > 0 && (!session || session.phase === 'running')) {
@@ -512,12 +520,13 @@ export class App {
     if (this.ambience.state.tier !== this.quality.tier) this.ambience.setQuality(this.quality.tier);
     const frame = this.musicSync.update(this.music.position(this.musicPos), this.musicAudible());
     const dt = s.phase === 'paused' ? 0 : realDt;
-    return this.ambience.update(s.sim.time + this.ambiencePreview, dt, frame, this.reducedMotion, this.save.options.visualIntensity);
+    const transit = s.transitLeft > 0 ? 1 - s.transitLeft / PHASES.transit : 0;
+    return this.ambience.update(s.sim.time + this.ambiencePreview, dt, frame, this.reducedMotion, this.save.options.visualIntensity, { phase: s.sim.phase, transit, phased: s.sim.director.phased });
   }
 
   private updateInGameUi(session: GameSession): void {
     const cfg = session.config;
-    let label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : cfg.mode === 'campaign' ? `Mission ${cfg.mission?.id}` : 'Survie';
+    let label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : cfg.mode === 'campaign' ? `Mission ${cfg.mission?.id}` : session.sim.phase === 2 ? 'Survie · phase 2' : 'Survie';
     // Événements (Survie / défi) : annonce 2 s avant, libellé et compte à rebours pendant l'événement
     let eventActive = false;
     if (cfg.mode === 'survival' || cfg.mode === 'daily') {
@@ -605,6 +614,7 @@ export class App {
       onBeforeStep: demo ? () => this.demoBot?.tick() : undefined,
       onEvent: (e, s) => this.onSimEvent(e, s),
       onPhase: (p, s) => this.onSessionPhase(p, s),
+      onTransit: (stage, s) => this.onTransit(stage, s),
       onCampaignEvent: (e, s) => this.onCampaignEvent(e, s),
       onEnd: (summary, s) => this.onRunEnd(summary, s),
       onFirstDeath: (summary, s) => this.onFirstDeath(summary, s),
@@ -657,6 +667,23 @@ export class App {
     if (p === 'paused') this.music.pause();
     else if (p === 'running') this.music.resume();
     else if (p === 'ending') this.music.endGame();
+  }
+
+  /**
+   * Traversée de la faille (Survie, 300 s) : la musique de phase 1 sort en fondu et celle de phase 2 entre pendant toute la traversée ; à la fin, la
+   * première traversée réussie du profil débloque l'apparence exclusive (une seule fois). Rien de tout cela n'est lu par la simulation.
+   */
+  private onTransit(stage: 'start' | 'end', s: GameSession): void {
+    if (s !== this.session) return;
+    if (stage === 'start') {
+      this.music.enterPhase2();
+      this.sfx.play('success');
+      return;
+    }
+    if (!s.sim.assisted && !this.devMode && grantPhaseSkin(this.save)) {
+      this.persist();
+      this.banner('<strong>Nouvelle apparence : Faille</strong><br>Disponible dans Cosmétiques', 4);
+    }
   }
 
   private endSession(): void {
@@ -788,6 +815,18 @@ export class App {
           r?.ring(0xff3df0);
         }
         break;
+      case 'phase': {
+        // Entrée en phase 2 : prime d'Éclats, une seule fois par partie (première vie, partie non assistée) ; identifiant de partie = clé d'idempotence
+        if (s.config.mode === 'survival' && s.sim.life === 1 && !s.sim.assisted && !this.devMode) {
+          const got = claimPhaseBonus(this.save, this.runId, 2);
+          if (got > 0) {
+            this.persist();
+            r?.popup(0, 0, `+${got} Éclats`, '#c9a8ff');
+          }
+        }
+        r?.ring(COLORS.cyan);
+        break;
+      }
       case 'shard-spawn':
         this.sfx.play('shardSpawn');
         break;
@@ -1183,7 +1222,8 @@ export class App {
     this.screenEl.classList.add('hidden');
     this.screenEl.classList.remove('dim');
     this.screenEl.innerHTML = '';
-    this.music.startGame();
+    // Reprise en phase 2 : la musique de phase 2 repart dans sa boucle ; sinon (phase 1) comportement habituel
+    if (!(s.sim.phase === 2 && this.music.startPhase2Loop())) this.music.startGame();
     this.hud.show(true);
     this.setPowersVisible(this.lastConfig?.bonus !== false);
     this.lastCountdownShown = -1;

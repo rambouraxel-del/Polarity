@@ -53,7 +53,7 @@ describe('Chiffres validés de la mise à jour économique', () => {
     expect(DROPS.prism).toEqual({ chancePerBeacon: 0.0002, maxPerRun: 1, amount: 1 });
   });
 
-  it('version d’équilibrage inchangée par les phases 1 à 6 (records existants conservés)', () => {
-    expect(BALANCE_VERSION).toBe(3);
+  it('version d’équilibrage 4 (Survie à phases) : records de la v3 archivés, jamais supprimés', () => {
+    expect(BALANCE_VERSION).toBe(4);
   });
 });

@@ -222,12 +222,12 @@ const simState = (page) =>
   check(Number(dbw.prepare("SELECT COUNT(*) AS n FROM ledger WHERE player_id = ? AND kind = 'import'").get(lid).n) === 1, 'Migration : idempotente (synchroniser à nouveau n’importe rien)');
   const kept = await page.evaluate(() => {
     const a = window.__polarite.save;
-    return { owned: a.owned, survival: a.survival.bestTime, levels: Object.keys(a.levels).length, ach: Object.keys(a.achievements).length, wallet: a.wallet, backup: Object.keys(localStorage).some((k) => k.startsWith('polarite.save.avant-v')) };
+    return { owned: a.owned, survival: Math.max(a.survival.bestTime, ...Object.values(a.archive).map((x) => x.survival.bestTime)), levels: Object.keys(a.levels).length, ach: Object.keys(a.achievements).length, wallet: a.wallet, backup: Object.keys(localStorage).some((k) => k.startsWith('polarite.save.avant-v')) };
   });
   check(kept.owned.includes('aurore') && kept.owned.includes('emeraude'), 'Migration : cosmétiques achetés conservés');
   check(!kept.owned.includes('neon'), 'Migration : un article premium « possédé » sans achat vérifié n’est pas importé');
   if (process.env.E2E_DEBUG || kept.levels !== 2 || kept.ach !== 5) console.log('  sauvegarde migrée :', JSON.stringify(kept));
-  check(kept.survival === 95.5 && kept.levels === 2 && kept.ach === 5, 'Migration : record de Survie, niveaux et succès conservés (+ 2 succès déduits des records : « survive_60 », « three_stars »)');
+  check(kept.survival === 95.5 && kept.levels === 2 && kept.ach === 5, 'Migration : record de Survie (archivé sous l’ancien équilibrage), niveaux et succès conservés (+ 2 succès déduits des records : « survive_60 », « three_stars »)');
   check(kept.wallet.prisms === 0 && kept.wallet.shards === 500, 'Migration : soldes = vérité du service (500 Éclats, 0 Prisme)');
   check(kept.backup, 'Migration : copie de l’ancienne sauvegarde conservée dans le navigateur');
   // Succès accomplis avant la mise à jour : Médailles récupérables rétroactivement (3 × 20), crédit unique

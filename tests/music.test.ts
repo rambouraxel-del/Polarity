@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Music, type AudioHost } from '../src/audio/music';
 import { LOOP_ENTRY_OFFSET, MUSIC } from '../src/config/music';
 import timing from '../src/data/polar-rift-audio.json';
+import { PHASE1_PLAN, PHASE2_MUSIC } from '../src/config/phases';
 
 // ————————————————————————————————————————————— faux contexte audio (horloge contrôlée, journal des programmations)
 
@@ -372,5 +373,132 @@ describe('musique : mixage et écoute d’essai', () => {
     // Pendant la partie : aucun nœud d'essai supplémentaire (seulement ceux de la partie)
     expect(ctx.sources.length - n).toBeLessThanOrEqual(2);
     expect(ctx.sources.slice(n).every((s) => s !== src)).toBe(true);
+  });
+});
+
+// ————————————————————————————————————————————— phase 2 : morceau joint, boucle sans trou, séquence de cinq minutes
+
+describe('musique : séquence de la phase 1 (second tour) et phase 2', () => {
+  const T2 = I + MUSIC.loopDuration;
+
+  it('second tour de la phase 1 : raccord programmé tardivement (maintain), voix du premier tour fondue, second tour calé sur secondPassFrom', () => {
+    const { ctx, music } = setup();
+    music.startGame();
+    expect(ctx.sources).toHaveLength(2);
+    ctx.currentTime = 10;
+    music.maintain();
+    expect(ctx.sources).toHaveLength(2); // trop tôt : rien n'est programmé
+    ctx.currentTime = MUSIC.startDelay + T2 - 3;
+    music.maintain();
+    expect(ctx.sources).toHaveLength(3);
+    const second = ctx.sources[2];
+    const X = PHASE1_PLAN.crossfade;
+    expect(second.loop).toBe(true);
+    expect(second.starts[0].when).toBeCloseTo(MUSIC.startDelay + T2 - X, 9);
+    expect(second.starts[0].offset).toBeCloseTo(MUSIC.loopStart + PHASE1_PLAN.secondPassFrom - X, 9);
+    expect(ctx.sources[1].stopAt).toBeCloseTo(MUSIC.startDelay + T2 + 0.02, 9);
+    // Une seule programmation, même si maintain() est rappelé à chaque image
+    music.maintain();
+    expect(ctx.sources).toHaveLength(3);
+  });
+
+  it('phase 2 : sans musique décodée la phase 1 continue ; avec elle, fondu sortant de la phase 1 et entrée progressive du morceau pendant la traversée', () => {
+    const { ctx, music } = setup();
+    music.startGame();
+    ctx.currentTime = 100;
+    expect(music.enterPhase2()).toBe(false); // morceau non décodé : jamais de silence imposé
+    expect(music.inPhase2).toBe(false);
+    music.setBuffers({ phase2: buf('phase2') });
+    expect(music.enterPhase2()).toBe(true);
+    expect(music.inPhase2).toBe(true);
+    const p2 = ctx.sources.find((s) => name(s) === 'phase2')!;
+    expect(p2.starts[0].offset).toBe(0);
+    // Entrée progressive : le gain atteint 1 à la fin de la traversée (6 s)
+    const ramp = gainOf(ctx, p2).events.find((e) => e.type === 'ramp' && e.value === 1)!;
+    expect(ramp.time - p2.starts[0].when).toBeCloseTo(PHASE2_MUSIC.fadeIn, 6);
+    // La musique de phase 1 est coupée en fondu (pas à sec)
+    for (const s of ctx.sources.filter((x) => name(x) !== 'phase2')) expect(s.stopAt ?? 0).toBeGreaterThan(100);
+  });
+
+  it('phase 2 : position dans le fichier — première lecture, puis boucle sans trou entre loopStart et loopEnd (jamais le silence final)', () => {
+    const { ctx, music } = setup();
+    music.setBuffers({ phase2: buf('phase2') });
+    music.startGame();
+    ctx.currentTime = 50;
+    music.enterPhase2();
+    const t0 = ctx.currentTime;
+    const at = (pos: number): number => {
+      ctx.currentTime = t0 + 0.03 + pos;
+      const p = music.position({ track: null, time: 0, playing: false });
+      expect(p.track).toBe('p2');
+      return p.time;
+    };
+    expect(at(10)).toBeCloseTo(10, 6);
+    expect(at(PHASE2_MUSIC.loopEnd - 1)).toBeCloseTo(PHASE2_MUSIC.loopEnd - 1, 6);
+    // Après la fin de la région en boucle : retour à loopStart, indéfiniment (dix passes)
+    const L = PHASE2_MUSIC.loopDuration;
+    expect(at(PHASE2_MUSIC.loopEnd + 2)).toBeCloseTo(PHASE2_MUSIC.loopStart + 2, 6);
+    expect(at(PHASE2_MUSIC.loopEnd + 10 * L + 5)).toBeCloseTo(PHASE2_MUSIC.loopStart + 5, 6);
+    // Le silence final du fichier (après loopEnd) n'est jamais atteint
+    for (const pos of [PHASE2_MUSIC.loopEnd - 0.01, PHASE2_MUSIC.loopEnd + 0.01, PHASE2_MUSIC.loopEnd + L - 0.01]) expect(at(pos)).toBeLessThan(PHASE2_MUSIC.loopEnd);
+  });
+
+  it('phase 2 : fondus enchaînés de boucle programmés sur l’horloge audio (voix suivante à loopStart − fondu, en phase), sans minuteur', () => {
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const { ctx, music } = setup();
+    music.setBuffers({ phase2: buf('phase2') });
+    music.startGame();
+    const t0 = ctx.currentTime + 0.03; // la phase 2 démarre 30 ms après l'ordre (programmation sur l'horloge audio)
+    music.enterPhase2();
+    const voices = ctx.sources.filter((s) => name(s) === 'phase2');
+    // Première lecture jusqu'à loopEnd, puis deux passes programmées d'avance au moins
+    expect(voices.length).toBeGreaterThanOrEqual(2);
+    const X = PHASE2_MUSIC.crossfade;
+    const L = PHASE2_MUSIC.loopDuration;
+    const first = voices[0];
+    expect(first.stopAt).toBeCloseTo(t0 + PHASE2_MUSIC.loopEnd + 0.02, 6);
+    const second = voices[1];
+    expect(second.starts[0].offset).toBeCloseTo(PHASE2_MUSIC.loopStart - X, 9);
+    expect(second.starts[0].when).toBeCloseTo(t0 + PHASE2_MUSIC.loopEnd - X, 6);
+    // La phase de battement est conservée : à l'instant où la voix 1 atteint loopEnd, la voix 2 est exactement à loopStart
+    expect(second.starts[0].offset + (t0 + PHASE2_MUSIC.loopEnd - second.starts[0].when)).toBeCloseTo(PHASE2_MUSIC.loopStart, 6);
+    // La durée de boucle est un nombre entier de temps de la grille
+    expect(L / PHASE2_MUSIC.beatPeriod).toBeCloseTo(Math.round(L / PHASE2_MUSIC.beatPeriod), 1);
+    // Avancer l'horloge : maintain() programme les passes suivantes, sans doublon ni minuteur
+    const before = ctx.sources.length;
+    ctx.currentTime = t0 + 3 * L;
+    music.maintain();
+    expect(ctx.sources.length).toBeGreaterThan(before);
+    const starts = ctx.sources.filter((s) => name(s) === 'phase2').map((s) => s.starts[0].when).sort((a, b) => a - b);
+    for (let i = 2; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeCloseTo(L, 6);
+    expect(timers).not.toHaveBeenCalled();
+  });
+
+  it('phase 2 : pause pendant la traversée puis reprise (entrée recalée), fin de partie = fondu sans outro de la phase 1', () => {
+    const { ctx, music } = setup();
+    music.setBuffers({ phase2: buf('phase2') });
+    music.startGame();
+    music.enterPhase2();
+    ctx.currentTime += 2;
+    music.pause();
+    expect(music.mode).toBe('paused');
+    const n = ctx.sources.length;
+    music.resume();
+    expect(music.mode).toBe('playing');
+    const resumed = ctx.sources.slice(n).find((s) => name(s) === 'phase2')!;
+    expect(resumed.starts[0].offset).toBeCloseTo(2 - 0.03, 3);
+    music.endGame();
+    expect(music.mode).toBe('idle');
+    expect(ctx.sources.some((s) => name(s) === 'outro')).toBe(false);
+    expect(music.inPhase2).toBe(false);
+  });
+
+  it('reprise en phase 2 (2ᵉ vie) : la musique de phase 2 repart dans sa boucle, jamais l’intro de la phase 1', () => {
+    const { ctx, music } = setup();
+    music.setBuffers({ phase2: buf('phase2') });
+    expect(music.startPhase2Loop()).toBe(true);
+    const v = ctx.sources.find((s) => name(s) === 'phase2')!;
+    expect(v.starts[0].offset).toBeCloseTo(PHASE2_MUSIC.loopStart, 6);
+    expect(ctx.sources.some((s) => name(s) === 'intro')).toBe(false);
   });
 });

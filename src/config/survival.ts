@@ -48,6 +48,45 @@ export const SURVIVAL = {
   /** Les motifs simples deviennent moins fréquents (sans disparaître : ils servent de respiration). */
   simpleFade: { ramp: { from: 80, span: 40 } as Ramp, amount: 0.45 },
 
+  /**
+   * Phase 1 (0 → 300 s) : difficulté PAR PALIERS. Chaque palier [instant de fin de la montée, niveau] est atteint en `ramp` secondes (lissé) ;
+   * l'accueil est accessible mais très court (le premier palier tombe à 12 s). Une « vague de tension » sinusoïdale s'y ajoute (±amplitude) ;
+   * les respirations (breath, intensify) et le calme avant chaque palier laissent souffler.
+   */
+  stages: {
+    levels: [[0, 0.1], [12, 0.28], [35, 0.45], [70, 0.6], [110, 0.72], [160, 0.8], [215, 0.86], [260, 0.9]] as readonly (readonly [number, number])[],
+    ramp: 5,
+    tension: { amplitude: 0.045, period: 31, from: 30 },
+    /** Calme juste avant un palier : les vagues s'espacent (intervalle × `scale`) pendant `lead` secondes. */
+    calm: { lead: 7, scale: 1.35 },
+  },
+  /** Mise en rythme : part des vagues dont le premier contact tombe sur un battement de la grille musicale (phase 1 / phase 2) et écart maximal (s). */
+  beat: { chance: [0.35, 0.5] as readonly [number, number], maxShift: 0.6, accentWindow: 1.2 },
+
+  /**
+   * Phase 2 (≥ 300 s, infinie) : la difficulté reprend là où la phase 1 l'a laissée (aucune hausse brutale) puis progresse lentement,
+   * toujours sous `dMax`. Les nouvelles menaces sont introduites une à une (secondes APRÈS l'entrée en phase 2), puis combinées.
+   */
+  phase2: {
+    dStart: 0.9,
+    /** Constante de temps (s) de la hausse lente vers dMax. */
+    tau: 420,
+    /** Intensité 0 → 1 (rythme des vagues, poids des motifs complexes) : constante de temps (s). */
+    intensityTau: 480,
+    /** Intervalle entre vagues multiplié par ce facteur à pleine intensité (borné par CAPS.minWaveInterval). */
+    tightness: 0.8,
+    unlock: {
+      arcShot: { from: 4, span: 10 } as Ramp,
+      spiral: { from: 50, span: 12 } as Ramp,
+      rotBeam: { from: 100, span: 12 } as Ramp,
+      sweepBeam: { from: 150, span: 12 } as Ramp,
+      altBeams: { from: 200, span: 12 } as Ramp,
+      /** Combinaisons de menaces nouvelles + obstacles transformés. */
+      combos: { from: 255, span: 40 } as Ramp,
+    },
+    breath: { every: { min: 4, max: 6 }, duration: { min: 1.1, max: 1.7 } },
+  },
+
   /** Rythme avant l'intensification : une respiration toutes les 6 à 9 vagues. */
   breath: {
     every: { min: 6, max: 9 },

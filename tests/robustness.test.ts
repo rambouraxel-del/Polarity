@@ -378,7 +378,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
     expect(STORAGE_NAMESPACE).toBe('polarite');
     expect(SAVE_KEY).toBe('polarite.save');
     expect(SAVE_VERSION).toBe(10);
-    expect(SKINS.map((s) => s.id)).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme', 'spectre', 'neon']);
+    expect(SKINS.map((s) => s.id)).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme', 'spectre', 'faille', 'neon']);
     expect(STORY.map((s) => s.id)).toEqual(Array.from({ length: 10 }, (_, i) => [`n${i + 1}-before`, `n${i + 1}-after`]).flat());
     expect(MISSIONS.map((m) => `n${m.id}`)).toEqual(Array.from({ length: 10 }, (_, i) => `n${i + 1}`));
   });

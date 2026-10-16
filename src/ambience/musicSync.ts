@@ -1,4 +1,6 @@
 import map from '../data/polar-rift-music-map.json';
+import phase2Map from '../data/polar-rift-phase2.json';
+import { PHASE2_MUSIC } from '../config/phases';
 import { AMBIENCE } from '../config/ambience';
 import type { MusicPosition, MusicTrack } from '../audio/music';
 
@@ -71,6 +73,8 @@ export const MUSIC_MAP = {
     intro: parse(map.tracks.intro),
     loop: parse(map.tracks.loop),
     outro: parse(map.tracks.outro),
+    // Phase 2 : le fichier entier (la position fournie par Music.position est déjà ramenée dans la région en boucle)
+    p2: parse({ duration: phase2Map.fileDuration, beats: phase2Map.beats, strength: phase2Map.strength, bass: phase2Map.bass, intensity: phase2Map.intensity, drops: phase2Map.drops, builds: phase2Map.builds }),
   } as Record<MusicTrack, TrackMap>,
 };
 
@@ -148,6 +152,10 @@ export class MusicSync {
         // Tour de boucle : fin de la région puis début
         this.cross(m, prev, m.duration);
         this.cross(m, -1, t);
+      } else if (pos.track === 'p2' && t < prev && prev - t > 1 && t - PHASE2_MUSIC.loopStart <= AMBIENCE.music.maxCatchUp) {
+        // Passe de boucle de la phase 2 : le fondu enchaîné ramène la lecture à loopStart
+        this.cross(m, prev, PHASE2_MUSIC.loopEnd);
+        this.cross(m, PHASE2_MUSIC.loopStart - 1e-6, t);
       }
     } else if (pos.playing && this.lastTrack !== null && pos.time <= AMBIENCE.music.maxCatchUp) {
       // Changement de morceau (intro → boucle, → outro) : battements du tout début du nouveau morceau
