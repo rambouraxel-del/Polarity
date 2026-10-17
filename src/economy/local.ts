@@ -1,4 +1,5 @@
 import type { CatalogItem } from '../config/catalog';
+import { REMOVED_MEDAL_SKINS } from '../config/catalog';
 import { PHASE_BONUS } from '../config/phases';
 import type { SaveData } from '../save/save';
 
@@ -32,4 +33,23 @@ export function claimPhaseBonus(save: SaveData, runKey: string, phase: number): 
   save.wallet.shards += amount;
   noteEarned(save, amount);
   return amount;
+}
+
+/**
+ * Remboursement LOCAL des Médailles dépensées pour d'anciens vaisseaux supprimés (config/catalog.ts, `REMOVED_MEDAL_SKINS`), pour une sauvegarde SANS
+ * service de comptes : le montant payé est dans `economy.purchases` (jamais effacé sans service). Une seule fois : l'entrée est retirée au
+ * remboursement. Avec un service, le remboursement est fait par le registre du service (`refund:<id>`) et le solde local suit la synchronisation ;
+ * les achats encore en attente (jamais débités par le service) sont simplement annulés à la synchronisation. Renvoie le total remboursé.
+ */
+export function refundRemovedSkins(save: SaveData): number {
+  if (save.economy.managed) return 0;
+  let total = 0;
+  for (const id of REMOVED_MEDAL_SKINS) {
+    const paid = save.economy.purchases[id];
+    if (paid === undefined) continue;
+    delete save.economy.purchases[id];
+    if (Number.isFinite(paid) && paid > 0) total += Math.floor(paid);
+  }
+  if (total > 0) save.wallet.medals += total;
+  return total;
 }

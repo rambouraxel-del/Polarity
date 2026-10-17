@@ -80,6 +80,14 @@ export const LEGACY_ACHIEVEMENT_ITEMS: Readonly<Record<string, string>> = {
   boreale: 'events_30',
 };
 
+/**
+ * Anciens vaisseaux payés en MÉDAILLES, supprimés du jeu : les Médailles dépensées pour les acheter sont REMBOURSÉES (une seule fois). Côté service :
+ * une ligne `refund:<id>` du registre (idempotente) pour chaque ligne `spend:<id>` en Médailles ; côté jeu sans service : montant mémorisé dans
+ * `economy.purchases` (economy/local.ts, `refundRemovedSkins`). Un ancien skin obtenu par un succès (sans dépense) ne donne rien.
+ * (L'ancien « Néon » était payé en Prismes : non remboursé ici.)
+ */
+export const REMOVED_MEDAL_SKINS: readonly string[] = ['aurore', 'menthe', 'ambre', 'spectre', 'glace', 'solaire', 'prisme'];
+
 export function catalogItem(id: string): CatalogItem | undefined {
   return CATALOG.find((i) => i.id === id);
 }

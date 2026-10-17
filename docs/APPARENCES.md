@@ -35,7 +35,10 @@ Les Prismes sont la monnaie interne premium : **aucun achat en argent réel** da
 
 ## Repli et sauvegardes
 Identifiant inconnu (ancien skin supprimé, valeur corrompue) ou non possédé → `tole-brute`, sans erreur : à la lecture (`sanitize` dans `save/save.ts`) et à l'équipement (`resolveEquipped`). Une sauvegarde neuve équipe `tole-brute`.
-Les anciens identifiants dans `owned` sont ignorés (inconnus du catalogue) ; aucune Médaille n'est remboursée pour un ancien achat.
+Les anciens identifiants dans `owned` sont ignorés (inconnus du catalogue).
+**Remboursement** : les Médailles dépensées pour les anciens vaisseaux en Médailles (`REMOVED_MEDAL_SKINS`) sont rendues, une seule fois — par le registre du service (ligne `refund:<id>` pour chaque `spend:<id>`, à la première synchronisation) ou, sans service, localement depuis `economy.purchases` (`refundRemovedSkins`). Un ancien skin obtenu par un succès (sans dépense) ne donne rien ; l'ancien Néon (Prismes) n'est pas remboursé.
+
+**Service pas à jour** : si le service refuse un article comme « inconnu » (ancien catalogue), l'achat est annulé à la synchronisation ; le jeu affiche alors « Service pas à jour » et bloque l'achat de cet article (état `stale`, `net/serviceState.ts`) au lieu de le laisser se rejouer sans débit.
 
 ## Gabarit, hitbox, Orbit
 - Les PNG : 256 × 256, vaisseau centré, nez en haut, silhouette ≈ 240 px (même rapport 120/128 que l'ancien sprite : `VISUAL.spriteContent / spriteCanvas`). Taille visuelle : `VISUAL.shipScale` (×1,25 depuis la refonte).

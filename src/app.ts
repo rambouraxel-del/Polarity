@@ -29,7 +29,7 @@ import { GameSession, type Phase } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
-import { claimPhaseBonus } from './economy/local';
+import { claimPhaseBonus, refundRemovedSkins } from './economy/local';
 import { PHASES } from './config/phases';
 import { PHASE2_PRELOAD_AT } from './config/music';
 import { reconcileAchievements } from './progression/achievements';
@@ -327,6 +327,12 @@ export class App {
     // Apparence équipée : si l'identifiant est inconnu ou non possédé, retour à l'apparence par défaut (Tôle brute)
     // Un service de comptes est-il configuré ? Alors seuls les soldes confirmés financent un achat hors ligne (economy/funds.ts)
     this.save.economy.managed = this.lb.configured;
+    // Médailles dépensées pour d'anciens vaisseaux supprimés : remboursées (sans service ; avec un service, c'est son registre qui rembourse)
+    const refunded = refundRemovedSkins(this.save);
+    if (refunded > 0) {
+      this.shopMessage = { kind: 'ok', text: `${refunded} Médailles remboursées : anciens vaisseaux supprimés du jeu.` };
+      this.persist();
+    }
     this.save.skin = resolveEquipped(this.save.skin, this.save).id;
     if (!isOwned(this.save, this.save.trail)) this.save.trail = DEFAULT_TRAIL_ID;
     // Nouveaux objectifs déjà atteints grâce à la progression existante : succès débloqués et récompensés une seule fois

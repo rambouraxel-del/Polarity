@@ -2,6 +2,7 @@ import { catalogItem, type CatalogItem, type Currency } from '../config/catalog'
 import { TRAILS_ENABLED, trailById } from '../config/trails';
 import { noteEarned, notePurchase } from '../economy/local';
 import { spendable } from '../economy/funds';
+import { isUnknownToService } from '../net/serviceState';
 import type { SaveData } from '../save/save';
 
 /**
@@ -65,9 +66,10 @@ export const balanceOf = (save: Pick<SaveData, 'wallet'>, currency: Currency): n
  * - buy : achetable maintenant (fonds dépensables suffisants) ; insufficient : fonds insuffisants ;
  * - soon : article premium alors qu'aucun service de comptes n'est configuré (« Bientôt disponible ») ;
  * - locked : récompense à obtenir en jouant (jamais achetable) ;
- * - unavailable : non proposé pour l'instant (apparence indisponible, catégorie Traînées fermée).
+ * - unavailable : non proposé pour l'instant (apparence indisponible, catégorie Traînées fermée) ;
+ * - stale : le service en ligne ne connaît pas encore cet article (service pas à jour) : achat bloqué, rien n'est débité.
  */
-export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'soon' | 'locked' | 'unavailable';
+export type ItemState = 'owned' | 'equipped' | 'buy' | 'insufficient' | 'soon' | 'locked' | 'unavailable' | 'stale';
 
 /** Peut-on payer cette option MAINTENANT ? (Prismes : seulement avec un service de comptes et un solde confirmé.) */
 export function canPay(save: SaveData, item: CatalogItem, currency: Currency): boolean {
@@ -87,6 +89,7 @@ export function itemState(save: SaveData, item: CatalogItem): ItemState {
     return 'owned';
   }
   const a = item.acquire;
+  if ((a.type === 'price' || a.type === 'choice') && save.economy.managed && isUnknownToService(item.id)) return 'stale';
   if (a.type === 'price') {
     if (a.currency === 'prisms' && !save.economy.managed) return 'soon';
     return canPay(save, item, a.currency) ? 'buy' : 'insufficient';
@@ -116,6 +119,8 @@ export function purchase(save: SaveData, id: string, currency?: Currency): Purch
   const a = item.acquire;
   if (a.type === 'reward' || a.type === 'unavailable') return { ok: false, reason: 'unavailable' };
   if (a.type === 'default') return { ok: false, reason: 'owned' };
+  // Service resté sur un ancien catalogue : il annulerait l'achat à la synchronisation (jamais de débit « fantôme »)
+  if (save.economy.managed && isUnknownToService(id)) return { ok: false, reason: 'unavailable' };
   // Achat au choix : la monnaie demandée doit faire partie des options (Éclats par défaut)
   const opts = priceOptions(item);
   const cur = currency ?? opts[0].currency;

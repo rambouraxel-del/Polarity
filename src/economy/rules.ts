@@ -38,6 +38,8 @@ export const levelStarRef = (level: string, k: number): string => `lvl:${level}:
 export const importRef = (installId: string): string => `import:${installId}`;
 export const earnRef = (installId: string, watermark: number): string => `earn:${installId}:${watermark}`;
 export const spendRef = (item: string): string => `spend:${item}`;
+/** Remboursement unique des Médailles dépensées pour un ancien vaisseau supprimé (une seule ligne par profil et par article). */
+export const refundRef = (item: string): string => `refund:${item}`;
 /** Médaille d'un succès : une seule ligne par profil et par succès (identifiant historique immuable). */
 export const medalRef = (achievementId: string): string => `medal:${achievementId}`;
 /** Charges de bonus acquises par une installation jusqu'au compteur `watermark` : `:pay` (débit d'Éclats) et `:grant` (crédit d'inventaire). */

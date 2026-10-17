@@ -590,6 +590,25 @@ describe('synchronisation : gains, récompenses uniques, achats', () => {
     expect(ledgerRows(c, g.id).filter((e) => e.ref === 'spend:chantier-orbital')).toHaveLength(1);
   });
 
+  it('anciens vaisseaux supprimés : Médailles dépensées remboursées une seule fois (registre), rien pour un ancien skin obtenu sans dépense ni pour un article actuel', () => {
+    const c = ctx();
+    const g = guest(c);
+    sync(c, g, { installId: install, earned: 0 });
+    const put = (ref: string, amount: number, currency = 'medals'): void => void c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, ?, 'x', ?, ?, 1)").run(g.id, currency, amount, ref);
+    put('medal:first_cycle', 600); // Médailles gagnées
+    put('gift:prisms', 200, 'prisms');
+    put('spend:aurore', -140);
+    put('spend:menthe', -150);
+    put('spend:chantier-orbital', -100); // article actuel : jamais remboursé
+    put('spend:neon', -150, 'prisms'); // Prismes : non remboursé ici
+    expect(balancesOf(c.db, g.id).medals).toBe(600 - 140 - 150 - 100);
+    for (let i = 0; i < 3; i++) sync(c, g, { installId: install, earned: 0 });
+    expect(balancesOf(c.db, g.id).medals).toBe(600 - 100);
+    expect(balancesOf(c.db, g.id).prisms).toBe(50); // 200 - 150 : aucun remboursement en Prismes
+    const refunds = ledgerRows(c, g.id).filter((e) => e.kind === 'refund');
+    expect(refunds.map((e) => [e.ref, e.amount]).sort()).toEqual([['refund:aurore', 140], ['refund:menthe', 150]]);
+  });
+
   it('achat refusé : financement insuffisant, prix falsifié, article inconnu, indisponible ou PREMIUM (Prismes) ; l’article n’est pas accordé, aucun solde négatif', () => {
     const remove = addTestPack(100);
     try {

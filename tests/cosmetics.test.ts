@@ -108,3 +108,48 @@ describe('achat au choix : la monnaie choisie suit jusqu’à la confirmation', 
     expect(html).toContain('60');
   });
 });
+
+describe('achat bloqué quand le service ne connaît pas l’article (plus d’achat « fantôme » rejouable)', () => {
+  it('service pas à jour : état « stale », achat refusé, rien débité ; sans service, achat normal', async () => {
+    const { defaultSave } = await import('../src/save/save');
+    const { itemState, purchase } = await import('../src/progression/shop');
+    const { catalogItem } = await import('../src/config/catalog');
+    const { markUnknownToService } = await import('../src/net/serviceState');
+    const item = catalogItem('cartographe')!;
+    const save = defaultSave();
+    save.economy.managed = true;
+    save.economy.confirmed = { shards: 0, medals: 500, prisms: 0 };
+    save.wallet.medals = 500;
+    expect(itemState(save, item)).toBe('buy');
+    markUnknownToService('cartographe');
+    expect(itemState(save, item)).toBe('stale');
+    expect(purchase(save, 'cartographe')).toEqual({ ok: false, reason: 'unavailable' });
+    expect(save.wallet.medals).toBe(500);
+    expect(save.owned).not.toContain('cartographe');
+    // Sans service de comptes : l'achat local reste possible
+    const local = defaultSave();
+    local.wallet.medals = 500;
+    expect(purchase(local, 'cartographe')).toMatchObject({ ok: true, spent: 300 });
+    expect(local.wallet.medals).toBe(200);
+  });
+});
+
+describe('remboursement local des anciens vaisseaux supprimés (sans service)', () => {
+  it('rend les Médailles dépensées, une seule fois, sans toucher aux articles actuels ni aux sauvegardes avec service', async () => {
+    const { defaultSave } = await import('../src/save/save');
+    const { refundRemovedSkins } = await import('../src/economy/local');
+    const save = defaultSave();
+    save.wallet.medals = 10;
+    save.economy.purchases = { aurore: 140, menthe: 150, 'chantier-orbital': 100, neon: 150 };
+    expect(refundRemovedSkins(save)).toBe(290);
+    expect(save.wallet.medals).toBe(300);
+    expect(save.economy.purchases).toEqual({ 'chantier-orbital': 100, neon: 150 });
+    expect(refundRemovedSkins(save)).toBe(0);
+    expect(save.wallet.medals).toBe(300);
+    const managed = defaultSave();
+    managed.economy.managed = true;
+    managed.economy.purchases = { aurore: 140 };
+    expect(refundRemovedSkins(managed)).toBe(0);
+    expect(managed.wallet.medals).toBe(0);
+  });
+});

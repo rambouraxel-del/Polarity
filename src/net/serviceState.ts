@@ -9,3 +9,13 @@ export function setServiceIncompatible(v: boolean): void {
 }
 
 export const isServiceIncompatible = (): boolean => incompatible;
+
+/**
+ * Articles que le service a refusés comme « inconnus » (service resté sur un ancien catalogue). Indicateur d'affichage et garde-fou : tant que le
+ * service ne les connaît pas, l'achat est bloqué avec une explication (sinon il serait annulé à chaque synchronisation, donc rejouable à l'infini).
+ * Mémoire seulement : remis à zéro au prochain lancement du jeu (après mise à jour du service).
+ */
+const unknownToService = new Set<string>();
+
+export const markUnknownToService = (id: string): void => void unknownToService.add(id);
+export const isUnknownToService = (id: string): boolean => unknownToService.has(id);

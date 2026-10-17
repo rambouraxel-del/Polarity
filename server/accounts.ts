@@ -1,8 +1,8 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
-import { bonusRef, checkPurchase, entitledRewards, grantedBy, importRef, earnRef, medalRef, PREMIUM_ITEMS, refillBucket, spendRef, SYNC_RULES } from '../src/economy/rules';
+import { bonusRef, checkPurchase, entitledRewards, grantedBy, importRef, earnRef, medalRef, PREMIUM_ITEMS, refillBucket, refundRef, spendRef, SYNC_RULES } from '../src/economy/rules';
 import { mergeSaves } from '../src/economy/merge';
 import { ACHIEVEMENT_CONFIG } from '../src/config/achievements';
-import { CATALOG, catalogItem } from '../src/config/catalog';
+import { CATALOG, REMOVED_MEDAL_SKINS, catalogItem } from '../src/config/catalog';
 import { BONUS, BONUS_LIST, WALLET_MAX, type BonusKind } from '../src/config/economy';
 import { REVIVE } from '../src/config/powers';
 import { effectivePrice } from '../src/progression/shop';
@@ -128,6 +128,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     legacyCount: db.prepare('SELECT COUNT(*) AS n FROM installs WHERE player_id = ? AND legacy_imported = 1'),
     ledgerInsert: db.prepare('INSERT OR IGNORE INTO ledger (player_id, currency, kind, amount, ref, at, meta) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     ledgerHas: db.prepare('SELECT amount FROM ledger WHERE player_id = ? AND ref = ?'),
+    ledgerSpent: db.prepare('SELECT amount, currency FROM ledger WHERE player_id = ? AND ref = ?'),
   };
 
   // ————————————————————————— profils, accès
@@ -469,6 +470,20 @@ export function createAccounts(deps: AccountsDeps): Accounts {
   const ledger = (playerId: string, kind: string, amount: number, ref: string, meta?: Record<string, unknown>, currency = 'shards'): boolean =>
     Number(q.ledgerInsert.run(playerId, currency, kind, amount, ref, now(), meta ? JSON.stringify(meta) : null).changes) === 1;
 
+  /**
+   * Remboursement des Médailles dépensées pour d'anciens vaisseaux SUPPRIMÉS du jeu : pour chaque ligne `spend:<id>` en Médailles du registre, une ligne
+   * `refund:<id>` du même montant (clé unique par profil : une seule fois, jamais deux). Ne touche à aucune autre ligne ; sans achat, rien.
+   */
+  function refundRemovedSkins(playerId: string): number {
+    let total = 0;
+    for (const id of REMOVED_MEDAL_SKINS) {
+      const spent = q.ledgerSpent.get(playerId, spendRef(id)) as unknown as { amount: number; currency: string } | undefined;
+      if (!spent || spent.currency !== 'medals' || spent.amount >= 0) continue;
+      if (ledger(playerId, 'refund', -spent.amount, refundRef(id), { item: id }, 'medals')) total += -spent.amount;
+    }
+    return total;
+  }
+
   type Counters = { boost: number; gel: number };
   interface InstallState {
     earned: number;
@@ -630,6 +645,8 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       }
       // 3. Récompenses uniques historiques (anciens Éclats), montants de la configuration, une fois par profil
       creditEntitled(me.id, incoming);
+      // 3 bis. Médailles dépensées pour d'anciens vaisseaux supprimés : remboursées une seule fois
+      refundRemovedSkins(me.id);
 
       // 4. Achats de cosmétiques : article du catalogue, prix du catalogue, financement réel ; déjà possédé = jamais débité
       const owned = new Set(cur.save.owned);

@@ -4,6 +4,7 @@ import type { AuthResponse, ConflictResponse, EmailRequestResponse, NonceRespons
 import type { Identity, LeaderboardClient, NetResult } from '../net/leaderboard';
 import type { KeyValueStore, SaveData } from '../save/save';
 import { availability, type Availability } from './providers';
+import { markUnknownToService } from '../net/serviceState';
 
 /**
  * Service de COMPTE du jeu : profil invité automatique, connexion facultative (Google / Apple / lien magique), fusion confirmée, synchronisation et
@@ -335,8 +336,11 @@ export class AccountService {
     const res = await lb.api<SyncResponse>('POST', '/api/sync', { auth: true, body: buildSyncBody(sent) });
     if (!res.ok) return this.fail(res);
     this.h.commit((s) => applySyncResult(s, res.data, sent, { pendingUse: lb.pendingBonusUse() }));
+    // Article inconnu du service (service resté sur l'ancien catalogue) : achat annulé, bloqué ensuite avec une explication précise
+    const unknown = res.data.rejected.filter((r) => r.reason === 'unknown');
+    for (const r of unknown) markUnknownToService(r.item);
     const refused = res.data.rejected.length + res.data.bonusRejected.boost + res.data.bonusRejected.gel;
-    this.setSync('ok', refused > 0 ? `${refused} achat${refused > 1 ? 's' : ''} non confirmé${refused > 1 ? 's' : ''} par le service (fonds insuffisants ou stock plein) : annulé${refused > 1 ? 's' : ''}, rien n’a été débité.` : res.data.capped ? 'Une partie de vos gains sera confirmée aux prochaines synchronisations.' : null);
+    this.setSync('ok', unknown.length > 0 ? 'Le service en ligne n’est pas encore à jour pour ces articles : achat annulé, rien n’a été débité.' : refused > 0 ? `${refused} achat${refused > 1 ? 's' : ''} non confirmé${refused > 1 ? 's' : ''} par le service (fonds insuffisants ou stock plein) : annulé${refused > 1 ? 's' : ''}, rien n’a été débité.` : res.data.capped ? 'Une partie de vos gains sera confirmée aux prochaines synchronisations.' : null);
   }
 
   /**
@@ -352,6 +356,10 @@ export class AccountService {
     const res = await this.h.lb.api<PremiumPurchaseResponse>('POST', '/api/shop/prisms', { auth: true, body: { item } });
     if (!res.ok) {
       if (res.kind === 'offline') return { ok: false, message: 'Connexion requise pour acheter avec des Prismes : le solde est contrôlé par le service.' };
+      if (res.status === 404) {
+        markUnknownToService(item);
+        return { ok: false, message: 'Le service en ligne n’est pas encore à jour pour cet article.' };
+      }
       return { ok: false, message: res.status === 409 ? 'Prismes insuffisants.' : res.message };
     }
     this.h.commit((s) => applyPremiumPurchase(s, res.data));
