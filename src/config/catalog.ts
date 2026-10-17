@@ -81,12 +81,38 @@ export const LEGACY_ACHIEVEMENT_ITEMS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Anciens vaisseaux payés en MÉDAILLES, supprimés du jeu : les Médailles dépensées pour les acheter sont REMBOURSÉES (une seule fois). Côté service :
- * une ligne `refund:<id>` du registre (idempotente) pour chaque ligne `spend:<id>` en Médailles ; côté jeu sans service : montant mémorisé dans
- * `economy.purchases` (economy/local.ts, `refundRemovedSkins`). Un ancien skin obtenu par un succès (sans dépense) ne donne rien.
- * (L'ancien « Néon » était payé en Prismes : non remboursé ici.)
+ * Anciens vaisseaux SUPPRIMÉS du jeu et leur PRIX HISTORIQUE (dernier catalogue avant la refonte). Table explicite utilisée par le remboursement du
+ * service (server/accounts.ts, `refundRemovedSkins`) quand le montant exact payé n'est pas enregistré dans le registre :
+ * - `currency` / `price` : prix historique (dernier catalogue : Médailles pour les sept vaisseaux standard, Prismes pour Néon) ;
+ * - `achievement` : succès qui débloquait gratuitement cet ancien vaisseau (avant la v8, ou en exclusivité) : si ce succès est obtenu et qu'aucun
+ *   débit n'est enregistré, le vaisseau est réputé obtenu SANS dépense : aucun remboursement ;
+ * - `viaPack` : pack premium qui l'accordait (Néon) : remboursement au prorata si seul le pack avait été acheté.
+ * Règle générale : on rembourse ce qui a été RÉELLEMENT dépensé (ligne `spend:<id>` du registre, montant et monnaie exacts) ; sans ligne, le prix de
+ * cette table, seulement si le vaisseau est possédé, non gratuit et sans succès correspondant. Jamais pour un vaisseau gratuit, obtenu par succès ou
+ * récompense (Faille) : ils n'y figurent pas ou sont exclus. Une seule ligne `refund:<id>` par profil et par article (idempotence).
  */
-export const REMOVED_MEDAL_SKINS: readonly string[] = ['aurore', 'menthe', 'ambre', 'spectre', 'glace', 'solaire', 'prisme'];
+export interface RemovedSkin {
+  id: string;
+  currency: 'medals' | 'prisms';
+  price: number;
+  achievement?: string;
+  viaPack?: { id: string; share: number };
+}
+
+export const REMOVED_SKINS: readonly RemovedSkin[] = [
+  { id: 'aurore', currency: 'medals', price: 140, achievement: 'first_cycle' },
+  { id: 'menthe', currency: 'medals', price: 150, achievement: 'first_level' },
+  { id: 'ambre', currency: 'medals', price: 160, achievement: 'survive_60' },
+  { id: 'spectre', currency: 'medals', price: 170 },
+  { id: 'glace', currency: 'medals', price: 180, achievement: 'max_combo' },
+  { id: 'solaire', currency: 'medals', price: 190, achievement: 'survive_300' },
+  { id: 'prisme', currency: 'medals', price: 200, achievement: 'all_levels' },
+  // Néon : 150 Prismes ; le pack « Néon + Nébuleuse » (200 Prismes pour 225 de valeur) l'accordait : prorata 150 / 225
+  { id: 'neon', currency: 'prisms', price: 150, viaPack: { id: 'pack-neon', share: 150 / 225 } },
+];
+
+/** Anciens vaisseaux payés en Médailles (remboursement local d'une sauvegarde sans service : economy/local.ts). */
+export const REMOVED_MEDAL_SKINS: readonly string[] = REMOVED_SKINS.filter((r) => r.currency === 'medals').map((r) => r.id);
 
 export function catalogItem(id: string): CatalogItem | undefined {
   return CATALOG.find((i) => i.id === id);

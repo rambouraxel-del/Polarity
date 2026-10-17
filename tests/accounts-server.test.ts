@@ -590,23 +590,82 @@ describe('synchronisation : gains, récompenses uniques, achats', () => {
     expect(ledgerRows(c, g.id).filter((e) => e.ref === 'spend:chantier-orbital')).toHaveLength(1);
   });
 
-  it('anciens vaisseaux supprimés : Médailles dépensées remboursées une seule fois (registre), rien pour un ancien skin obtenu sans dépense ni pour un article actuel', () => {
-    const c = ctx();
-    const g = guest(c);
-    sync(c, g, { installId: install, earned: 0 });
-    const put = (ref: string, amount: number, currency = 'medals'): void => void c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, ?, 'x', ?, ?, 1)").run(g.id, currency, amount, ref);
-    put('medal:first_cycle', 600); // Médailles gagnées
-    put('gift:prisms', 200, 'prisms');
-    put('spend:aurore', -140);
-    put('spend:menthe', -150);
-    put('spend:chantier-orbital', -100); // article actuel : jamais remboursé
-    put('spend:neon', -150, 'prisms'); // Prismes : non remboursé ici
-    expect(balancesOf(c.db, g.id).medals).toBe(600 - 140 - 150 - 100);
-    for (let i = 0; i < 3; i++) sync(c, g, { installId: install, earned: 0 });
-    expect(balancesOf(c.db, g.id).medals).toBe(600 - 100);
-    expect(balancesOf(c.db, g.id).prisms).toBe(50); // 200 - 150 : aucun remboursement en Prismes
-    const refunds = ledgerRows(c, g.id).filter((e) => e.kind === 'refund');
-    expect(refunds.map((e) => [e.ref, e.amount]).sort()).toEqual([['refund:aurore', 140], ['refund:menthe', 150]]);
+  describe('migration « refonte cosmétique » : remboursement des anciens vaisseaux supprimés', () => {
+    const put = (c: Ctx, id: string, ref: string, amount: number, currency = 'medals'): void =>
+      void c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, ?, 'x', ?, ?, 1)").run(id, currency, amount, ref);
+    /** Instantané serveur d'un ancien compte (possession et succès d'avant la refonte). */
+    const snapshot = (c: Ctx, id: string, owned: string[], achievements: Record<string, number> = {}): void => {
+      const s = defaultSave();
+      s.owned = owned;
+      s.achievements = achievements;
+      c.db.prepare('INSERT OR REPLACE INTO saves (player_id, rev, data, updated_at, device) VALUES (?, 1, ?, 1, ?)').run(id, JSON.stringify(s), 'test');
+    };
+    const refunds = (c: Ctx, id: string): [string, number, string][] =>
+      (c.db.prepare("SELECT ref, amount, currency FROM ledger WHERE player_id = ? AND kind = 'refund' ORDER BY ref").all(id) as { ref: string; amount: number; currency: string }[]).map((r) => [r.ref, r.amount, r.currency]);
+
+    it('dépenses enregistrées : montants et monnaies exacts, soldes existants intacts, article actuel et gratuits jamais remboursés', () => {
+      const c = ctx();
+      const g = guest(c);
+      sync(c, g, { installId: install, earned: 0 });
+      put(c, g.id, 'medal:first_cycle', 700);
+      put(c, g.id, 'gift:prisms', 400, 'prisms');
+      put(c, g.id, 'spend:aurore', -140);
+      put(c, g.id, 'spend:menthe', -150);
+      put(c, g.id, 'spend:chantier-orbital', -100); // article ACTUEL : jamais remboursé
+      put(c, g.id, 'spend:neon', -150, 'prisms'); // Néon payé en Prismes : remboursé en Prismes
+      snapshot(c, g.id, ['aurore', 'menthe', 'neon', 'glace', 'chantier-orbital'], { max_combo: 1000 }); // « glace » : par succès, sans dépense
+      expect(balancesOf(c.db, g.id)).toEqual({ shards: 0, medals: 700 - 390, prisms: 250 });
+      sync(c, g, { installId: install, earned: 0 });
+      expect(refunds(c, g.id)).toEqual([['refund:aurore', 140, 'medals'], ['refund:menthe', 150, 'medals'], ['refund:neon', 150, 'prisms']]);
+      // Aucune remise à zéro : l'ancien solde + les remboursements ; rien pour Glace (succès) ni pour l'article actuel
+      expect(balancesOf(c.db, g.id)).toEqual({ shards: 0, medals: 700 - 100, prisms: 400 });
+    });
+
+    it('montant non enregistré : table historique explicite, seulement pour un vaisseau possédé sans succès correspondant', () => {
+      const c = ctx();
+      const g = guest(c);
+      sync(c, g, { installId: install, earned: 0 });
+      // spectre : possédé, aucun succès associé → 170 ; ambre : possédé mais succès « survive_60 » obtenu → gratuit ; prisme : non possédé → rien ; neon : jamais sans dépense
+      snapshot(c, g.id, ['spectre', 'ambre', 'neon'], { survive_60: 1000 });
+      sync(c, g, { installId: install, earned: 0 });
+      expect(refunds(c, g.id)).toEqual([['refund:spectre', 170, 'medals']]);
+      expect(balancesOf(c.db, g.id)).toEqual({ shards: 0, medals: 170, prisms: 0 });
+    });
+
+    it('Néon acheté seulement dans le pack : part de Néon (150 / 225) en Prismes', () => {
+      const c = ctx();
+      const g = guest(c);
+      sync(c, g, { installId: install, earned: 0 });
+      put(c, g.id, 'gift:prisms', 300, 'prisms');
+      put(c, g.id, 'spend:pack-neon', -200, 'prisms');
+      sync(c, g, { installId: install, earned: 0 });
+      expect(refunds(c, g.id)).toEqual([['refund:neon', 133, 'prisms']]);
+    });
+
+    it('idempotence : des synchronisations répétées (et un second compte identique) ne multiplient jamais les remboursements', () => {
+      const c = ctx();
+      const g = guest(c);
+      sync(c, g, { installId: install, earned: 0 });
+      put(c, g.id, 'medal:first_cycle', 400);
+      put(c, g.id, 'spend:aurore', -140);
+      snapshot(c, g.id, ['aurore', 'spectre']);
+      for (let i = 0; i < 6; i++) sync(c, g, { installId: install, earned: 0 });
+      expect(refunds(c, g.id)).toEqual([['refund:aurore', 140, 'medals'], ['refund:spectre', 170, 'medals']]);
+      expect(balancesOf(c.db, g.id).medals).toBe(400 - 140 + 140 + 170);
+      // Même après un autre appareil (autre installation) : toujours une seule ligne par article
+      for (let i = 0; i < 3; i++) sync(c, g, { installId: 'install-other-0001', earned: 0 });
+      expect(refunds(c, g.id)).toHaveLength(2);
+    });
+
+    it('nouveau compte : aucun remboursement, aucun effet sur les soldes', () => {
+      const c = ctx();
+      const g = guest(c);
+      const save = achieved(...MEDAL_100);
+      const r = sync(c, g, { installId: install, claims: MEDAL_100, save }).body as SyncResponse;
+      sync(c, g, { installId: install, claims: MEDAL_100, save });
+      expect(refunds(c, g.id)).toEqual([]);
+      expect(r.balance.medals).toBe(100);
+    });
   });
 
   it('achat refusé : financement insuffisant, prix falsifié, article inconnu, indisponible ou PREMIUM (Prismes) ; l’article n’est pas accordé, aucun solde négatif', () => {

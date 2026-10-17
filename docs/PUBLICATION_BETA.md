@@ -126,12 +126,40 @@ Ordre en cas de retour arrière complet : jeu (R0) **puis** service (R3).
 ## 9 bis. Mise à jour « Survie à phases » (BALANCE_VERSION 4)
 Aucun schéma SQLite à migrer. **Service d'abord, jeu ensuite** : le jeu v4 envoie `balance: 4` ; un service v3 refuserait ses parties (`unsupported_balance`), et un service v4 refuse les parties d'un jeu v3. Les records de la v3 restent consultables (sélecteur de version du classement) ; côté joueur, les records locaux de la v3 sont rangés dans l'archive (Survie et « Avec bonus » ; le défi quotidien, inchangé, garde ses records). Le rejeu de parties longues (phase 2) coûte plus de calcul : surveiller le CPU du service après publication.
 
-## 9 ter. Mise à jour « refonte cosmétique » (hitbox +15 %, nouveau catalogue de skins)
-À faire **sur autorisation**, service d'abord, jeu ensuite (aucune étape n'a été exécutée) :
-1. **Le rejeu serveur doit utiliser le même code `src/`** : la hitbox du vaisseau est passée à ×1,15 (`HITBOX.playerScale`, `config/hitbox.ts`) alors que `BALANCE_VERSION` reste **4** (décision du propriétaire attendue : rester à 4 ou passer à 5). Un service resté sur l'ancienne hitbox pourrait refuser certaines parties du nouveau jeu (rejeu différent).
-2. Le service doit aussi connaître le **nouveau catalogue** (`config/catalog.ts` / `config/skins.ts`) : sans cela, les achats de skins (Éclats en différé, Prismes via `/api/shop/prisms`) sont rejetés « article inconnu » et `server/accounts.ts` ne sait pas encore débiter un article « au choix ».
-3. Procédure habituelle : sauvegarde de la base (`server:migrate-check` sur une copie), mise à jour du conteneur, vérification, puis publication du jeu (`git push origin main`, GitHub Pages). Aucun changement de schéma SQLite.
-4. Les anciens skins n'existent plus : une sauvegarde qui en équipe un retombe sur « Tôle brute » ; les Médailles dépensées pour d'anciens skins sont **remboursées** par le service à la première synchronisation (lignes `refund:<id>` du registre, une seule fois). **Tant que le service n'est pas mis à jour, les achats des nouveaux skins sont bloqués** (« Service pas à jour ») : c'est attendu.
+## 9 ter. Mise à jour « refonte cosmétique » (nouveaux skins, remboursement des anciens, hitbox +15 %)
+**Sur autorisation du propriétaire (obtenue).** Service d'abord, jeu ensuite. Aucun changement de schéma SQLite propre à cette mise à jour (la migration de schéma habituelle s'applique seule si la base est plus ancienne ; copie `.avant-vN.bak`).
+
+Ce que fait le service mis à jour :
+- **Catalogue** : les dix identifiants et prix du jeu (`src/config/skins.ts` → `config/catalog.ts`, même code des deux côtés) : tole-brute (défaut), chantier-orbital 100 Médailles, carbone-utilitaire 150, dipole 200, circuit 250, cartographe 300, long-courrier 1 500 Éclats / 60 Prismes, basalte 2 000 / 80, arcade-84 3 000 / 120, porcelaine (indisponible). Achat en Prismes au choix : `POST /api/shop/prisms` (prix du catalogue, jamais celui du client).
+- **Remboursement unique des anciens skins supprimés** (`refundRemovedSkins`, `server/accounts.ts` ; table historique `REMOVED_SKINS` dans `config/catalog.ts`), à la première synchronisation (ou migration d'une ancienne sauvegarde) de chaque profil. **Aucun solde n'est remis à zéro** : une ligne `refund:<id>` s'AJOUTE au registre.
+  1. dépense enregistrée (`spend:<id>`) : montant et monnaie exacts (Médailles ; Prismes pour Néon) ;
+  2. Néon acheté seulement dans le pack « Néon + Nébuleuse » (200 Prismes) : part de Néon, 150/225 = 133 Prismes ;
+  3. montant non enregistré : prix de la table (aurore 140, menthe 150, ambre 160, spectre 170, glace 180, solaire 190, prisme 200 Médailles), **seulement** si le skin est possédé et que son succès (first_cycle, first_level, survive_60, —, max_combo, survive_300, all_levels) n'est PAS obtenu ; jamais de Prismes sans dépense enregistrée ;
+  4. rien pour un skin gratuit, obtenu par succès ou par récompense (Faille).
+  **Idempotence** : une seule ligne `refund:<id>` par profil et par skin (clé unique du registre) ; synchronisations répétées, plusieurs appareils, relancements : aucun second remboursement.
+  Limite connue : le chemin 3 s'appuie sur la possession enregistrée (instantané serveur ou ancienne sauvegarde importée) ; il est borné à 1 190 Médailles par profil, une seule fois.
+- Tant que le service n'est pas à jour, le jeu bloque l'achat des nouveaux skins (« Service pas à jour »).
+
+### Commandes (sur la machine du service ; voir aussi `docs/GUIDE_DEPLOIEMENT.md`)
+```sh
+cd Polarity/deploy
+sh mise-a-jour-service.sh <SHA-du-commit>     # 1) sauvegarde sqlite + archive du volume + .env  2) récupération  3) build  4) redémarrage  5) santé
+# Copier ensuite deploy/sauvegardes/ HORS de la machine (autre ordinateur / stockage externe).
+```
+Vérification manuelle (≈ 1 minute ; crée un profil invité de test et le supprime ; l'ancien compte est seulement lu et synchronisé) :
+```sh
+cd Polarity/deploy
+node verifier-service.mjs --url https://<votre-service> \
+  --old-account "<idJoueur>.<secret d'un ancien compte>" \
+  --credit-prisms "docker compose exec -T -e TEST_PLAYER_ID classement node --input-type=module < credit-test-prisms.mjs" \
+  --restart "docker compose restart classement"
+```
+Contrôles : santé de l'API, reconnaissance des dix identifiants, achats Médailles / Éclats / Prismes (3 répétitions : aucun double débit), persistance après relancement, ancien compte (soldes qui ne baissent jamais, stables après plusieurs synchronisations), nouveau compte (soldes à 0, aucun remboursement parasite). Pour lister les remboursements écrits :
+`docker compose exec -T classement node -e "const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('/data/leaderboard.sqlite');console.log(d.prepare(\"SELECT currency,COUNT(*) n,SUM(amount) total FROM ledger WHERE kind='refund' GROUP BY currency\").all())"`
+
+Répétition faite (sans accès au serveur réel) : base « ancien service » fabriquée avec le code d'avant la refonte, migrée et vérifiée avec le nouveau code derrière un vrai serveur HTTP : voir `PROGRESS.md`.
+
+Rappel : la hitbox du vaisseau est passée à ×1,15 (`HITBOX.playerScale`) sans changer `BALANCE_VERSION` (4) ; le service doit exécuter ce même code pour rejouer les parties (c'est le cas dès qu'il est reconstruit depuis ce commit).
 
 ## 10. Jeu publié avant le service (cas constaté) : diagnostic et résolution
 **Constat** : la branche `feat/polar-rift-economie-v3` a été fusionnée dans `main` (PR n° 1) : GitHub Pages publie donc le **nouveau jeu**, alors que le service OVH est resté **à l'ancienne version** (celle de `836be7d` : classement seulement). L'ordre prévu au § 4 (service d'abord) n'a pas été suivi ; ce n'est pas un défaut du nouveau code.

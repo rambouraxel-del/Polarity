@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { bonusRef, checkPurchase, entitledRewards, grantedBy, importRef, earnRef, medalRef, PREMIUM_ITEMS, refillBucket, refundRef, spendRef, SYNC_RULES } from '../src/economy/rules';
 import { mergeSaves } from '../src/economy/merge';
 import { ACHIEVEMENT_CONFIG } from '../src/config/achievements';
-import { CATALOG, REMOVED_MEDAL_SKINS, catalogItem } from '../src/config/catalog';
+import { CATALOG, REMOVED_SKINS, catalogItem } from '../src/config/catalog';
 import { BONUS, BONUS_LIST, WALLET_MAX, type BonusKind } from '../src/config/economy';
 import { REVIVE } from '../src/config/powers';
 import { effectivePrice } from '../src/progression/shop';
@@ -471,17 +471,42 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     Number(q.ledgerInsert.run(playerId, currency, kind, amount, ref, now(), meta ? JSON.stringify(meta) : null).changes) === 1;
 
   /**
-   * Remboursement des Médailles dépensées pour d'anciens vaisseaux SUPPRIMÉS du jeu : pour chaque ligne `spend:<id>` en Médailles du registre, une ligne
-   * `refund:<id>` du même montant (clé unique par profil : une seule fois, jamais deux). Ne touche à aucune autre ligne ; sans achat, rien.
+   * MIGRATION « refonte cosmétique » : remboursement, UNE SEULE FOIS par profil et par ancien vaisseau supprimé (config/catalog.ts, `REMOVED_SKINS`),
+   * de ce qui a été dépensé pour l'obtenir. Ne touche à aucun solde existant (jamais de remise à zéro) : une ligne `refund:<id>` s'ajoute au registre.
+   * 1. Dépense ENREGISTRÉE (`spend:<id>`) : montant et monnaie exacts (Médailles ; Prismes pour Néon) ;
+   * 2. Néon acheté seulement dans le pack (`spend:pack-neon`) : part de Néon dans le pack (prorata) ;
+   * 3. Sinon, montant non enregistré : prix de la table historique (Médailles seulement ; jamais de Prismes sans dépense enregistrée), si le vaisseau est
+   *    possédé et n'a PAS été obtenu par son succès. Un vaisseau gratuit ou obtenu par succès ne rapporte rien.
+   * Idempotence : la clé `refund:<id>` est unique par profil (UNIQUE du registre + INSERT OR IGNORE) : une synchronisation répétée ne crée jamais une
+   * seconde ligne, quel que soit le chemin (exact, pack, table). Renvoie les montants remboursés par monnaie.
    */
-  function refundRemovedSkins(playerId: string): number {
-    let total = 0;
-    for (const id of REMOVED_MEDAL_SKINS) {
-      const spent = q.ledgerSpent.get(playerId, spendRef(id)) as unknown as { amount: number; currency: string } | undefined;
-      if (!spent || spent.currency !== 'medals' || spent.amount >= 0) continue;
-      if (ledger(playerId, 'refund', -spent.amount, refundRef(id), { item: id }, 'medals')) total += -spent.amount;
+  function refundRemovedSkins(playerId: string, owned: ReadonlySet<string>, achievements: Record<string, unknown>): { medals: number; prisms: number } {
+    const out = { medals: 0, prisms: 0 };
+    const spentOf = (id: string): { amount: number; currency: string } | undefined => {
+      const r = q.ledgerSpent.get(playerId, spendRef(id)) as unknown as { amount: number; currency: string } | undefined;
+      return r && r.amount < 0 && (r.currency === 'medals' || r.currency === 'prisms') ? r : undefined;
+    };
+    for (const r of REMOVED_SKINS) {
+      if (q.ledgerHas.get(playerId, refundRef(r.id))) continue; // déjà remboursé (ou examiné) : jamais deux fois
+      let amount = 0;
+      let currency: 'medals' | 'prisms' = r.currency;
+      let mode = 'exact';
+      const own = spentOf(r.id);
+      const pack = r.viaPack ? spentOf(r.viaPack.id) : undefined;
+      if (own) {
+        amount = -own.amount;
+        currency = own.currency as 'medals' | 'prisms';
+      } else if (pack && r.viaPack) {
+        amount = Math.round(-pack.amount * r.viaPack.share);
+        currency = pack.currency as 'medals' | 'prisms';
+        mode = 'pack';
+      } else if (r.currency === 'medals' && owned.has(r.id) && !(r.achievement && achievements[r.achievement] !== undefined)) {
+        amount = r.price;
+        mode = 'table';
+      }
+      if (amount > 0 && ledger(playerId, 'refund', amount, refundRef(r.id), { item: r.id, mode }, currency)) out[currency] += amount;
     }
-    return total;
+    return out;
   }
 
   type Counters = { boost: number; gel: number };
@@ -573,6 +598,8 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       ledger(me.id, 'import', shards, importRef(installId), { claimed: legacy.shards, capped: shards < legacy.shards, version: incoming.version });
       // Les récompenses uniques que l'import couvre déjà sont marquées à 0 : elles ne seront jamais re-créditées (aucun double crédit)
       for (const r of entitledRewards(incoming)) ledger(me.id, 'reward_covered', 0, r.ref);
+      // Anciens vaisseaux supprimés déjà possédés dans cette ancienne sauvegarde : remboursés (une seule fois), avant que ces identifiants soient écartés
+      refundRemovedSkins(me.id, new Set(incoming.owned), incoming.achievements);
       // Cosmétiques : tout ce que contient l'ancienne sauvegarde, sauf l'article premium (Prismes) et les identifiants inconnus
       const known = new Set(CATALOG.map((i) => i.id));
       incoming.owned = incoming.owned.filter((id) => known.has(id) && !PREMIUM_ITEMS.has(id));
@@ -645,8 +672,8 @@ export function createAccounts(deps: AccountsDeps): Accounts {
       }
       // 3. Récompenses uniques historiques (anciens Éclats), montants de la configuration, une fois par profil
       creditEntitled(me.id, incoming);
-      // 3 bis. Médailles dépensées pour d'anciens vaisseaux supprimés : remboursées une seule fois
-      refundRemovedSkins(me.id);
+      // 3 bis. Anciens vaisseaux supprimés : dépenses remboursées une seule fois (registre idempotent)
+      refundRemovedSkins(me.id, new Set(cur.save.owned), cur.save.achievements);
 
       // 4. Achats de cosmétiques : article du catalogue, prix du catalogue, financement réel ; déjà possédé = jamais débité
       const owned = new Set(cur.save.owned);

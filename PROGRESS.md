@@ -1,5 +1,10 @@
 # Suivi d'avancement
 
+## Mise à jour du service « refonte cosmétique » (commit du service ; déploiement à lancer sur la machine OVH)
+- `server/accounts.ts` : remboursement idempotent des anciens skins (dépense exacte, pack Néon au prorata, table historique `REMOVED_SKINS` sinon ; rien pour les skins gratuits / par succès ; aucun solde remis à zéro) ; catalogue = celui du jeu (dix skins, mêmes prix).
+- `deploy/mise-a-jour-service.sh` (sauvegarde sqlite + archive du volume + .env, mise à jour, santé), `deploy/verifier-service.mjs` + `deploy/credit-test-prisms.mjs` (vérification manuelle).
+- Répétition locale sur une base « ancien service » (6 comptes) derrière un vrai serveur : A 130→420 Médailles (140+150), B Prismes 250→400 (150), C 200→333 (133), D inchangé, E +170 (table), F inchangé ; stable après 8 synchronisations et un relancement. Vérificateur : tous contrôles verts. **Le serveur OVH réel n'a pas été touché** (aucun accès depuis l'environnement de développement).
+
 ## Refonte cosmétique, première partie (travail sur `main`, `BALANCE_VERSION` 4 inchangée)
 - **Skins** : les dix anciens skins sont supprimés (config, catalogue, textures recolorées, succès legacy, apparence exclusive « Faille », pack Néon) ; nouveau catalogue = dix PNG de la planche 01 (`src/assets/skins/`), configuration unique `SKIN_CONFIG` (`config/skins.ts` : id, nom, image, prestige, obtention, prix Médailles/Éclats/Prismes, disponibilité, ordre ; **valeurs provisoires**, `SKIN_ECONOMY_PROVISIONAL`). `tole-brute` = gratuit, équipé pour un nouveau joueur et repli de tout id inconnu (sauvegardes anciennes sans erreur). Trois situations d'obtention : Médailles seulement, Éclats OU Prismes (nouveau `Acquire` `choice`, deux boutons ; Prismes débités par le service seul, `buyPremium` accepte les articles `choice`), indisponible. Aucun achat en argent réel.
 - **Traînées** : catégorie conservée, « Indisponible pour l'instant », achat/équipement/aperçu désactivés (`TRAILS_ENABLED = false`, données conservées).
