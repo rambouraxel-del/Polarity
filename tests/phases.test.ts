@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { PHASE2_MUSIC, PHASE_BONUS, PHASE_REWARD_SKIN, PHASES, nextAccent, nextBeat } from '../src/config/phases';
+import * as phasesConfig from '../src/config/phases';
+import { PHASE2_MUSIC, PHASE_BONUS, PHASES, nextAccent, nextBeat } from '../src/config/phases';
 import { SURVIVAL } from '../src/config/survival';
 import { ARENA, SIM } from '../src/config/balance';
-import { CATALOG, catalogItem } from '../src/config/catalog';
-import { claimPhaseBonus, grantPhaseSkin } from '../src/economy/local';
+import { catalogItem } from '../src/config/catalog';
+import * as localEconomy from '../src/economy/local';
+import { claimPhaseBonus } from '../src/economy/local';
 import { GameSession } from '../src/game/session';
 import { createSimulation } from '../src/modes/run';
 import { phase2Intensity, phasedDifficulty, phasedIntervalScale, phasedWeights, survivalProfile } from '../src/modes/profiles';
-import { itemState, purchase } from '../src/progression/shop';
 import { defaultSave } from '../src/save/save';
 import { Bot } from '../src/sim/bot';
 import { Rng } from '../src/core/rng';
@@ -289,7 +290,7 @@ describe('difficulté et nouvelles menaces de la phase 2', () => {
   });
 });
 
-describe('récompenses de phase : prime d’Éclats et apparence exclusive', () => {
+describe('récompenses de phase : prime d’Éclats (plus d’apparence exclusive)', () => {
   it('prime : montant centralisé, croissant selon la phase, versée une seule fois par partie et par phase (reprises, synchronisations)', () => {
     expect(PHASE_BONUS[2]).toBe(150);
     expect(PHASE_BONUS[3]).toBeGreaterThan(PHASE_BONUS[2]);
@@ -304,21 +305,15 @@ describe('récompenses de phase : prime d’Éclats et apparence exclusive', () 
     expect(claimPhaseBonus(s, '', 2)).toBe(0);
   });
 
-  it('apparence exclusive : récompense (jamais achetable), débloquée une seule fois, jamais re-facturée', () => {
-    const item = catalogItem(PHASE_REWARD_SKIN)!;
-    expect(item.acquire.type).toBe('reward');
+  it('plus d’apparence exclusive : l’apparence « Faille » n’existe plus ; franchir une phase ne verse que la prime d’Éclats, jamais un cosmétique', () => {
+    expect('PHASE_REWARD_SKIN' in phasesConfig).toBe(false);
+    expect('grantPhaseSkin' in localEconomy).toBe(false);
+    expect(catalogItem('faille')).toBeUndefined();
     const s = defaultSave();
     s.wallet.medals = 99999;
-    expect(itemState(s, item)).toBe('locked');
-    expect(purchase(s, item.id)).toMatchObject({ ok: false, reason: 'unavailable' });
+    expect(claimPhaseBonus(s, 'run-a', 2)).toBe(PHASE_BONUS[2]);
+    expect(s.owned).toEqual([]);
     expect(s.wallet.medals).toBe(99999);
-    expect(grantPhaseSkin(s)).toBe(true);
-    expect(s.owned).toContain(PHASE_REWARD_SKIN);
-    expect(grantPhaseSkin(s)).toBe(false);
-    expect(s.owned.filter((x) => x === PHASE_REWARD_SKIN)).toHaveLength(1);
-    expect(itemState(s, item)).toBe('owned');
-    // Total de la collection en Médailles inchangé (la récompense n'y entre pas)
-    expect(CATALOG.filter((i) => i.acquire.type === 'price' && i.acquire.currency === 'medals').length).toBeGreaterThan(0);
   });
 
   it('le profil de Survie à phases est celui du directeur (hooks de rythme et de phase)', () => {

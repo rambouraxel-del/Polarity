@@ -1,3 +1,4 @@
+import { orbitLook } from '../config/orbit';
 import { FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import type { Skin } from '../progression/skins';
 import { skinCanvas } from '../render/skinSprites';
@@ -79,10 +80,12 @@ export class ShipPreview {
     halo.addColorStop(1, rgba(c.cockpit, 0));
     ctx.fillStyle = halo;
     ctx.fillRect(0, 0, w, h);
-    ctx.lineWidth = Math.max(1.5 * dpr, side * 0.008);
-    ctx.strokeStyle = rgba(c.orbit, 0.85);
-    ctx.shadowColor = css(c.orbit);
-    ctx.shadowBlur = side * 0.04;
+    // Orbite : celle de la phase 1 (config/orbit.ts), jamais liée à l'apparence présentée
+    const orbit = orbitLook(1);
+    ctx.lineWidth = Math.max(1 * dpr, side * 0.005);
+    ctx.strokeStyle = rgba(orbit.color, Math.min(1, orbit.lineAlpha + 0.15));
+    ctx.shadowColor = css(orbit.color);
+    ctx.shadowBlur = side * 0.025;
     ctx.beginPath();
     ctx.arc(cx, cy, side * 0.45, 0, Math.PI * 2);
     ctx.stroke();
@@ -138,9 +141,9 @@ export class ShipPreview {
     const th = FX.thruster;
     const flick = this.reduced ? 1 : 1 + th.flicker * Math.sin(time * 38) * Math.sin(time * 23 + 1);
     const len = th.length * k * flick;
-    const off = shipHalfWidth() * 0.3 * k;
+    const off = shipHalfWidth() * th.spread * k;
     const w2 = th.width * 0.5 * k;
-    const y0 = L * 0.72;
+    const y0 = L * th.start;
     ctx.globalCompositeOperation = 'lighter';
     for (const x0 of [-off, off]) {
       this.flame(ctx, x0, y0, w2 * 1.5, len, rgba(c.thruster.glow, 0.13));

@@ -1,5 +1,6 @@
 import { catalogItem } from '../config/catalog';
 import { BONUS } from '../config/economy';
+import { DEFAULT_SKIN_ID } from '../config/skins';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import type { MigrateBody, PremiumPurchaseResponse, SyncBody, SyncResponse } from '../net/accountProtocol';
 import type { SaveData } from '../save/save';
@@ -95,7 +96,7 @@ export function applySyncResult(local: SaveData, res: SyncResponse, sent: SaveDa
   // Articles premium : le service seul les accorde (achat de Prismes vérifié). Un article premium que le service ne reconnaît pas — modification
   // locale de la sauvegarde — est retiré (jamais un moyen de contourner le paiement).
   for (const id of PREMIUM_ITEMS) if (!serverOwned.has(id)) local.owned = local.owned.filter((x) => x !== id);
-  if (PREMIUM_ITEMS.has(local.skin) && !serverOwned.has(local.skin)) local.skin = 'classique';
+  if (PREMIUM_ITEMS.has(local.skin) && !serverOwned.has(local.skin)) local.skin = DEFAULT_SKIN_ID;
   if (PREMIUM_ITEMS.has(local.trail) && !serverOwned.has(local.trail)) local.trail = DEFAULT_TRAIL_ID;
 
   // Médailles : le service fait foi pour ce qui a été envoyé ; les réclamations faites depuis l'envoi sont conservées

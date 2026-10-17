@@ -1,35 +1,34 @@
-import { CLASSIC_SKIN_ID, SHIP_MODELS, SKINS, type SkinDef } from '../config/skins';
+import { DEFAULT_SKIN_ID, SKINS, type SkinDef } from '../config/skins';
 import { isOwned, type Ownership } from './shop';
 
 /**
- * Apparences : purement cosmétiques, aucune statistique. Les données visuelles sont dans config/skins.ts,
- * les conditions d'obtention dans config/catalog.ts. Les couleurs des menaces (corail, orange, magenta)
- * ne sont jamais reprises par un réacteur.
+ * Apparences : purement cosmétiques, aucune statistique. Les données (identifiant, nom, image, prestige, prix, disponibilité) sont dans
+ * config/skins.ts ; le catalogue de la boutique en est déduit (config/catalog.ts).
  */
 export type Skin = SkinDef;
 export { SKINS };
 
-export function classicSkin(): Skin {
-  return SKINS.find((s) => s.id === CLASSIC_SKIN_ID) ?? SKINS[0];
+/** Apparence par défaut (« Tôle brute ») : gratuite, équipée d'emblée, et repli de tout identifiant inexistant. */
+export function defaultSkin(): Skin {
+  return SKINS.find((s) => s.id === DEFAULT_SKIN_ID) ?? SKINS[0];
 }
 
-/** Apparence par identifiant ; identifiant inconnu ou modèle indisponible → modèle classique. */
+/** Apparence par identifiant ; identifiant inconnu (ancienne apparence retirée, valeur corrompue) → apparence par défaut. */
 export function skinById(id: string): Skin {
-  const s = SKINS.find((k) => k.id === id);
-  return s && s.asset in SHIP_MODELS ? s : classicSkin();
+  return SKINS.find((k) => k.id === id) ?? defaultSkin();
 }
 
 export function isKnownSkin(id: string): boolean {
-  return SKINS.some((s) => s.id === id && s.asset in SHIP_MODELS);
+  return SKINS.some((s) => s.id === id);
 }
 
-/** Possédée : gratuite, achetée en Médailles ou en Prismes, ou conservée d'une version précédente. */
+/** Possédée : gratuite, achetée (Médailles, Éclats ou Prismes). */
 export function isSkinOwned(skin: Skin, own: Ownership): boolean {
   return isOwned(own, skin.id);
 }
 
-/** Apparence à équiper : celle de la sauvegarde si elle existe et est possédée, sinon la classique. */
+/** Apparence à équiper : celle de la sauvegarde si elle existe et est possédée, sinon l'apparence par défaut. */
 export function resolveEquipped(id: string, own: Ownership): Skin {
   const s = skinById(id);
-  return isSkinOwned(s, own) ? s : classicSkin();
+  return isSkinOwned(s, own) ? s : defaultSkin();
 }

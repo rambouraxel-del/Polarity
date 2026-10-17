@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { GAME_NAME, STORAGE_NAMESPACE } from '../src/config/brand';
 import { LEVELS } from '../src/config/levels';
+import { SKIN_CONFIG } from '../src/config/skins';
+import { TEST_PACK_ID, addTestPack } from './helpers';
 import { ACHIEVEMENTS } from '../src/progression/achievements';
 import { BACKUP_PREFIX, BALANCE_BACKUP_PREFIX, CORRUPT_KEY, SAVE_KEY, defaultSave } from '../src/save/save';
 import { THEME, contrast, themeVariables, type ThemeColor } from '../src/ui/theme';
@@ -103,15 +105,19 @@ describe('écrans : données réelles', () => {
   });
 });
 
-describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', () => {
+describe('Boutique (cosmétiques en Médailles, au choix Éclats / Prismes ; bonus en Éclats)', () => {
   const base = (): ReturnType<typeof defaultSave> => {
     const s = defaultSave();
     s.wallet = { shards: 1200, medals: 700, prisms: 0 };
-    s.owned = ['aurore'];
-    s.skin = 'aurore';
+    s.owned = ['chantier-orbital'];
+    s.skin = 'chantier-orbital';
     s.achievements = { first_cycle: 1 };
     return s;
   };
+  /** Identifiants des cartes cliquables, dans l'ordre d'affichage. */
+  const cardIds = (html: string): string[] => [...html.matchAll(/data-action="select-item" data-item="([^"]+)"/g)].map((m) => m[1]);
+  /** Boutons `buy` (balise ouvrante) d'un écran. */
+  const buyButtons = (html: string): string[] => html.match(/<button[^>]*data-action="buy"[^>]*>/g) ?? [];
 
   it('soldes affichés une seule fois, quatre catégories (dont Bonus), trois filtres', () => {
     const html = S.cosmeticsScreen(base(), 'ships', 'all');
@@ -130,98 +136,165 @@ describe('Boutique (cosmétiques en Médailles ou Prismes, bonus en Éclats)', (
     const all = S.cosmeticItems(save, 'ships', 'all').map((i) => i.id);
     const owned = S.cosmeticItems(save, 'ships', 'owned').map((i) => i.id);
     const locked = S.cosmeticItems(save, 'ships', 'locked').map((i) => i.id);
-    expect(owned.sort()).toEqual(['aurore', 'classique']);
+    expect(owned.sort()).toEqual(['chantier-orbital', 'tole-brute']);
     expect(locked).toEqual(all.filter((id) => !owned.includes(id)));
     expect(owned.length + locked.length).toBe(all.length);
-    expect(locked).toContain('neon');
-    expect(locked).toContain('glace');
+    expect(locked).toContain('long-courrier');
+    expect(locked).toContain('cartographe');
+    expect(locked).toContain('porcelaine');
     // L'article affiché appartient toujours au filtre
-    expect(S.cosmeticsScreen(save, 'ships', 'locked', 'aurore')).not.toContain('data-skin-preview="aurore"');
-    expect(S.cosmeticsScreen(save, 'ships', 'owned')).toContain('data-skin-preview="aurore"');
+    expect(S.cosmeticsScreen(save, 'ships', 'locked', 'chantier-orbital')).not.toContain('data-skin-preview="chantier-orbital"');
+    expect(S.cosmeticsScreen(save, 'ships', 'owned')).toContain('data-skin-preview="chantier-orbital"');
     // Catégorie vide dans un filtre : message
     const everything = base();
     everything.owned = S.cosmeticItems(everything, 'ships', 'all').map((i) => i.id);
     expect(S.cosmeticsScreen(everything, 'ships', 'locked')).toContain('Tout est débloqué');
   });
 
-  it('états : Acheter, Médailles insuffisantes, Équiper, Équipé, Bientôt disponible', () => {
+  it('états : Acheter, Médailles insuffisantes, Équiper, Équipé, Indisponible', () => {
     const save = base();
-    let html = S.cosmeticsScreen(save, 'ships', 'all', 'menthe');
-    expect(html).toMatch(/data-action="buy"[^>]*data-item="menthe"/);
+    let html = S.cosmeticsScreen(save, 'ships', 'all', 'carbone-utilitaire');
+    expect(html).toMatch(/data-action="buy"[^>]*data-item="carbone-utilitaire"/);
     expect(html).toContain('Acheter');
     save.wallet.medals = 50;
-    html = S.cosmeticsScreen(save, 'ships', 'all', 'menthe');
+    html = S.cosmeticsScreen(save, 'ships', 'all', 'carbone-utilitaire');
     expect(html).toContain('Médailles insuffisantes');
     expect(html).toMatch(/data-action="buy"\s+disabled/);
     expect(html).toContain('Il manque 100 Médailles');
-    // Les Éclats ne financent pas un cosmétique : le solde d'Éclats n'y change rien
+    // Les Éclats ne financent pas un cosmétique en Médailles : le solde d'Éclats n'y change rien
     save.wallet.shards = 100000;
-    expect(S.cosmeticsScreen(save, 'ships', 'all', 'menthe')).toContain('Il manque 100 Médailles');
-    save.owned.push('ambre');
-    html = S.cosmeticsScreen(save, 'ships', 'all', 'ambre');
-    expect(html).toMatch(/data-action="equip-item"[^>]*data-item="ambre"/);
+    expect(S.cosmeticsScreen(save, 'ships', 'all', 'carbone-utilitaire')).toContain('Il manque 100 Médailles');
+    save.owned.push('dipole');
+    html = S.cosmeticsScreen(save, 'ships', 'all', 'dipole');
+    expect(html).toMatch(/data-action="equip-item"[^>]*data-item="dipole"/);
     expect(html).toContain('Possédé');
-    html = S.cosmeticsScreen(save, 'ships', 'all', 'aurore');
+    html = S.cosmeticsScreen(save, 'ships', 'all', 'chantier-orbital');
     expect(html).toContain('Équipé');
-    // Plus de « succès requis » : un ancien vaisseau d'exclusivité s'achète en Médailles
-    html = S.cosmeticsScreen(save, 'ships', 'all', 'solaire');
+    // Pas de « succès requis » : un vaisseau s'achète en Médailles, à son prix
+    html = S.cosmeticsScreen(save, 'ships', 'all', 'cartographe');
     expect(html).not.toContain('Succès requis');
-    expect(html).toContain('190');
-    // Premium sans service : prix annoncé mais aucun achat possible
-    html = S.cosmeticsScreen(save, 'ships', 'all', 'neon');
-    expect(html).toContain('Bientôt disponible');
-    expect(html).toContain('150');
-    expect(html).not.toMatch(/<button[^>]*data-action="buy"(?![^>]*disabled)[^>]*>/);
+    expect(html).toContain('300');
+    // Indisponible (Porcelaine) : prix absent, aucun achat possible
+    html = S.cosmeticsScreen(save, 'ships', 'all', 'porcelaine');
+    expect(html).toContain('Indisponible');
+    expect(buyButtons(html).every((b) => b.includes('disabled'))).toBe(true);
+    expect(html).not.toMatch(/data-action="equip-item"[^>]*data-item="porcelaine"/);
   });
 
-  it('cosmétiques en Médailles et premium en Prismes sont présentés dans deux sections distinctes', () => {
+  it('achat au choix : un bouton par monnaie (data-currency), Éclats actif si le solde suffit, Prismes inactif sans service', () => {
+    const save = base();
+    save.wallet.shards = 1500;
+    let html = S.cosmeticsScreen(save, 'ships', 'all', 'long-courrier');
+    const shards = buyButtons(html).find((b) => b.includes('data-currency="shards"'));
+    const prisms = buyButtons(html).find((b) => b.includes('data-currency="prisms"'));
+    expect(shards).toBeDefined();
+    expect(prisms).toBeDefined();
+    expect(shards).toContain('data-item="long-courrier"');
+    expect(shards).not.toContain('disabled');
+    expect(prisms).toContain('disabled'); // Prismes : sans service de comptes
+    expect(html).toContain(`${formatScore(1500)} Éclats`);
+    expect(html).toContain('60 Prismes');
+    expect(html).toContain('Bientôt disponible');
+    // Fonds insuffisants : les deux boutons restent visibles mais inactifs
+    save.wallet.shards = 100;
+    html = S.cosmeticsScreen(save, 'ships', 'all', 'long-courrier');
+    expect(buyButtons(html).filter((b) => b.includes('data-currency')).length).toBe(2);
+    expect(buyButtons(html).every((b) => b.includes('disabled'))).toBe(true);
+    expect(html).toContain('Solde insuffisant');
+    // Avec un service et un solde de Prismes CONFIRMÉ : l'option Prismes devient active
+    save.economy.managed = true;
+    save.wallet.prisms = 60;
+    save.economy.confirmed = { shards: 0, medals: 0, prisms: 60 };
+    html = S.cosmeticsScreen(save, 'ships', 'all', 'long-courrier');
+    expect(buyButtons(html).find((b) => b.includes('data-currency="prisms"'))).not.toContain('disabled');
+    expect(S.confirmPurchaseScreen(save, 'long-courrier', false, 'prisms')).toContain('Confirmer l’achat');
+    expect(S.confirmPurchaseScreen(save, 'long-courrier', false, 'shards')).toContain('Achat impossible');
+  });
+
+  it('les vaisseaux sont présentés dans UNE seule grille, dans l’ordre de la configuration ; les traînées sont indisponibles ; l’onglet Prismes n’a plus de lignes premium', () => {
     const html = S.cosmeticsScreen(base(), 'ships', 'all');
-    expect(html).toContain('En Médailles');
-    expect(html).toContain('Premium · en Prismes');
-    expect(html.indexOf('En Médailles')).toBeLessThan(html.indexOf('Premium · en Prismes'));
-    expect(S.cosmeticsScreen(base(), 'trails', 'all')).toContain('Premium · en Prismes');
-    // Pack premium Néon + Nébuleuse : dans l'onglet Prismes (section premium), jamais en Médailles
+    expect(html).toContain('Vaisseaux');
+    expect(html).not.toContain('En Médailles');
+    expect(html).not.toContain('Premium · en Prismes');
+    expect(html.match(/class="skins"/g)).toHaveLength(1);
+    expect(cardIds(html)).toEqual(SKIN_CONFIG.map((c) => c.id));
+    // Traînées : message et aucune carte cliquable
+    const trails = S.cosmeticsScreen(base(), 'trails', 'all');
+    expect(trails).toContain('Indisponible pour l’instant');
+    expect(cardIds(trails)).toEqual([]);
+    expect(trails).not.toContain('select-item');
+    expect(buyButtons(trails)).toEqual([]);
+    expect(trails).not.toContain('equip-item');
+    // Onglet Prismes : plus aucune ligne premium (aucun article payable en Prismes seulement)
     const prismes = S.cosmeticsScreen(base(), 'prisms', 'all');
     expect(prismes).not.toContain('En Médailles');
-    expect(prismes).toContain('Premium · en Prismes');
-    expect(prismes).toContain('data-premium="pack-neon"');
-    expect(prismes).toContain('200');
+    expect(prismes).not.toContain('Premium · en Prismes');
+    expect(prismes).not.toContain('data-premium');
+    // Un article premium (pack factice) y réapparaîtrait, jamais en Médailles
+    const remove = addTestPack(100);
+    try {
+      const withPack = S.cosmeticsScreen(base(), 'prisms', 'all');
+      expect(withPack).toContain('Premium · en Prismes');
+      expect(withPack).toContain(`data-premium="${TEST_PACK_ID}"`);
+      expect(withPack).not.toContain('En Médailles');
+    } finally {
+      remove();
+    }
   });
 
-  it('chaque article affiche aperçu animé, description, contenu, prix ou condition', () => {
+  it('chaque article affiche aperçu animé, description, prix ou condition', () => {
     const save = base();
-    const pack = S.cosmeticsScreen(save, 'prisms', 'all');
-    expect(pack).toContain('Pack Néon + Nébuleuse');
-    expect(pack).toContain('data-premium="pack-neon"');
-    expect(pack).toContain('200');
-    const neon = S.cosmeticsScreen(save, 'ships', 'all', 'neon');
-    expect(neon).toContain('data-skin-preview="neon"');
-    const trail = S.cosmeticsScreen(save, 'trails', 'all', 'glacier');
-    expect(trail).toContain('data-trail-color=');
-    expect(trail).toContain('80');
+    const remove = addTestPack(100);
+    try {
+      const pack = S.cosmeticsScreen(save, 'prisms', 'all');
+      expect(pack).toContain('Pack test');
+      expect(pack).toContain(`data-premium="${TEST_PACK_ID}"`);
+      expect(pack).toContain('100');
+    } finally {
+      remove();
+    }
+    const ship = S.cosmeticsScreen(save, 'ships', 'all', 'long-courrier');
+    expect(ship).toContain('data-skin-preview="long-courrier"');
+    expect(ship).toContain('Coque claire, bandes rouges de convoyeur.');
+    expect(ship).toContain(formatScore(1500));
+    expect(ship).toContain('60');
+    // Prestige affiché pour Porcelaine
+    expect(S.cosmeticsScreen(save, 'ships', 'all', 'porcelaine')).toContain('prestige 2');
   });
 
-  it('aucun article premium n’a de bouton de paiement actif, dans aucune catégorie', () => {
-    const save = base();
-    save.wallet.prisms = 100000;
-    for (const [tab, item] of [['ships', 'neon'], ['trails', 'nebuleuse'], ['prisms', 'pack-neon']] as const) {
-      const html = S.cosmeticsScreen(save, tab, 'all', item);
-      const enabled = html.match(/<button[^>]*data-action="buy"[^>]*>/g)?.filter((b) => !b.includes('disabled')) ?? [];
-      expect(enabled).toEqual([]);
-      expect(html).toContain('Bientôt');
+  it('aucun article premium ni option Prismes n’a de bouton de paiement actif sans service, dans aucune catégorie', () => {
+    const remove = addTestPack(100);
+    try {
+      const save = base();
+      save.wallet.prisms = 100000;
+      save.wallet.shards = 0;
+      for (const [tab, item] of [['ships', 'long-courrier'], ['ships', 'basalte'], ['ships', 'arcade-84'], ['trails', 'emeraude'], ['prisms', TEST_PACK_ID]] as const) {
+        const html = S.cosmeticsScreen(save, tab, 'all', item);
+        expect(buyButtons(html).filter((b) => !b.includes('disabled')), `${tab} ${item}`).toEqual([]);
+      }
+      expect(S.cosmeticsScreen(save, 'prisms', 'all', TEST_PACK_ID)).toContain('Bientôt');
+    } finally {
+      remove();
     }
   });
 
   it('confirmation : récapitulatif sans rien débiter', () => {
     const save = base();
-    const html = S.confirmPurchaseScreen(save, 'spectre');
+    const html = S.confirmPurchaseScreen(save, 'circuit');
     expect(html).toContain('Confirmer l’achat');
-    expect(html).toContain('170');
-    expect(html).toMatch(/data-action="confirm-buy"[^>]*data-item="spectre"/);
+    expect(html).toContain('250');
+    expect(html).toMatch(/data-action="confirm-buy"[^>]*data-item="circuit"/);
     expect(html).toContain('data-action="back-cosmetics"');
     expect(save.wallet.medals).toBe(700);
-    expect(save.owned).toEqual(['aurore']);
+    expect(save.owned).toEqual(['chantier-orbital']);
     expect(S.confirmPurchaseScreen(save, 'inconnu')).not.toContain('confirm-buy');
+    // Achat au choix : la monnaie demandée fixe le prix ; sans monnaie, la première option (Éclats)
+    save.wallet.shards = 1500;
+    const choice = S.confirmPurchaseScreen(save, 'long-courrier', false, 'shards');
+    expect(choice).toContain('Confirmer l’achat');
+    expect(choice).toContain(formatScore(1500));
+    expect(S.confirmPurchaseScreen(save, 'long-courrier')).toContain(formatScore(1500));
+    expect(save.wallet).toEqual({ shards: 1500, medals: 700, prisms: 0 });
   });
 });
 
@@ -288,8 +361,8 @@ describe('boutique et soldes', () => {
   const base = (): ReturnType<typeof defaultSave> => {
     const s = defaultSave();
     s.wallet = { shards: 1200, medals: 0, prisms: 0 };
-    s.owned = ['aurore'];
-    s.skin = 'aurore';
+    s.owned = ['chantier-orbital'];
+    s.skin = 'chantier-orbital';
     return s;
   };
 

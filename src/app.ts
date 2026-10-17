@@ -29,19 +29,20 @@ import { GameSession, type Phase } from './game/session';
 import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
-import { claimPhaseBonus, grantPhaseSkin } from './economy/local';
+import { claimPhaseBonus } from './economy/local';
 import { PHASES } from './config/phases';
 import { PHASE2_PRELOAD_AT } from './config/music';
 import { reconcileAchievements } from './progression/achievements';
-import { catalogItem, type CatalogItem } from './config/catalog';
-import { creditShards, equip, isOwned, itemState, purchase } from './progression/shop';
+import { catalogItem, type CatalogItem, type Currency } from './config/catalog';
+import { canPay, creditShards, equip, isOwned, itemState, purchase } from './progression/shop';
 import { buyBonus } from './economy/bonus';
 import { bonusDef } from './config/economy';
 import { claimAllMedals, claimMedals } from './progression/achievements';
 import { isPremium } from './config/catalog';
 import { resolveEquipped, skinById, type Skin } from './progression/skins';
 import { CAMPAIGN_SKIN } from './config/skins';
-import { DEFAULT_TRAIL_ID } from './config/trails';
+import { orbitLook } from './config/orbit';
+import { activeTrailId, DEFAULT_TRAIL_ID } from './config/trails';
 import { ArenaRenderer, COLORS } from './render/ArenaRenderer';
 import { BrowserStore, SAVE_KEY, loadSave, parseSave, resetProgress, writeSave, type KeyValueStore, type LoadResult, type SaveData } from './save/save';
 import { Bot } from './sim/bot';
@@ -169,6 +170,8 @@ export class App {
   private cosmeticsFilter: S.CosmeticsFilter = 'all';
   private selectedItem: string | null = null;
   private pendingPurchase: string | null = null;
+  /** Monnaie choisie pour l'achat en attente de confirmation (achat au choix Éclats / Prismes). */
+  private pendingCurrency: Currency | undefined;
   private selectedMission = 1;
   private story: StoryState | null = null;
   private portraitsWarmed = false;
@@ -321,7 +324,7 @@ export class App {
    * atteignables (versés une seule fois). Renvoie vrai si une écriture est nécessaire.
    */
   private normalizeSave(): boolean {
-    // Apparence équipée : si l'identifiant est inconnu ou verrouillé, retour au modèle classique
+    // Apparence équipée : si l'identifiant est inconnu ou non possédé, retour à l'apparence par défaut (Tôle brute)
     // Un service de comptes est-il configuré ? Alors seuls les soldes confirmés financent un achat hors ligne (economy/funds.ts)
     this.save.economy.managed = this.lb.configured;
     this.save.skin = resolveEquipped(this.save.skin, this.save).id;
@@ -574,7 +577,7 @@ export class App {
     this.updateStoryText(realDt);
     // Campagne : le vaisseau est celui d'Élias (la Traverse) ; les cosmétiques de la Survie ne s'y appliquent pas
     if (this.renderer) {
-      this.renderer.trailId = this.isCampaignRun() ? DEFAULT_TRAIL_ID : this.save.trail;
+      this.renderer.trailId = this.isCampaignRun() ? DEFAULT_TRAIL_ID : activeTrailId(this.save.trail);
       this.renderer.ambience = this.updateAmbience(realDt);
     }
     this.renderer?.draw(this.session, this.activeSkin(), realDt, this.clock);
@@ -746,19 +749,14 @@ export class App {
   }
 
   /**
-   * Traversée de la faille (Survie, 300 s) : la musique de phase 1 sort en fondu et celle de phase 2 entre pendant toute la traversée ; à la fin, la
-   * première traversée réussie du profil débloque l'apparence exclusive (une seule fois). Rien de tout cela n'est lu par la simulation.
+   * Traversée de la faille (Survie, 300 s) : la musique de phase 1 sort en fondu et celle de phase 2 entre pendant toute la traversée.
+   * Rien de tout cela n'est lu par la simulation.
    */
   private onTransit(stage: 'start' | 'end', s: GameSession): void {
     if (s !== this.session) return;
     if (stage === 'start') {
       this.music.enterPhase2();
       this.sfx.play('success');
-      return;
-    }
-    if (!s.sim.assisted && !s.isTest && !this.devMode && grantPhaseSkin(this.save)) {
-      this.persist();
-      this.banner('<strong>Nouvelle apparence : Faille</strong><br>Disponible dans Cosmétiques', 4);
     }
   }
 
@@ -859,7 +857,7 @@ export class App {
       }
       case 'cycle':
         this.sfx.play('cycle');
-        r?.ring(this.activeSkin().colors.orbit);
+        r?.ring(orbitLook(r.ambience?.phase ?? 1).color);
         r?.popup(0, -40 / 0.82, `Cycle +${e.points}`, '#9ff9ff');
         break;
       case 'multiplier':
@@ -1601,7 +1599,7 @@ export class App {
         break;
       case 'leaderboard': html = S.leaderboardScreen(this.leaderboardView()); break;
       case 'confirm-prisms': html = ST.confirmPrismsScreen(this.pendingPrismPack ?? '', this.storeName()); break;
-      case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? '', this.purchaseBusy); break;
+      case 'confirm-purchase': html = S.confirmPurchaseScreen(this.save, this.pendingPurchase ?? '', this.purchaseBusy, this.pendingCurrency); break;
       case 'confirm-bonus': html = S.confirmBonusScreen(this.save, this.bonusOrder?.kind ?? '', this.bonusOrder?.qty ?? 0, this.bonusOrder?.back ?? 'cosmetics'); break;
       case 'prep':
         html = S.prepScreen(this.save, this.prepMessage);
@@ -1924,25 +1922,28 @@ export class App {
       case 'buy': {
         // Étape de confirmation : rien n'est débité ici. Un article qui n'est plus achetable (solde, déjà possédé) est refusé avec une explication.
         const item = catalogItem(target.dataset.item ?? '');
-        if (!item || itemState(this.save, item) !== 'buy') {
+        const currency = parseCurrency(target.dataset.currency);
+        if (!item || itemState(this.save, item) !== 'buy' || (currency && !canPay(this.save, item, currency))) {
           this.shopMessage = { kind: 'error', text: item ? S.purchaseRefusal(this.save, item) : 'Article inconnu : rien n’a été débité.' };
           this.pendingPurchase = null;
           this.showScreen('cosmetics');
           break;
         }
         this.pendingPurchase = item.id;
+        this.pendingCurrency = currency;
         this.showScreen('confirm-purchase');
         break;
       }
       case 'confirm-buy': {
         const wanted = catalogItem(target.dataset.item ?? '');
-        if (wanted && isPremium(wanted)) {
+        const chosen = parseCurrency(target.dataset.currency);
+        if (wanted && (isPremium(wanted) || chosen === 'prisms')) {
           void this.confirmPremium(wanted);
           break;
         }
         // Vérification du solde, débit et déblocage dans la même modification, puis une seule écriture. Un article déjà possédé n'est jamais débité
         // (un double clic sur « Confirmer » ne peut donc pas payer deux fois : le second est refusé avec le motif « déjà possédé »).
-        const res = purchase(this.save, target.dataset.item ?? '');
+        const res = purchase(this.save, target.dataset.item ?? '', chosen);
         if (res.ok) {
           this.persist();
           this.sfx.play('success');
@@ -2321,6 +2322,11 @@ function ambiencePreviewOffset(): number {
 }
 
 /** Le stockage du navigateur accepte-t-il les écritures ? (sonde sur une clé à part ; navigation privée, quota, accès bloqué → non) */
+/** Monnaie demandée par un bouton d'achat (`data-currency`) ; absente ou inconnue : l'article n'a qu'une façon de payer. */
+function parseCurrency(v: string | undefined): Currency | undefined {
+  return v === 'shards' || v === 'medals' || v === 'prisms' ? v : undefined;
+}
+
 /** Identifiant aléatoire d'une partie (clé d'idempotence du paiement des reprises). */
 function randomRunId(): string {
   const c = globalThis.crypto;

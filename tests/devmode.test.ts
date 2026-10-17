@@ -218,7 +218,7 @@ describe('records locaux : copie préalable puis effacement des seuls records', 
     save.survivalBonus = { bestTime: 100, bestScore: 50, runs: 2 };
     save.daily = { '2026-10-10': { bestTime: 60, bestScore: 10, runs: 1 } };
     save.wallet.shards = 777;
-    save.owned = [...save.owned, 'faille'];
+    save.owned = [...save.owned, 'chantier-orbital'];
     save.options.visualIntensity = 0.5;
     const others = JSON.stringify({ ...save, survival: 0, survivalBonus: 0, daily: 0 });
     const mem = new Map<string, string>();

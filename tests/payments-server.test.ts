@@ -249,15 +249,18 @@ describe('Packs de Prismes : configuration (tarifs et identifiants figés)', () 
     expect(new Set(PRISM_PACKS.map((p) => p.productId)).size).toBe(3);
   });
 
-  it('utilisations existantes inchangées : Néon 150, Nébuleuse 75, pack 200, reprises 5 puis 10 ; Éclats et Médailles non touchés', () => {
+  it('utilisations existantes : vaisseaux au choix 60 / 80 / 120 Prismes (ou 1 500 / 2 000 / 3 000 Éclats), aucun article premium ni pack, reprises 5 puis 10 ; Médailles non touchées', () => {
     const price = (id: string): unknown => CATALOG.find((i) => i.id === id)?.acquire;
-    expect(price('neon')).toEqual({ type: 'price', currency: 'prisms', amount: 150 });
-    expect(price('nebuleuse')).toEqual({ type: 'price', currency: 'prisms', amount: 75 });
-    expect(price('pack-neon')).toEqual({ type: 'price', currency: 'prisms', amount: 200 });
+    expect(price('long-courrier')).toEqual({ type: 'choice', shards: 1500, prisms: 60 });
+    expect(price('basalte')).toEqual({ type: 'choice', shards: 2000, prisms: 80 });
+    expect(price('arcade-84')).toEqual({ type: 'choice', shards: 3000, prisms: 120 });
+    // Plus d'article payable en Prismes seulement, ni de pack
+    expect(CATALOG.filter((i) => i.acquire.type === 'price' && i.acquire.currency === 'prisms')).toEqual([]);
+    expect(CATALOG.filter((i) => i.kind === 'pack')).toEqual([]);
     expect(REVIVE.prisms).toEqual({ 2: 5, 3: 10 });
     expect(AD_REVIVE_LIFE).toBe(2);
     expect(REVIVE.adLives).toEqual([2]);
-    expect(CATALOG.filter((i) => i.acquire.type === 'price' && i.acquire.currency === 'medals').reduce((t, i) => t + (i.acquire.type === 'price' ? i.acquire.amount : 0), 0)).toBe(1640);
+    expect(CATALOG.filter((i) => i.acquire.type === 'price' && i.acquire.currency === 'medals').reduce((t, i) => t + (i.acquire.type === 'price' ? i.acquire.amount : 0), 0)).toBe(1000);
   });
 });
 
@@ -657,7 +660,7 @@ describe('Web : architecture modulaire sans prestataire imposé', () => {
 });
 
 describe('Prismes achetés et gratuits interchangeables ; journal et historique', () => {
-  it('achat → cosmétique premium (Néon 150), pack 200, reprises 5 et 10 : mêmes Prismes, aucun changement de tarif', async () => {
+  it('achat → vaisseaux au choix (Basalte 80, Arcade 84 : 120), reprises 5 et 10 : mêmes Prismes, aucun changement de tarif', async () => {
     const c = ctx();
     const p = c.account('Axel');
     apple(c, p, '9301', 'polar_rift_prisms_380');
@@ -665,7 +668,8 @@ describe('Prismes achetés et gratuits interchangeables ; journal et historique'
     // Prismes gratuits (calendrier, Top 10) s'ajoutent au même solde
     c.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, 'prisms', 'daily', 15, 'daily:2026-10-14', 1)").run(p.id);
     expect(prisms(c, p.id)).toBe(395);
-    expect((await c.call('POST', '/api/shop/prisms', { auth: p.auth, body: { item: 'pack-neon' } })).body).toMatchObject({ charged: true, price: 200, balance: { prisms: 195 } });
+    expect((await c.call('POST', '/api/shop/prisms', { auth: p.auth, body: { item: 'basalte' } })).body).toMatchObject({ charged: true, price: 80, balance: { prisms: 315 } });
+    expect((await c.call('POST', '/api/shop/prisms', { auth: p.auth, body: { item: 'arcade-84' } })).body).toMatchObject({ charged: true, price: 120, balance: { prisms: 195 } });
     expect((await c.call('POST', '/api/revive', { auth: p.auth, body: { runId: 'run-pay-00001', life: 2 } })).body).toMatchObject({ price: 5, balance: { prisms: 190 } });
     expect((await c.call('POST', '/api/revive', { auth: p.auth, body: { runId: 'run-pay-00001', life: 3 } })).body).toMatchObject({ price: 10, balance: { prisms: 180 } });
     expect((await c.call('POST', '/api/revive', { auth: p.auth, body: { runId: 'run-pay-00001', life: 4 } })).status).toBe(400);

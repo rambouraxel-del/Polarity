@@ -1,46 +1,51 @@
 # Apparences du vaisseau (cosmétiques)
 
-Purement esthétiques : aucune statistique, aucun effet sur la difficulté, les vitesses ou les hitboxes. Pas de boutique ni de monnaie.
+Purement esthétiques : aucune statistique, aucun effet sur la difficulté, les vitesses ou les performances. **Même hitbox pour toutes** (`config/hitbox.ts`).
+Refonte « planche 01 » : les anciens skins ont été supprimés ; le catalogue contient dix vaisseaux (PNG 256 × 256 dans `src/assets/skins/`).
 
-## Où sont-elles définies ?
-`src/config/skins.ts` (données) ; `src/progression/skins.ts` (déblocage, repli) ; `src/render/shipPalette.ts` (recoloration, fonction pure testée) ;
-`src/render/shipTextures.ts` (textures Phaser) ; `src/render/skinSprites.ts` (canevas et miniatures pour les menus) ; `src/ui/shipPreview.ts` (grand aperçu).
+## Où est tout ?
+| Fichier | Rôle |
+|---|---|
+| `src/config/skins.ts` | **Configuration unique** (`SKIN_CONFIG`) : id stable, nom, chemin de l'image, prestige, méthode d'obtention, prix Médailles / Éclats / Prismes, disponibilité, ordre. Couleurs d'effets communes (`SHIP_FX_COLORS`), `DEFAULT_SKIN_ID`, `CAMPAIGN_SKIN` |
+| `src/config/catalog.ts` | Articles de la boutique, **déduits** de `SKIN_CONFIG` (ne pas y recopier les prix) |
+| `src/progression/skins.ts` | `skinById`, `resolveEquipped`, repli sur `tole-brute` |
+| `src/render/skinImages.ts` · `shipTextures.ts` · `skinSprites.ts` | URL des PNG (Vite), chargement et canevas des aperçus de menus |
+| `src/ui/shipPreview.ts` | grand aperçu animé du garage |
+
+## Les dix apparences (économie PROVISOIRE : `SKIN_ECONOMY_PROVISIONAL`)
+| Ordre | Id (stable) | Nom | Prestige | Obtention | Prix |
+|---|---|---|---|---|---|
+| 1 | `tole-brute` | Tôle brute | 0 | gratuit, équipé d'emblée, repli de tout id inconnu | — |
+| 2 | `chantier-orbital` | Chantier orbital | 1 | Médailles seulement | 100 Médailles |
+| 3 | `carbone-utilitaire` | Carbone utilitaire | 1 | Médailles seulement | 150 Médailles |
+| 4 | `dipole` | Dipôle | 1 | Médailles seulement | 200 Médailles |
+| 5 | `circuit` | Circuit | 1 | Médailles seulement | 250 Médailles |
+| 6 | `cartographe` | Cartographe | 1 | Médailles seulement | 300 Médailles |
+| 7 | `long-courrier` | Long-courrier | 1 | au choix : Éclats OU Prismes | 1 500 Éclats / 60 Prismes |
+| 8 | `basalte` | Basalte | 1 | au choix : Éclats OU Prismes | 2 000 Éclats / 80 Prismes |
+| 9 | `arcade-84` | Arcade 84 | 1 | au choix : Éclats OU Prismes | 3 000 Éclats / 120 Prismes |
+| 10 | `porcelaine` | Porcelaine | 2 | indisponible (« Indisponible pour l'instant ») | — |
+
+Les Prismes sont la monnaie interne premium : **aucun achat en argent réel** dans la boutique de cosmétiques. Pour changer une valeur (ou rendre un skin disponible) : modifier `SKIN_CONFIG`, rien d'autre.
+
+## Trois situations d'obtention
+- **Médailles seulement** (`acquisition: 'medals'`) : `Acquire` `price` en Médailles (jamais achetées : gagnées par les succès).
+- **Éclats OU Prismes** (`'shards_or_prisms'`) : `Acquire` `choice`. Deux boutons dans le garage. Éclats : achat local (déjà synchronisé par `checkPurchase`, prix du catalogue) ; Prismes : requête au service (`POST /api/shop/prisms`, débit atomique idempotent, jamais local).
+- **Indisponible** (`'unavailable'` ou `available: false`) : jamais proposé ; un skin déjà possédé reste équipable.
+
+## Repli et sauvegardes
+Identifiant inconnu (ancien skin supprimé, valeur corrompue) ou non possédé → `tole-brute`, sans erreur : à la lecture (`sanitize` dans `save/save.ts`) et à l'équipement (`resolveEquipped`). Une sauvegarde neuve équipe `tole-brute`.
+Les anciens identifiants dans `owned` sont ignorés (inconnus du catalogue) ; aucune Médaille n'est remboursée pour un ancien achat.
+
+## Gabarit, hitbox, Orbit
+- Les PNG : 256 × 256, vaisseau centré, nez en haut, silhouette ≈ 240 px (même rapport 120/128 que l'ancien sprite : `VISUAL.spriteContent / spriteCanvas`). Taille visuelle : `VISUAL.shipScale` (×1,25 depuis la refonte).
+- La **hitbox est un cercle commun** (`HITBOX.playerScale = 1,15` en plus de l'agrandissement `growth`), **jamais déduite des PNG** (ni de leurs dimensions, ni de leurs zones transparentes).
+- L'**Orbit ne dépend d'aucune apparence** : voir `config/orbit.ts` (apparence par phase de la partie).
+- Les lueurs de tuyères et témoins de polarité (cyan à gauche, magenta à droite) sont dans les PNG ; la flamme et les étincelles dessinées par code restent à l'opposé du déplacement (décoratives).
+- La Traverse (campagne, `CAMPAIGN_SKIN`) reste hors catalogue : sprite de base recoloré (`render/shipPalette.ts`).
 
 ## Ajouter une apparence
-Ajouter une entrée à `SKINS` dans `src/config/skins.ts` (visuels), puis son obtention dans `src/config/catalog.ts` (`default`, `achievement` ou `price` en Éclats/Prismes) :
+Copier le PNG (256 × 256) dans `src/assets/skins/`, ajouter une entrée à `SKIN_CONFIG` (id unique et définitif). `npm test` vérifie : ids uniques, fichiers présents et au bon format, un seul skin par défaut gratuit, aucun paramètre de gameplay, catalogue déduit de la configuration.
 
-```ts
-{
-  id: 'nebuleuse',            // identifiant stable : enregistré dans la sauvegarde, ne jamais le changer ni le réutiliser
-  name: 'Nébuleuse',
-  asset: 'classic',           // modèle de vaisseau (clé de SHIP_MODELS)
-  colors: {
-    hull: 0xf4f0ff,           // coque (fuselage)
-    wings: 0xb79bff,          // extrémité des ailes
-    cockpit: 0xffffff,        // verrière et liserés lumineux
-    thruster: { core: 0xf2f6ff, glow: 0x7dd0ff },      // réacteur (flamme, halo, étincelles)
-    orbit: 0xb79bff, beacon: 0xffd84a, trail: 0xe0d4ff,
-  },
-}
-```
-
-`npm test` vérifie automatiquement : identifiant unique, obtention au catalogue (succès existant), aucun champ de gameplay, couleurs coque/ailes/cockpit distinctes des autres apparences,
-et **réacteur à plus de 30° de teinte des dangers** (corail 0°, orange des astéroïdes 22°, magenta des secteurs 303° ; blancs et gris acceptés).
-
-## Modèle et gabarit
-Toutes les apparences dérivent du même sprite (`src/assets/sprites/ship.png`, 128 × 128, nez en haut) : même silhouette, même taille d'affichage, **même hitbox** (`config/hitbox.ts`).
-Les textures `ship-<id>` sont générées au démarrage par recoloration : cockpit (pixels bleu/cyan, y compris les liserés des ailes), coque et ailes (pixels clairs, fondu selon la distance à l'axe), métal sombre conservé.
-Pour un nouveau modèle (forme différente) : ajouter une entrée à `SHIP_MODELS`, charger sa texture dans `render/GameScene.ts`, en gardant le même gabarit (128 px, dessin de 120 px) et en vérifiant que la hitbox reste en retrait de la silhouette.
-
-## Repli sur le modèle classique
-- identifiant inconnu (apparence retirée dans une version ultérieure) ou verrouillée → `classique`, y compris dans la sauvegarde chargée (`resolveEquipped`) ;
-- texture ou modèle indisponible → sprite de base (`shipTextureFor`).
-
-## Menu Apparences
-Grand aperçu (canevas 2D : rotation lente, réacteur animé par code ; fixe avec « Effets réduits » ou `prefers-reduced-motion`), grille de cartes (miniature, nom, état *Équipé / Disponible / Verrouillé*).
-Toucher une carte affiche son aperçu **sans l'équiper** ; le bouton « Équiper » applique une apparence disponible. Une apparence verrouillée affiche sa condition précise
-(nom et description du succès) et un bouton inactif. L'apparence équipée est enregistrée (`skin` dans la sauvegarde) et utilisée en Niveaux, Survie et défi quotidien.
-
-## Obtention (v1.5)
-Gratuit : Classique. Boutique (Éclats) : Aurore 100, Menthe 200, Ambre 350, Spectre 600. Exclusivités de succès : Glace, Solaire, Prisme. Premium (Prismes, « Bientôt disponible ») : Néon.
-Les apparences obtenues avant la v1.5 sont conservées par la migration (`owned`). Traînées : `config/trails.ts` (couleur de la traînée lumineuse), équipables dans Apparences et dans la boutique. Voir `docs/ECONOMIE.md`.
+## Traînées (catégorie fermée)
+`TRAILS_ENABLED = false` (`config/trails.ts`) : l'onglet Traînées reste visible mais affiche « Indisponible pour l'instant » ; achat, équipement et aperçu sont désactivés, la traînée affichée est toujours la traînée par défaut. Les données (définitions, prix d'origine, traînées déjà possédées) sont conservées : passer la valeur à `true` rouvre la catégorie.

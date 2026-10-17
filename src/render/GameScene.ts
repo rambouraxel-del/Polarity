@@ -7,7 +7,7 @@ import ast4 from '../assets/sprites/ast4.png';
 import ship from '../assets/sprites/ship.png';
 import shard from '../assets/ui/eclat.png';
 import { ASTEROID_TEXTURES, SHARD_TEXTURE, SHIP_TEXTURE } from './ArenaRenderer';
-import { registerSkinTextures } from './shipTextures';
+import { loadSkinImages, registerSkinTextures } from './shipTextures';
 
 /** Scène unique : elle charge les sprites (locaux), délègue la logique à App et sert de boucle de rendu. */
 export class GameScene extends Phaser.Scene {
@@ -17,12 +17,13 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image(SHIP_TEXTURE, ship);
+    loadSkinImages(this);
     this.load.image(SHARD_TEXTURE, shard);
     [ast1, ast2, ast3, ast4].forEach((url, i) => this.load.image(ASTEROID_TEXTURES[i], url));
   }
 
   create(): void {
-    // Une texture par apparence, dérivée du sprite de base (même forme, même taille)
+    // Canevas des apparences (aperçus des menus) et texture de la Traverse (campagne)
     registerSkinTextures(this);
     this.app.onSceneReady(this);
   }

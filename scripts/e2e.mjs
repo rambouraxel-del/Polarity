@@ -222,10 +222,12 @@ const simState = (page) =>
   check(Number(dbw.prepare("SELECT COUNT(*) AS n FROM ledger WHERE player_id = ? AND kind = 'import'").get(lid).n) === 1, 'Migration : idempotente (synchroniser à nouveau n’importe rien)');
   const kept = await page.evaluate(() => {
     const a = window.__polarite.save;
-    return { owned: a.owned, survival: Math.max(a.survival.bestTime, ...Object.values(a.archive).map((x) => x.survival.bestTime)), levels: Object.keys(a.levels).length, ach: Object.keys(a.achievements).length, wallet: a.wallet, backup: Object.keys(localStorage).some((k) => k.startsWith('polarite.save.avant-v')) };
+    return { owned: a.owned, skin: a.skin, survival: Math.max(a.survival.bestTime, ...Object.values(a.archive).map((x) => x.survival.bestTime)), levels: Object.keys(a.levels).length, ach: Object.keys(a.achievements).length, wallet: a.wallet, backup: Object.keys(localStorage).some((k) => k.startsWith('polarite.save.avant-v')) };
   });
-  check(kept.owned.includes('aurore') && kept.owned.includes('emeraude'), 'Migration : cosmétiques achetés conservés');
-  check(!kept.owned.includes('neon'), 'Migration : un article premium « possédé » sans achat vérifié n’est pas importé');
+  check(kept.owned.includes('emeraude'), 'Migration : traînée achetée conservée');
+  check(kept.skin === 'tole-brute', 'Migration : l’ancienne apparence équipée (« aurore », retirée du jeu) retombe sur Tôle brute, sans erreur');
+  const serverSave = JSON.parse(dbw.prepare('SELECT data FROM saves WHERE player_id = ?').get(lid)?.data ?? '{}');
+  check(!(serverSave.owned ?? []).includes('aurore') && !(serverSave.owned ?? []).includes('neon'), 'Migration : les anciennes apparences retirées du jeu (« aurore », « neon ») ne sont pas importées par le service');
   if (process.env.E2E_DEBUG || kept.levels !== 2 || kept.ach !== 5) console.log('  sauvegarde migrée :', JSON.stringify(kept));
   check(kept.survival === 95.5 && kept.levels === 2 && kept.ach === 5, 'Migration : record de Survie (archivé sous l’ancien équilibrage), niveaux et succès conservés (+ 2 succès déduits des records : « survive_60 », « three_stars »)');
   check(kept.wallet.prisms === 0 && kept.wallet.shards === 500, 'Migration : soldes = vérité du service (500 Éclats, 0 Prisme)');
@@ -296,7 +298,7 @@ const m = await newPage({ width: 390, height: 844 }, { touch: true });
   await page.click('[data-action="cat-prisms"]');
   await page.waitForTimeout(400);
   t = await text(page);
-  check((await page.locator('[data-premium="pack-neon"]').count()) === 1 && /200/.test(t), 'Prismes : le pack premium Néon + Nébuleuse (200 Prismes) est dans cet onglet');
+  check((await page.locator('[data-premium]').count()) === 0, 'Prismes : plus aucun article premium (Prismes seulement) dans cet onglet');
   check(/30/.test(t) && /100/.test(t) && /380/.test(t) && /0,99/.test(t) && /2,99/.test(t) && /9,99/.test(t), 'Prismes : 3 packs 30/100/380 à 0,99/2,99/9,99 €');
   check((await page.locator('[data-action="prisms-buy"]:not([disabled])').count()) === 0, 'Prismes : boutons d’achat désactivés sans fournisseur configuré');
   check(/indisponible|non configuré|pas disponible/i.test(t), 'Prismes : raison affichée (fournisseur non configuré)');
@@ -340,16 +342,16 @@ const m = await newPage({ width: 390, height: 844 }, { touch: true });
   check(ledgerSum(pid, 'medals') === 20, 'Succès : jamais de double crédit');
   await shot(page, 'e2e-05-succes-mobile');
 
-  // — Premium en Prismes : traînée Nébuleuse (75), débit par le service
+  // — Achat au choix en Prismes : vaisseau Long-courrier (60), débit par le service
   await go(page, 'cosmetics');
-  await page.click('[data-action="cat-trails"]');
+  await page.click('[data-action="cat-ships"]');
   await page.waitForTimeout(200);
-  await page.click('[data-action="select-item"][data-item="nebuleuse"]').catch(() => {});
-  await page.click('[data-action="buy"]').catch(() => {});
+  await page.click('[data-action="select-item"][data-item="long-courrier"]').catch(() => {});
+  await page.click('[data-action="buy"][data-currency="prisms"]').catch(() => {});
   await page.waitForTimeout(300);
   await page.click('[data-action="confirm-buy"]').catch(() => {});
-  await waitFor(page, () => window.__polarite.save.owned.includes('nebuleuse'), null, 20000);
-  check(ledgerSum(pid, 'prisms') === 125, 'Premium : Nébuleuse payée 75 Prismes (200 → 125) par le service');
+  await waitFor(page, () => window.__polarite.save.owned.includes('long-courrier'), null, 20000);
+  check(ledgerSum(pid, 'prisms') === 140, 'Au choix : Long-courrier payé 60 Prismes (200 → 140) par le service');
 
   noErrors(errors, 'Parcours boutique (mobile)');
 }
@@ -422,7 +424,7 @@ const m = await newPage({ width: 390, height: 844 }, { touch: true });
   check(/Dépenser 5 Prismes/i.test(await text(page)), 'Confirmation explicite avant toute dépense de Prismes');
   await page.click('[data-action="revive-prisms-confirm"]');
   await waitFor(page, () => window.__polarite.session.sim.life === 2, null, 20000);
-  check(ledgerSum(pid, 'prisms') === 120, 'Service : reprise payée 5 Prismes (125 → 120)');
+  check(ledgerSum(pid, 'prisms') === 135, 'Service : reprise payée 5 Prismes (140 → 135)');
   s = await simState(page);
   check(s.life === 2 && s.free, 'Vie 2 : bonus gratuits, partie non classée');
 
@@ -435,13 +437,13 @@ const m = await newPage({ width: 390, height: 844 }, { touch: true });
   await page.click('[data-action="revive-prisms"]');
   await page.click('[data-action="revive-prisms-confirm"]');
   await waitFor(page, () => window.__polarite.session.sim.life === 3, null, 20000);
-  check(ledgerSum(pid, 'prisms') === 110, 'Service : reprise payée 10 Prismes (120 → 110)');
+  check(ledgerSum(pid, 'prisms') === 125, 'Service : reprise payée 10 Prismes (135 → 125)');
 
   // — Troisième mort : fin définitive, jamais de quatrième vie
   await page.waitForTimeout(3600);
   await killRun(page);
   await page.waitForSelector('[data-replay]', { timeout: 20000 });
-  check((await page.locator('.revive').count()) === 0 && ledgerSum(pid, 'prisms') === 110, 'Troisième mort : fin de partie, aucune quatrième vie, aucun Prisme débité');
+  check((await page.locator('.revive').count()) === 0 && ledgerSum(pid, 'prisms') === 125, 'Troisième mort : fin de partie, aucune quatrième vie, aucun Prisme débité');
   await shot(page, 'e2e-09-fin-mobile');
 
   // — Le record classé est celui de la PREMIÈRE vie ; catégorie « Avec bonus » (Boost/Gel utilisés)

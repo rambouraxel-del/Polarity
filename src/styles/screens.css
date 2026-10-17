@@ -493,9 +493,10 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Les noms longs (« Carbone utilitaire ») passent à la ligne au lieu d'être coupés */
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.15;
 }
 
 @media (min-width: 720px) {
@@ -1908,4 +1909,31 @@
 .dev-form .btn {
   width: auto;
   align-self: flex-start;
+}
+
+/* Catégorie fermée (traînées) et articles indisponibles : grisés, sans interaction */
+.item--unavailable .skin__thumb {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+
+.skins--off .skin {
+  opacity: 0.6;
+  pointer-events: none;
+  cursor: default;
+}
+
+.trails-off {
+  margin: 10px 0;
+  text-align: center;
+}
+
+.price__or {
+  margin: 0 4px;
+  color: var(--c-muted);
+  font-size: 0.8em;
+}
+
+.buy-options {
+  gap: 8px;
 }

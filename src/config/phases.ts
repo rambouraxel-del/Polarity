@@ -41,9 +41,6 @@ export const PHASE_BONUS: Readonly<Record<number, number>> = {
   3: 300,
 };
 
-/** Cosmétique exclusif de la première traversée réussie (une seule fois par profil, via la boutique/possession existantes). */
-export const PHASE_REWARD_SKIN = 'faille';
-
 // ————————————————————————————————————————————— grilles de rythme (instants de jeu actif, en secondes)
 
 /**

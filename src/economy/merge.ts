@@ -1,4 +1,5 @@
 import { MISSIONS, missionKey } from '../config/campaign';
+import { DEFAULT_SKIN_ID } from '../config/skins';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import { beatsRecord } from '../progression/progress';
 import { isOwned } from '../progression/shop';
@@ -98,7 +99,7 @@ export function mergeSaves(a: SaveData, b: SaveData): SaveData {
   out.campaign = mergeCampaign(a.campaign, b.campaign);
   out.balanceNoticeSeen = Math.max(a.balanceNoticeSeen, b.balanceNoticeSeen);
   // Apparence et traînée : celles de `a`, sinon retour aux valeurs par défaut si elles ne sont pas possédées (jamais d'équipement non possédé)
-  if (!isOwned(out, out.skin)) out.skin = 'classique';
+  if (!isOwned(out, out.skin)) out.skin = DEFAULT_SKIN_ID;
   if (!isOwned(out, out.trail)) out.trail = DEFAULT_TRAIL_ID;
   return out;
 }

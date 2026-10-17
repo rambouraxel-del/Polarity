@@ -24,7 +24,7 @@ Analyse hors ligne `python3 -I scripts/analyze-phase2.py` → `src/data/polar-ri
 
 ## Récompenses
 - **Prime d'Éclats par nouvelle phase** : `PHASE_BONUS` = **150 Éclats** à l'entrée en phase 2 (≈ deux fois les Éclats d'orbite collectés pendant les 5 premières minutes, soit trois Boost), 300 prévus pour la phase 3. Une seule fois par partie et par phase (`save.economy.phaseClaims`, clé « identifiant de partie:phase »), première vie d'une partie non assistée seulement ; gain répétable envoyé au service par le compteur monotone existant (seau à jetons) : aucun double versement lors des reprises ou des synchronisations.
-- **Apparence exclusive « Faille »** (`PHASE_REWARD_SKIN`) : débloquée à la première traversée réussie du profil, une seule fois (`save.owned`), jamais achetable (`acquire: { type: 'reward' }`, état « À débloquer en jouant »).
+- (L'ancienne apparence exclusive « Faille » a été supprimée avec les anciens skins ; le type d'obtention `reward` reste disponible dans `config/catalog.ts`.)
 
 ## Ambiance (décorative)
 Noyau → faille au cœur sombre (4 min 30 – 5 min), filaments électriques, ondes sur les battements, traversée qui enveloppe l'écran puis **tunnel de facettes** de la phase 2 avec rubans d'énergie et éclairs (voir `docs/AMBIANCE.md`, « Décor animé ») (moments forts préparés `AMBIENCE.script` + analyse musicale), passages calmes qui calment l'ambiance, légères impulsions de caméra (jamais lues par la simulation), traversée (zoom arrière + rotation + voile blanc, effets réduits : voile seul), apparence de la phase 2 fondue sous le flash. Les menaces, le vaisseau et les objets restent au-dessus et lisibles.

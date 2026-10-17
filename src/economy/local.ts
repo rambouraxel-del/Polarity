@@ -1,5 +1,5 @@
 import type { CatalogItem } from '../config/catalog';
-import { PHASE_BONUS, PHASE_REWARD_SKIN } from '../config/phases';
+import { PHASE_BONUS } from '../config/phases';
 import type { SaveData } from '../save/save';
 
 /**
@@ -32,11 +32,4 @@ export function claimPhaseBonus(save: SaveData, runKey: string, phase: number): 
   save.wallet.shards += amount;
   noteEarned(save, amount);
   return amount;
-}
-
-/** Apparence exclusive de la première traversée réussie : ajoutée UNE fois à `owned` (jamais retirée ni refacturée). Renvoie vrai si elle vient d'être obtenue. */
-export function grantPhaseSkin(save: SaveData): boolean {
-  if (save.owned.includes(PHASE_REWARD_SKIN)) return false;
-  save.owned = [...save.owned, PHASE_REWARD_SKIN];
-  return true;
 }

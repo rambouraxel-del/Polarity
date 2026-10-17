@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { TEST_PACK_ID, addTestPack } from './helpers';
 import { PRISM_PACKS } from '../src/config/monetization';
 import { REVIVE } from '../src/config/powers';
 import { reviveWithAd } from '../src/monetization/adReward';
@@ -358,9 +359,19 @@ describe('Boutique : écran des packs de Prismes', () => {
     expect(shop).toContain('cat-prisms');
     expect(shop).toContain('Acheter des Prismes');
     expect(S.COSMETIC_TABS.map((t) => t.id)).toEqual(['ships', 'trails', 'bonus', 'prisms']);
-    // Onglet « Packs » supprimé : le pack premium Néon + Nébuleuse (200 Prismes) est présenté dans l'onglet Prismes
+    // Onglet « Packs » supprimé ; plus aucun article premium (Prismes seulement) : l'onglet Prismes n'a plus de lignes premium
     expect(shop).not.toContain('cat-packs');
-    expect(shop).toContain('data-premium="pack-neon"');
+    expect(shop).not.toContain('data-premium');
+    expect(shop).not.toContain('Premium · en Prismes');
+    // Un article premium (ici un pack factice) y serait présenté, comme avant
+    const remove = addTestPack(100);
+    try {
+      const withPack = S.cosmeticsScreen(save, 'prisms', 'all', undefined, null, view());
+      expect(withPack).toContain(`data-premium="${TEST_PACK_ID}"`);
+      expect(withPack).toContain('Premium · en Prismes');
+    } finally {
+      remove();
+    }
     expect(S.optionsScreen(save, true)).toContain('Achats, publicités et confidentialité');
     expect(S.optionsScreen(save, false)).not.toContain('Achats, publicités');
   });

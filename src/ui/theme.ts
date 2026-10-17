@@ -15,7 +15,7 @@ export const THEME = {
     nightDeep: '#050A1C',
     /** Fond des panneaux (rendu translucide dans les styles). */
     panel: '#0A1633',
-    /** Accents. `cyan` = interface ; `orbit` = orbite de l'arène (inchangée). */
+    /** Accents. `cyan` = interface ; `orbit` = valeur historique (l'orbite de l'arène suit désormais config/orbit.ts, par phase). */
     cyan: '#00E4FF',
     orbit: '#00E5FF',
     white: '#FFFFFF',

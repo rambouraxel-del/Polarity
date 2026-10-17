@@ -141,10 +141,10 @@ describe('sauvegarde v6', () => {
     archive: {},
     balanceNoticeSeen: 3,
     achievements: { first_cycle: 1 },
-    skin: 'aurore',
+    skin: 'chantier-orbital',
     trail: 'auto',
     wallet: { shards: 321, prisms: 4 },
-    owned: ['aurore'],
+    owned: ['chantier-orbital'],
     paid: { '1': { first: true, stars: 2 } },
     options: { muted: true, volume: 0.3, reducedEffects: false, tutorialSeen: true },
     seenIntros: [],
@@ -162,8 +162,8 @@ describe('sauvegarde v6', () => {
     expect(data.version).toBe(SAVE_VERSION);
     expect(data.wallet).toEqual({ shards: 321, medals: 0, prisms: 4 });
     expect(data.archive['3'].survival.bestTime).toBe(123.4); // records de la v3 archivés (équilibrage 4)
-    expect(data.skin).toBe('aurore');
-    expect(data.owned).toEqual(['aurore']);
+    expect(data.skin).toBe('chantier-orbital');
+    expect(data.owned).toEqual(['chantier-orbital']);
     expect(data.rewarded).toEqual(['first_cycle']);
     expect(data.levels['1'].stars).toBe(2);
     expect(data.campaign).toEqual({ missions: {}, seen: [], reserve: 0, upgrades: { owned: [], enabled: [] }, chapterComplete: false });

@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CATALOG, LEGACY_ACHIEVEMENT_ITEMS, catalogItem, isPremium, itemsOfKind, medalCost } from '../src/config/catalog';
-import { LEGACY_SKIN_ACHIEVEMENTS, LEVEL_REWARDS, SHARDS } from '../src/config/economy';
-import { SKINS, MIN_HAZARD_HUE_GAP, hazardHueGap } from '../src/config/skins';
-import { TRAILS } from '../src/config/trails';
+import { LEVEL_REWARDS, SHARDS } from '../src/config/economy';
+import { DEFAULT_SKIN_ID, SKINS, MIN_HAZARD_HUE_GAP, hazardHueGap } from '../src/config/skins';
+import { DEFAULT_TRAIL_ID, TRAILS, TRAILS_ENABLED, activeTrailId } from '../src/config/trails';
+import { TEST_PACK_ID, addTestPack } from './helpers';
 import { LEVELS } from '../src/config/levels';
 import { GameSession } from '../src/game/session';
 import { survivalProfile } from '../src/modes/profiles';
 import { NullPaymentProvider, getPaymentProvider, premiumAvailable, setPaymentProvider, type PaymentProvider } from '../src/monetization/payments';
 import { applyRun, type RunSummary } from '../src/progression/progress';
-import { creditShards, effectivePrice, equip, isOwned, itemState, purchase } from '../src/progression/shop';
+import { canPay, creditShards, effectivePrice, equip, isOwned, itemState, priceOptions, purchase } from '../src/progression/shop';
 import { spendable } from '../src/economy/funds';
 import { ACHIEVEMENTS, achievementById, achievementProgress, claimAllMedals, claimMedals, claimableMedals, metricValue, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
 import { BALANCE_BACKUP_PREFIX, BACKUP_PREFIX, MemoryStore, SAVE_KEY, SAVE_VERSION, defaultSave, loadSave, writeSave, type SaveData } from '../src/save/save';
@@ -306,7 +307,7 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     stats: { totalCycles: 10, totalRuns: 5 },
   });
 
-  it('conserve les progrès, solde à 0, cosmétiques déjà obtenus conservés, récompenses historiques déjà traitées', () => {
+  it('conserve les progrès, solde à 0, récompenses historiques déjà traitées ; une ancienne apparence retirée retombe sur Tôle brute', () => {
     const store = new MemoryStore();
     store.set(SAVE_KEY, JSON.stringify(v2()));
     const res = loadSave(store);
@@ -324,11 +325,12 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     expect(s.levels['1']).toEqual({ completed: true, bestScore: 52000, stars: 3 });
     expect(s.archive['3'].survival.bestTime).toBe(100); // records de la v3 archivés (équilibrage 4)
     expect(s.achievements.max_combo).toBe(3);
-    // Cosmétiques obtenus avant la mise à jour
-    expect([...s.owned].sort()).toEqual(['ambre', 'aurore', 'glace']);
-    expect(isOwned(s, 'aurore') && isOwned(s, 'ambre') && isOwned(s, 'glace')).toBe(true);
-    expect(isOwned(s, 'menthe')).toBe(false);
-    expect(s.skin).toBe('ambre');
+    // Les anciennes apparences (aurore, ambre, glace…) ont été retirées du jeu : rien n'est possédé en plus, aucune erreur,
+    // et l'apparence équipée (ambre) retombe sur l'apparence par défaut
+    expect([...s.owned]).toEqual([]);
+    expect(isOwned(s, 'aurore') || isOwned(s, 'ambre') || isOwned(s, 'glace') || isOwned(s, 'menthe')).toBe(false);
+    expect(s.skin).toBe(DEFAULT_SKIN_ID);
+    expect(isOwned(s, s.skin)).toBe(true);
     expect(s.trail).toBe('auto');
     // Récompenses historiques traitées : pas de crédit rétroactif
     expect(s.paid['1']).toEqual({ first: true, stars: 3 });
@@ -352,24 +354,28 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     const s = loadSave(store).data;
     expect(s.version).toBe(SAVE_VERSION);
     expect(s.wallet.shards).toBe(75);
-    expect(s.owned).toContain('aurore');
+    expect(s.owned).toEqual([]);
+    expect(s.skin).toBe(DEFAULT_SKIN_ID);
   });
 
-  it('une apparence équipée sans succès correspondant (sauvegarde modifiée) n’est pas considérée comme possédée', () => {
-    const raw = { ...v2(), achievements: {}, skin: 'solaire' };
-    const store = new MemoryStore();
-    store.set(SAVE_KEY, JSON.stringify(raw));
-    const s = loadSave(store).data;
-    expect(s.owned).toEqual([]);
-    expect(isOwned(s, 'solaire')).toBe(false);
+  it('une ancienne apparence équipée (retirée du jeu) ou inconnue n’est jamais possédée : retour à Tôle brute, sans erreur', () => {
+    for (const old of ['solaire', 'classique', 'aurore', 'glace', 'inconnue']) {
+      const raw = { ...v2(), achievements: {}, skin: old };
+      const store = new MemoryStore();
+      store.set(SAVE_KEY, JSON.stringify(raw));
+      const s = loadSave(store).data;
+      expect(s.owned).toEqual([]);
+      expect(isOwned(s, old)).toBe(false);
+      expect(s.skin).toBe(DEFAULT_SKIN_ID);
+    }
   });
 
   it('soldes, cosmétiques et traînée survivent à un rechargement ; valeurs aberrantes ramenées à des entiers sûrs', () => {
     const store = new MemoryStore();
     const save = defaultSave();
     save.wallet = { shards: 345, medals: 120, prisms: 0 };
-    save.owned = ['aurore', 'emeraude'];
-    save.skin = 'aurore';
+    save.owned = ['chantier-orbital', 'emeraude'];
+    save.skin = 'chantier-orbital';
     save.trail = 'emeraude';
     save.paid = { '1': { first: true, stars: 2 } };
     writeSave(store, save);
@@ -378,12 +384,12 @@ describe('sauvegarde v3 : migration et rechargement', () => {
     expect(back.data).toEqual(save);
     const bad = JSON.parse(JSON.stringify(save));
     bad.wallet = { shards: -50, medals: 7.9, prisms: 'beaucoup' };
-    bad.owned = ['aurore', 'aurore', 12, null];
+    bad.owned = ['chantier-orbital', 'chantier-orbital', 12, null];
     bad.paid = { x: { first: true }, '2': { first: 'oui', stars: 9 } };
     store.set(SAVE_KEY, JSON.stringify(bad));
     const fixed = loadSave(store).data;
     expect(fixed.wallet).toEqual({ shards: 0, medals: 7, prisms: 0 });
-    expect(fixed.owned).toEqual(['aurore']);
+    expect(fixed.owned).toEqual(['chantier-orbital']);
     expect(fixed.paid).toEqual({ '2': { first: false, stars: 3 } });
   });
 });
@@ -397,97 +403,133 @@ function richSave(medals: number, shards = 0): SaveData {
 }
 
 describe('boutique : achats de cosmétiques en Médailles', () => {
-  it('grille de prix : vaisseaux 140 → 200, traînées 70 → 110 ; totaux 1 190 + 450 = 1 640', () => {
+  it('grille de prix : cinq vaisseaux en Médailles 100 → 300 (total 1 000) ; traînées fermées donc hors total', () => {
     const ships = CATALOG.filter((i) => i.kind === 'ship' && i.acquire.type === 'price' && i.acquire.currency === 'medals').map((i) => [i.id, i.acquire.type === 'price' ? i.acquire.amount : 0]);
-    expect(ships).toEqual([['aurore', 140], ['menthe', 150], ['ambre', 160], ['spectre', 170], ['glace', 180], ['solaire', 190], ['prisme', 200]]);
-    const trails = CATALOG.filter((i) => i.kind === 'trail' && i.acquire.type === 'price' && i.acquire.currency === 'medals').map((i) => [i.id, i.acquire.type === 'price' ? i.acquire.amount : 0]);
-    expect(trails).toEqual([['emeraude', 70], ['glacier', 80], ['ultraviolet', 90], ['citron', 100], ['boreale', 110]]);
-    expect(medalCost('ship')).toBe(1190);
-    expect(medalCost('trail')).toBe(450);
-    expect(medalCost('ship') + medalCost('trail')).toBe(1640);
+    expect(ships).toEqual([['chantier-orbital', 100], ['carbone-utilitaire', 150], ['dipole', 200], ['circuit', 250], ['cartographe', 300]]);
+    // Traînées : leurs prix d'origine restent dans le code mais la catégorie est fermée (`unavailable`) : plus aucune n'est payable en Médailles
+    const trails = CATALOG.filter((i) => i.kind === 'trail' && i.acquire.type === 'price' && i.acquire.currency === 'medals');
+    expect(trails.length).toBe(TRAILS_ENABLED ? 5 : 0);
+    expect(medalCost('ship')).toBe(1000);
+    expect(medalCost('trail')).toBe(TRAILS_ENABLED ? 450 : 0);
   });
 
-  it('aucun cosmétique non premium ne s’achète en Éclats ; Classique et Assortie restent gratuits', () => {
+  it('les vaisseaux « au choix » sont payables en Éclats OU en Prismes, jamais en Médailles ; Tôle brute et Assortie restent gratuites', () => {
     for (const i of CATALOG) {
       if (i.acquire.type === 'price') expect(['medals', 'prisms']).toContain(i.acquire.currency);
+      if (i.acquire.type === 'choice') expect(priceOptions(i).map((p) => p.currency)).toEqual(['shards', 'prisms']);
     }
-    expect(catalogItem('classique')!.acquire.type).toBe('default');
+    expect(catalogItem(DEFAULT_SKIN_ID)!.acquire.type).toBe('default');
     expect(catalogItem('auto')!.acquire.type).toBe('default');
+    // Des Éclats ne paient pas un cosmétique en Médailles
     const save = richSave(0, 100000);
-    expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(purchase(save, 'chantier-orbital')).toEqual({ ok: false, reason: 'insufficient' });
     expect(save.wallet.shards).toBe(100000);
   });
 
   it('achat : fonds vérifiés, débit en Médailles et déblocage enregistrés ensemble', () => {
     const save = richSave(250);
-    expect(itemState(save, catalogItem('aurore')!)).toBe('buy');
-    const res = purchase(save, 'aurore');
-    expect(res).toMatchObject({ ok: true, currency: 'medals', spent: 140, balance: 110, granted: ['aurore'] });
-    expect(save.wallet.medals).toBe(110);
-    expect(isOwned(save, 'aurore')).toBe(true);
-    expect(itemState(save, catalogItem('aurore')!)).toBe('owned');
-    expect(equip(save, 'aurore')).toBe(true);
-    expect(itemState(save, catalogItem('aurore')!)).toBe('equipped');
+    expect(itemState(save, catalogItem('chantier-orbital')!)).toBe('buy');
+    const res = purchase(save, 'chantier-orbital');
+    expect(res).toMatchObject({ ok: true, currency: 'medals', spent: 100, balance: 150, granted: ['chantier-orbital'] });
+    expect(save.wallet.medals).toBe(150);
+    expect(isOwned(save, 'chantier-orbital')).toBe(true);
+    expect(itemState(save, catalogItem('chantier-orbital')!)).toBe('owned');
+    expect(equip(save, 'chantier-orbital')).toBe(true);
+    expect(itemState(save, catalogItem('chantier-orbital')!)).toBe('equipped');
     // Achat mémorisé pour la confirmation par le service
-    expect(save.economy.purchases).toEqual({ aurore: 140 });
+    expect(save.economy.purchases).toEqual({ 'chantier-orbital': 100 });
   });
 
   it('aucun double débit : un article possédé n’est jamais racheté', () => {
     const save = richSave(500);
-    expect(purchase(save, 'aurore').ok).toBe(true);
-    expect(save.wallet.medals).toBe(360);
-    for (let i = 0; i < 3; i++) expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'owned' });
-    expect(save.wallet.medals).toBe(360);
-    expect(save.owned.filter((x) => x === 'aurore').length).toBe(1);
+    expect(purchase(save, 'chantier-orbital').ok).toBe(true);
+    expect(save.wallet.medals).toBe(400);
+    for (let i = 0; i < 3; i++) expect(purchase(save, 'chantier-orbital')).toEqual({ ok: false, reason: 'owned' });
+    expect(save.wallet.medals).toBe(400);
+    expect(save.owned.filter((x) => x === 'chantier-orbital').length).toBe(1);
   });
 
   it('fonds insuffisants : rien n’est débité ni débloqué', () => {
-    const save = richSave(139);
-    expect(itemState(save, catalogItem('aurore')!)).toBe('insufficient');
-    expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
-    expect(save.wallet.medals).toBe(139);
-    expect(isOwned(save, 'aurore')).toBe(false);
-    expect(equip(save, 'aurore')).toBe(false);
+    const save = richSave(99);
+    expect(itemState(save, catalogItem('chantier-orbital')!)).toBe('insufficient');
+    expect(purchase(save, 'chantier-orbital')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(save.wallet.medals).toBe(99);
+    expect(isOwned(save, 'chantier-orbital')).toBe(false);
+    expect(equip(save, 'chantier-orbital')).toBe(false);
   });
 
-  it('un succès ne débloque plus directement de cosmétique ; les acquis d’avant sont conservés (migration)', () => {
+  it('un succès ne débloque plus directement de cosmétique ; les acquis d’avant (traînées) sont conservés (migration), les anciennes apparences ignorées', () => {
     const save = richSave(0);
     save.achievements.max_combo = 1;
-    expect(isOwned(save, 'glace')).toBe(false);
-    expect(itemState(save, catalogItem('glace')!)).toBe('insufficient');
-    // Migration d'une sauvegarde v7 où le succès avait débloqué l'article
+    expect(isOwned(save, 'cartographe')).toBe(false);
+    expect(itemState(save, catalogItem('cartographe')!)).toBe('insufficient');
+    // Migration d'une sauvegarde v7 où des succès avaient débloqué des articles (dont une apparence retirée du jeu depuis)
     const store = new MemoryStore();
-    store.set(SAVE_KEY, JSON.stringify({ ...defaultSave(), version: 7, achievements: { max_combo: 1, survive_300: 2 }, rewarded: ['max_combo', 'survive_300'] }));
+    store.set(SAVE_KEY, JSON.stringify({ ...defaultSave(), version: 7, skin: 'glace', owned: ['glace'], achievements: { max_combo: 1, shards_250: 2, events_30: 2 }, rewarded: ['max_combo', 'shards_250', 'events_30'] }));
     const migrated = loadSave(store).data;
-    expect(isOwned(migrated, 'glace') && isOwned(migrated, 'solaire')).toBe(true);
-    expect(isOwned(migrated, 'prisme')).toBe(false);
-    expect(Object.entries(LEGACY_ACHIEVEMENT_ITEMS).length).toBe(5);
+    expect(isOwned(migrated, 'citron') && isOwned(migrated, 'boreale')).toBe(true);
+    expect(isOwned(migrated, 'emeraude')).toBe(false);
+    expect(Object.keys(LEGACY_ACHIEVEMENT_ITEMS).sort()).toEqual(['boreale', 'citron']);
+    // L'ancien identifiant reste toléré dans `owned` mais n'est jamais « possédé » ; l'apparence équipée retombe sur celle par défaut
+    expect(migrated.owned).toContain('glace');
+    expect(isOwned(migrated, 'glace')).toBe(false);
+    expect(migrated.skin).toBe(DEFAULT_SKIN_ID);
   });
 
-  it('pas de pack en Médailles : la collection complète coûte exactement 1 640 (aucun contournement par un pack à prix réduit)', () => {
+  it('pas de pack en Médailles : aucun contournement par un pack à prix réduit ; le total des articles en Médailles est atteignable par les succès', async () => {
+    const { totalMedals } = await import('../src/config/achievements');
     for (const pack of itemsOfKind('pack')) expect(isPremium(pack), pack.id).toBe(true);
-    const save = richSave(1650);
+    const total = medalCost('ship') + medalCost('trail');
+    expect(total).toBe(1000 + (TRAILS_ENABLED ? 450 : 0));
+    expect(total).toBeLessThanOrEqual(totalMedals());
+    const save = richSave(totalMedals());
     for (const i of CATALOG) if (i.acquire.type === 'price' && i.acquire.currency === 'medals') expect(purchase(save, i.id).ok, i.id).toBe(true);
-    expect(save.wallet.medals).toBe(10);
+    expect(save.wallet.medals).toBe(totalMedals() - total);
   });
 
-  it('équipement : traînée et vaisseau possédés seulement', () => {
+  it('équipement : vaisseau possédé seulement ; traînées fermées : jamais équipables', () => {
     const save = richSave(1000);
-    expect(equip(save, 'emeraude')).toBe(false);
-    purchase(save, 'emeraude');
-    expect(equip(save, 'emeraude')).toBe(true);
-    expect(save.trail).toBe('emeraude');
-    expect(equip(save, 'auto')).toBe(true);
+    expect(equip(save, 'chantier-orbital')).toBe(false);
+    purchase(save, 'chantier-orbital');
+    expect(equip(save, 'chantier-orbital')).toBe(true);
+    expect(save.skin).toBe('chantier-orbital');
+    expect(equip(save, DEFAULT_SKIN_ID)).toBe(true);
+    expect(save.skin).toBe(DEFAULT_SKIN_ID);
     expect(equip(save, 'inconnu')).toBe(false);
-    expect(equip(save, 'pack-neon')).toBe(false);
-    expect(save.skin).toBe('classique');
+    expect(equip(save, TEST_PACK_ID)).toBe(false);
+    // Traînées : tant que la catégorie est fermée, même une traînée possédée ou la traînée par défaut ne s'équipe pas
+    expect(TRAILS_ENABLED).toBe(false);
+    save.owned.push('emeraude');
+    expect(equip(save, 'emeraude')).toBe(false);
+    expect(equip(save, 'auto')).toBe(false);
+    expect(save.trail).toBe(DEFAULT_TRAIL_ID);
+  });
+
+  it('traînées fermées : ni achat, ni équipement, état « indisponible » ; la traînée affichée est toujours la traînée par défaut', () => {
+    expect(TRAILS_ENABLED).toBe(false);
+    const save = richSave(100000, 100000);
+    for (const t of TRAILS) {
+      const item = catalogItem(t.id)!;
+      expect(itemState(save, item), t.id).toBe('unavailable');
+      expect(purchase(save, t.id), t.id).toEqual({ ok: false, reason: 'unavailable' });
+      expect(equip(save, t.id), t.id).toBe(false);
+    }
+    expect(save.wallet).toEqual({ shards: 100000, medals: 100000, prisms: 0 });
+    expect(save.owned).toEqual([]);
+    // Même une traînée possédée et enregistrée dans la sauvegarde : état indisponible, et la traînée affichée reste celle par défaut
+    save.owned = ['emeraude'];
+    save.trail = 'emeraude';
+    expect(itemState(save, catalogItem('emeraude')!)).toBe('unavailable');
+    expect(activeTrailId(save.trail)).toBe(DEFAULT_TRAIL_ID);
+    for (const t of TRAILS) expect(activeTrailId(t.id)).toBe(DEFAULT_TRAIL_ID);
   });
 
   it('les cosmétiques d’origine restent disponibles et les gratuits aussi', () => {
     const save = defaultSave();
-    expect(isOwned(save, 'classique')).toBe(true);
+    expect(save.skin).toBe(DEFAULT_SKIN_ID);
+    expect(isOwned(save, DEFAULT_SKIN_ID)).toBe(true);
     expect(isOwned(save, 'auto')).toBe(true);
-    expect(itemState(save, catalogItem('classique')!)).toBe('equipped');
+    expect(itemState(save, catalogItem(DEFAULT_SKIN_ID)!)).toBe('equipped');
   });
 
   it('fonds dépensables : avec un service, seuls les soldes CONFIRMÉS financent un achat (les gains provisoires attendent)', () => {
@@ -495,65 +537,155 @@ describe('boutique : achats de cosmétiques en Médailles', () => {
     save.economy.managed = true;
     // Jamais synchronisé : rien de confirmé
     expect(spendable(save, 'medals')).toBe(0);
-    expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(purchase(save, 'chantier-orbital')).toEqual({ ok: false, reason: 'insufficient' });
     save.economy.confirmed = { shards: 0, medals: 200, prisms: 0 };
     expect(spendable(save, 'medals')).toBe(200);
-    expect(purchase(save, 'aurore').ok).toBe(true); // 140 confirmés dépensés
-    // Il ne reste que 60 de confirmé : un second achat à 150 est refusé même si le portefeuille local (160) semble suffire
-    expect(save.wallet.medals).toBe(160);
-    expect(spendable(save, 'medals')).toBe(60);
-    expect(purchase(save, 'menthe')).toEqual({ ok: false, reason: 'insufficient' });
-    expect(save.wallet.medals).toBe(160);
+    expect(purchase(save, 'chantier-orbital').ok).toBe(true); // 100 confirmés dépensés
+    // Il ne reste que 100 de confirmé : un second achat à 150 est refusé même si le portefeuille local (200) semble suffire
+    expect(save.wallet.medals).toBe(200);
+    expect(spendable(save, 'medals')).toBe(100);
+    expect(purchase(save, 'carbone-utilitaire')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(save.wallet.medals).toBe(200);
+  });
+});
+
+describe('achat au choix (Éclats OU Prismes) et article indisponible', () => {
+  const choice = (): string[] => CATALOG.filter((i) => i.acquire.type === 'choice').map((i) => i.id);
+
+  it('trois vaisseaux au choix : Éclats 1 500 / 2 000 / 3 000 ou Prismes 60 / 80 / 120', () => {
+    expect(choice()).toEqual(['long-courrier', 'basalte', 'arcade-84']);
+    expect(CATALOG.filter((i) => i.acquire.type === 'choice').map((i) => priceOptions(i))).toEqual([
+      [{ currency: 'shards', amount: 1500 }, { currency: 'prisms', amount: 60 }],
+      [{ currency: 'shards', amount: 2000 }, { currency: 'prisms', amount: 80 }],
+      [{ currency: 'shards', amount: 3000 }, { currency: 'prisms', amount: 120 }],
+    ]);
+  });
+
+  it('sans monnaie précisée : Éclats ; état « buy » dès qu’une option est payable, sinon « insufficient » ; jamais de Médailles', () => {
+    const item = catalogItem('long-courrier')!;
+    const price = (): number => (item.acquire.type === 'choice' ? item.acquire.shards : 0);
+    expect(itemState(richSave(0, 0), item)).toBe('insufficient');
+    expect(itemState(richSave(0, price() - 1), item)).toBe('insufficient');
+    expect(itemState(richSave(100000, 0), item)).toBe('insufficient');
+    expect(purchase(richSave(100000, 0), 'long-courrier', 'medals')).toEqual({ ok: false, reason: 'unavailable' });
+    const save = richSave(0, price() + 40);
+    expect(itemState(save, item)).toBe('buy');
+    const res = purchase(save, 'long-courrier');
+    expect(res).toMatchObject({ ok: true, currency: 'shards', spent: price(), balance: 40, granted: ['long-courrier'] });
+    expect(save.wallet.shards).toBe(40);
+    expect(isOwned(save, 'long-courrier')).toBe(true);
+    expect(save.economy.purchases).toEqual({ 'long-courrier': price() });
+    // jamais redébité
+    expect(purchase(save, 'long-courrier')).toEqual({ ok: false, reason: 'owned' });
+    expect(purchase(save, 'long-courrier', 'shards')).toEqual({ ok: false, reason: 'owned' });
+    expect(save.wallet.shards).toBe(40);
+  });
+
+  it('avec un service, l’option Prismes rend l’article achetable (solde CONFIRMÉ) mais le débit reste au service ; sans service, rien en Prismes', () => {
+    const item = catalogItem('long-courrier')!;
+    const save = defaultSave();
+    save.economy.managed = true;
+    expect(canPay(save, item, 'prisms')).toBe(false);
+    expect(itemState(save, item)).toBe('insufficient');
+    save.wallet.prisms = 500; // local, non confirmé
+    expect(itemState(save, item)).toBe('insufficient');
+    save.economy.confirmed = { shards: 0, medals: 0, prisms: 500 };
+    expect(canPay(save, item, 'prisms')).toBe(true);
+    expect(canPay(save, item, 'shards')).toBe(false);
+    expect(itemState(save, item)).toBe('buy');
+    expect(purchase(save, 'long-courrier', 'prisms')).toEqual({ ok: false, reason: 'premium' });
+    expect(save.wallet.prisms).toBe(500);
+    expect(isOwned(save, 'long-courrier')).toBe(false);
+    // Sans service de comptes : refus « indisponible », aucun débit
+    const local = defaultSave();
+    local.wallet = { shards: 10_000, medals: 10_000, prisms: 10_000 };
+    expect(canPay(local, item, 'prisms')).toBe(false);
+    expect(purchase(local, 'long-courrier', 'prisms')).toEqual({ ok: false, reason: 'unavailable' });
+    expect(local.wallet).toEqual({ shards: 10_000, medals: 10_000, prisms: 10_000 });
+  });
+
+  it('Porcelaine est indisponible : jamais achetable, même avec tous les fonds ; possédée, elle reste équipable', () => {
+    const item = catalogItem('porcelaine')!;
+    expect(item.acquire.type).toBe('unavailable');
+    const rich = defaultSave();
+    rich.wallet = { shards: 1_000_000, medals: 1_000_000, prisms: 1_000_000 };
+    rich.economy.managed = true;
+    rich.economy.confirmed = { shards: 1_000_000, medals: 1_000_000, prisms: 1_000_000 };
+    expect(itemState(rich, item)).toBe('unavailable');
+    for (const cur of [undefined, 'shards', 'medals', 'prisms'] as const) expect(purchase(rich, 'porcelaine', cur)).toEqual({ ok: false, reason: 'unavailable' });
+    expect(rich.wallet).toEqual({ shards: 1_000_000, medals: 1_000_000, prisms: 1_000_000 });
+    expect(equip(rich, 'porcelaine')).toBe(false);
+    const owner = defaultSave();
+    owner.owned = ['porcelaine'];
+    expect(itemState(owner, item)).toBe('owned');
+    expect(equip(owner, 'porcelaine')).toBe(true);
+    expect(itemState(owner, item)).toBe('equipped');
   });
 });
 
 describe('Prismes : monnaie premium contrôlée par le service', () => {
-  it('solde initial à 0 ; sans service, les articles premium sont « Bientôt disponible » et ne s’achètent jamais localement', () => {
+  let removePack: () => void;
+  beforeEach(() => {
+    removePack = addTestPack(100);
+  });
+  afterEach(() => removePack());
+
+  it('solde initial à 0 ; aucun article payable en Prismes SEULEMENT ; sans service, jamais de débit local de Prismes', () => {
     const save = defaultSave();
     expect(save.wallet.prisms).toBe(0);
-    const premium = CATALOG.filter(isPremium);
-    expect(premium.map((i) => [i.id, i.acquire.type === 'price' ? i.acquire.amount : 0])).toEqual([['neon', 150], ['nebuleuse', 75], ['pack-neon', 200]]);
-    for (const item of premium) {
-      expect(itemState(save, item)).toBe('soon');
+    removePack();
+    expect(CATALOG.filter(isPremium)).toEqual([]);
+    expect(itemsOfKind('pack')).toEqual([]);
+    for (const id of ['long-courrier', 'basalte', 'arcade-84']) {
+      const item = catalogItem(id)!;
       // Même avec un solde de Prismes fabriqué, aucun débit local
       const rich = defaultSave();
       rich.wallet.prisms = 10_000;
-      rich.wallet.shards = 10_000;
       rich.wallet.medals = 10_000;
-      expect(purchase(rich, item.id)).toEqual({ ok: false, reason: 'unavailable' });
-      expect(rich.wallet).toEqual({ shards: 10_000, medals: 10_000, prisms: 10_000 });
-      expect(isOwned(rich, item.id)).toBe(false);
+      expect(itemState(rich, item)).toBe('insufficient');
+      expect(purchase(rich, id, 'prisms')).toEqual({ ok: false, reason: 'unavailable' });
+      expect(rich.wallet).toEqual({ shards: 0, medals: 10_000, prisms: 10_000 });
+      expect(isOwned(rich, id)).toBe(false);
     }
+    // Un article premium (ici le pack factice) est « Bientôt disponible » sans service et ne s'achète jamais localement
+    removePack = addTestPack(100);
+    const pack = catalogItem(TEST_PACK_ID)!;
+    expect(isPremium(pack)).toBe(true);
+    expect(itemState(save, pack)).toBe('soon');
+    const rich = defaultSave();
+    rich.wallet = { shards: 10_000, medals: 10_000, prisms: 10_000 };
+    expect(purchase(rich, TEST_PACK_ID)).toEqual({ ok: false, reason: 'unavailable' });
+    expect(rich.wallet).toEqual({ shards: 10_000, medals: 10_000, prisms: 10_000 });
+    expect(isOwned(rich, TEST_PACK_ID)).toBe(false);
   });
 
   it('avec un service : le débit est réservé au service (jamais local) ; l’achat n’est proposé que si le solde CONFIRMÉ suffit', () => {
     const save = defaultSave();
     save.economy.managed = true;
-    for (const id of ['neon', 'nebuleuse', 'pack-neon']) {
-      const item = catalogItem(id)!;
-      expect(itemState(save, item)).toBe('insufficient');
-      expect(purchase(save, id)).toEqual({ ok: false, reason: 'premium' });
-    }
+    const pack = catalogItem(TEST_PACK_ID)!;
+    expect(itemState(save, pack)).toBe('insufficient');
+    expect(purchase(save, TEST_PACK_ID)).toEqual({ ok: false, reason: 'premium' });
     save.wallet.prisms = 500; // local, non confirmé : ne suffit pas
-    expect(itemState(save, catalogItem('neon')!)).toBe('insufficient');
+    expect(itemState(save, pack)).toBe('insufficient');
     save.economy.confirmed = { shards: 0, medals: 0, prisms: 500 };
-    expect(itemState(save, catalogItem('neon')!)).toBe('buy');
-    expect(purchase(save, 'neon')).toEqual({ ok: false, reason: 'premium' });
+    expect(itemState(save, pack)).toBe('buy');
+    expect(purchase(save, TEST_PACK_ID)).toEqual({ ok: false, reason: 'premium' });
     expect(save.wallet.prisms).toBe(500);
-    expect(isOwned(save, 'neon')).toBe(false);
+    expect(isOwned(save, TEST_PACK_ID)).toBe(false);
   });
 
-  it('pack premium : 200 Prismes, 25 de moins que les deux articles séparés ; prorata si un élément est déjà possédé', () => {
-    const neon = catalogItem('neon')!;
-    const nebuleuse = catalogItem('nebuleuse')!;
-    const pack = catalogItem('pack-neon')!;
-    const amount = (i: typeof neon): number => (i.acquire.type === 'price' ? i.acquire.amount : 0);
-    expect(amount(neon) + amount(nebuleuse) - amount(pack)).toBe(25);
+  it('pack premium (factice) : moins cher que ses contenus ; prorata si un élément est déjà possédé', () => {
+    const a = catalogItem('long-courrier')!;
+    const b = catalogItem('basalte')!;
+    const pack = catalogItem(TEST_PACK_ID)!;
+    const prisms = (i: typeof a): number => priceOptions(i).find((p) => p.currency === 'prisms')?.amount ?? 0;
+    expect(prisms(a) + prisms(b) - prisms(pack)).toBe(40);
     const own = defaultSave();
-    own.owned = ['neon'];
-    expect(effectivePrice(own, pack)).toEqual({ currency: 'prisms', amount: Math.round((200 * 75) / 225) });
-    own.owned = ['neon', 'nebuleuse'];
-    expect(isOwned(own, 'pack-neon')).toBe(true);
+    expect(effectivePrice(own, pack)).toEqual({ currency: 'prisms', amount: 100 });
+    own.owned = ['long-courrier'];
+    expect(effectivePrice(own, pack)).toEqual({ currency: 'prisms', amount: Math.round((100 * prisms(b)) / (prisms(a) + prisms(b))) });
+    own.owned = ['long-courrier', 'basalte'];
+    expect(isOwned(own, TEST_PACK_ID)).toBe(true);
   });
 
   it('fournisseur de paiement par défaut : indisponible, aucun crédit', async () => {
@@ -572,7 +704,8 @@ describe('Prismes : monnaie premium contrôlée par le service', () => {
     try {
       const save = defaultSave();
       save.wallet.prisms = 500;
-      expect(purchase(save, 'neon').ok).toBe(false);
+      expect(purchase(save, 'long-courrier', 'prisms').ok).toBe(false);
+      expect(purchase(save, TEST_PACK_ID).ok).toBe(false);
       expect(save.wallet.prisms).toBe(500);
     } finally {
       setPaymentProvider(old);
@@ -581,26 +714,39 @@ describe('Prismes : monnaie premium contrôlée par le service', () => {
 });
 
 describe('catalogue : cohérence', () => {
-  it('identifiants uniques, vaisseaux et traînées connus, packs bien formés et moins chers que leur contenu', () => {
+  /** Un pack est bien formé : au moins deux articles (jamais un pack) et moins cher que ses contenus dans sa monnaie ; un pack n'existe qu'en premium. */
+  const checkPack = (pack: (typeof CATALOG)[number]): void => {
+    const parts = (pack.contents ?? []).map((c) => catalogItem(c)!);
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    expect(parts.every((p) => p.kind !== 'pack')).toBe(true);
+    if (pack.acquire.type === 'price') {
+      const { currency, amount } = pack.acquire;
+      const sum = parts.reduce((t, p) => t + (priceOptions(p).find((o) => o.currency === currency)?.amount ?? 0), 0);
+      expect(amount).toBeLessThan(sum);
+      expect(currency).toBe('prisms');
+    }
+  };
+
+  it('identifiants uniques, vaisseaux et traînées connus ; le catalogue des vaisseaux suit SKIN_CONFIG ; packs (s’il y en a) bien formés', () => {
     const ids = CATALOG.map((i) => i.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const s of SKINS) expect(catalogItem(s.id)?.kind).toBe('ship');
+    expect(itemsOfKind('ship').map((i) => i.id)).toEqual(SKINS.map((s) => s.id));
     for (const t of TRAILS) expect(catalogItem(t.id)?.kind).toBe('trail');
-    expect(itemsOfKind('ship').length).toBe(SKINS.length);
     expect(itemsOfKind('trail').length).toBe(TRAILS.length);
-    for (const pack of itemsOfKind('pack')) {
-      const parts = (pack.contents ?? []).map((c) => catalogItem(c)!);
-      expect(parts.length).toBeGreaterThanOrEqual(2);
-      expect(parts.every((p) => p.kind !== 'pack')).toBe(true);
-      if (pack.acquire.type === 'price') {
-        const { currency, amount } = pack.acquire;
-        const sum = parts.reduce((t, p) => t + (p.acquire.type === 'price' && p.acquire.currency === currency ? p.acquire.amount : 0), 0);
-        expect(amount).toBeLessThan(sum);
-        // Un pack n'existe qu'en premium (Prismes)
-        expect(currency).toBe('prisms');
-      }
+    for (const pack of itemsOfKind('pack')) checkPack(pack);
+    for (const id of Object.keys(LEGACY_ACHIEVEMENT_ITEMS)) expect(catalogItem(id)?.kind).toBe('trail');
+  });
+
+  it('un pack factice respecte les mêmes règles (la logique de pack reste dans le code)', () => {
+    const remove = addTestPack(100);
+    try {
+      expect(itemsOfKind('pack').map((p) => p.id)).toEqual([TEST_PACK_ID]);
+      for (const pack of itemsOfKind('pack')) checkPack(pack);
+    } finally {
+      remove();
     }
-    for (const id of Object.keys(LEGACY_SKIN_ACHIEVEMENTS)) expect(catalogItem(id)).toBeDefined();
+    expect(itemsOfKind('pack')).toEqual([]);
   });
 
   it('les traînées colorées restent distinctes des dangers', () => {
@@ -642,8 +788,8 @@ describe('succès : Médailles réclamables', () => {
     expect(tier(100)).toEqual(['survive_300', 'survive_480', 'all_levels', 'cycles_500', 'shards_1000', 'events_30']);
     expect(tier(200)).toEqual(['survive_600', 'stars_36']);
     expect(totalMedals()).toBe(1650);
-    // La collection non premium (1 640) reste achetable avec les Médailles des succès, avec 10 de reste
-    expect(totalMedals() - 1640).toBe(10);
+    // Les articles payables en Médailles (vaisseaux : 1 000) restent atteignables avec les Médailles des succès
+    expect(totalMedals()).toBeGreaterThanOrEqual(medalCost('ship') + medalCost('trail'));
     // Ancien montant en Éclats conservé pour la comptabilité des sauvegardes historiques (jamais versé aux nouveaux succès)
     expect(ACHIEVEMENT_CONFIG.every((a) => a.legacyShards > 0)).toBe(true);
     const metrics = new Set(ACHIEVEMENT_CONFIG.map((a) => a.metric));
@@ -655,7 +801,7 @@ describe('succès : Médailles réclamables', () => {
     save.wallet.shards = 5000;
     expect(metricValue(save, 'totalShards')).toBe(0);
     const before = ACHIEVEMENTS.map((a) => metricValue(save, a.metric));
-    purchase(save, 'aurore');
+    expect(purchase(save, 'long-courrier').ok).toBe(true);
     expect(ACHIEVEMENTS.map((a) => metricValue(save, a.metric))).toEqual(before);
     expect(ACHIEVEMENTS.some((a) => /dépens|achet/i.test(a.description))).toBe(false);
   });
@@ -692,13 +838,13 @@ describe('succès : Médailles réclamables', () => {
     expect(claimAllMedals(save)).toEqual({ claimed: [], medals: 0 });
   });
 
-  it('les 27 succès rapportent 1 650 Médailles ; la collection complète coûte 1 640 : 10 Médailles restent', () => {
+  it('les 27 succès rapportent 1 650 Médailles ; tous les articles payables en Médailles s’achètent, le reste demeure', () => {
     const save = defaultSave();
     for (const a of ACHIEVEMENTS) save.achievements[a.id] = 1;
     expect(claimableMedals(save)).toBe(1650);
     expect(claimAllMedals(save).medals).toBe(1650);
     for (const i of CATALOG) if (i.acquire.type === 'price' && i.acquire.currency === 'medals') expect(purchase(save, i.id).ok).toBe(true);
-    expect(save.wallet.medals).toBe(10);
+    expect(save.wallet.medals).toBe(1650 - medalCost('ship') - medalCost('trail'));
   });
 
   it('objectifs cumulés : événements, Éclats collectés, cycles et étoiles', () => {
@@ -729,8 +875,9 @@ describe('succès : Médailles réclamables', () => {
     // Le registre des anciennes récompenses ne bloque PAS les nouvelles Médailles
     expect(first.data.medals.claimed).toEqual([]);
     expect(claimableMedals(first.data)).toBe(20 + 100);
-    // Cosmétique débloqué par l'ancien succès survive_300 : conservé
-    expect(isOwned(first.data, 'solaire')).toBe(true);
+    // Les anciennes apparences (dont « solaire », débloquée par survive_300) ont été retirées du jeu : rien n'est possédé, apparence par défaut
+    expect(isOwned(first.data, 'solaire')).toBe(false);
+    expect(first.data.skin).toBe(DEFAULT_SKIN_ID);
     writeSave(store, first.data);
     // Rechargement : aucune seconde récompense en Éclats, Médailles toujours réclamables
     const second = loadSave(store);

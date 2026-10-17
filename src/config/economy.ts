@@ -80,16 +80,3 @@ export const bonusDef = (id: string): BonusDef | undefined => BONUS_LIST.find((b
 
 /** Plafond de sécurité d'un solde (valeurs de sauvegarde aberrantes ramenées à cette limite). */
 export const WALLET_MAX = 1_000_000_000;
-
-/**
- * Apparences qui se débloquaient par un succès avant la v1.5 (sauvegarde < 3) : celles déjà obtenues sont conservées.
- * Les déblocages directs de la v1.5 à la v7 (glace, solaire…) sont décrits dans config/catalog.ts (LEGACY_ACHIEVEMENT_ITEMS).
- */
-export const LEGACY_SKIN_ACHIEVEMENTS: Record<string, string> = {
-  aurore: 'first_cycle',
-  menthe: 'first_level',
-  ambre: 'survive_60',
-  glace: 'max_combo',
-  solaire: 'survive_300',
-  prisme: 'all_levels',
-};

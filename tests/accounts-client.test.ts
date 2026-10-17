@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { TEST_PACK_ID, addTestPack } from './helpers';
 import { GameSession } from '../src/game/session';
 import { AccountService, parseMagicParam, type AccountHost } from '../src/account/AccountService';
 import { availability } from '../src/account/providers';
@@ -81,7 +82,7 @@ function world() {
 
 /** Sauvegarde d'avant les comptes (format 6) : 340 Éclats, un succès, un cosmétique. */
 function oldSave(shards = 340): SaveData {
-  const raw = { ...defaultSave(), version: 6, wallet: { shards, prisms: 7 }, achievements: { first_cycle: 1000 }, owned: ['aurore'], rewarded: ['first_cycle'] } as Record<string, unknown>;
+  const raw = { ...defaultSave(), version: 6, wallet: { shards, prisms: 7 }, achievements: { first_cycle: 1000 }, owned: ['chantier-orbital'], rewarded: ['first_cycle'] } as Record<string, unknown>;
   delete raw.economy;
   const parsed = parseSave(JSON.stringify(raw));
   if (!parsed) throw new Error('sauvegarde de test invalide');
@@ -109,7 +110,7 @@ describe('compte : profil invité, migration et synchronisation', () => {
     expect(d.save.economy.legacy?.imported).toBe(true);
     expect(d.save.wallet.shards).toBe(340);
     expect(d.save.wallet.prisms).toBe(0);
-    expect(d.save.owned).toContain('aurore');
+    expect(d.save.owned).toContain('chantier-orbital');
     expect(d.save.achievements.first_cycle).toBe(1000);
     const id = d.lb.identity()!;
     expect(balancesOf(w.db, id.playerId)).toEqual({ shards: 340, medals: 0, prisms: 0 });
@@ -286,12 +287,12 @@ describe('compte : règles pures de réconciliation', () => {
   it('achat refusé par le serveur : article retiré, aucun Éclat perdu', () => {
     const save = defaultSave();
     ensureInstallId(save);
-    save.owned = ['aurore'];
-    save.economy.purchases = { aurore: 100 };
-    const res = serverReply({ balance: { shards: 500, medals: 0, prisms: 0 }, rejected: [{ item: 'aurore', reason: 'insufficient' }], save: { ...defaultSave(), owned: [] } });
+    save.owned = ['long-courrier'];
+    save.economy.purchases = { 'long-courrier': 1500 };
+    const res = serverReply({ balance: { shards: 500, medals: 0, prisms: 0 }, rejected: [{ item: 'long-courrier', reason: 'insufficient' }], save: { ...defaultSave(), owned: [] } });
     save.wallet.shards = 0;
     applySyncResult(save, res, structuredClone(save));
-    expect(save.owned).not.toContain('aurore');
+    expect(save.owned).not.toContain('long-courrier');
     expect(save.economy.purchases).toEqual({});
     expect(save.wallet.shards).toBe(500);
   });
@@ -520,21 +521,21 @@ describe('Médailles : réclamation, confirmation par le service, achat', () => 
     // Réclamées localement mais pas encore confirmées : non dépensables
     expect(d.save.wallet.medals).toBe(140);
     expect(spendable(d.save, 'medals')).toBe(0);
-    expect(purchase(d.save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(purchase(d.save, 'chantier-orbital')).toEqual({ ok: false, reason: 'insufficient' });
     await d.account.syncNow(true);
     expect(serverBalance(w, d).medals).toBe(140);
     expect(d.save.economy.confirmedClaims.sort()).toEqual(['first_cycle', 'first_level', 'survive_300']);
     expect(spendable(d.save, 'medals')).toBe(140);
     // Achat confirmé par le service
-    expect(purchase(d.save, 'aurore')).toMatchObject({ ok: true, spent: 140 });
+    expect(purchase(d.save, 'chantier-orbital')).toMatchObject({ ok: true, spent: 100 });
     await d.account.syncNow(true);
-    expect(serverBalance(w, d).medals).toBe(0);
-    expect(d.save.owned).toContain('aurore');
-    expect(d.save.wallet.medals).toBe(0);
-    expect(d.save.economy.confirmedPurchases).toContain('aurore');
+    expect(serverBalance(w, d).medals).toBe(40);
+    expect(d.save.owned).toContain('chantier-orbital');
+    expect(d.save.wallet.medals).toBe(40);
+    expect(d.save.economy.confirmedPurchases).toContain('chantier-orbital');
     for (let i = 0; i < 3; i++) await d.account.syncNow(true);
-    expect(serverBalance(w, d).medals).toBe(0);
-    expect(w.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE ref = 'spend:aurore'").get()).toEqual({ n: 1 });
+    expect(serverBalance(w, d).medals).toBe(40);
+    expect(w.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE ref = 'spend:chantier-orbital'").get()).toEqual({ n: 1 });
   });
 
   it('succès historique importé (ancienne sauvegarde) : réclamable rétroactivement ; jamais deux fois ; anciens Éclats intacts', async () => {
@@ -580,20 +581,20 @@ describe('Médailles : réclamation, confirmation par le service, achat', () => 
     await d.account.syncNow(true);
     expect(spendable(d.save, 'medals')).toBe(300);
     d.online.value = false;
-    expect(purchase(d.save, 'aurore')).toMatchObject({ ok: true, spent: 140 }); // 160 confirmés restent
-    expect(spendable(d.save, 'medals')).toBe(160);
-    expect(purchase(d.save, 'spectre')).toEqual({ ok: false, reason: 'insufficient' }); // 170 > 160 : même si le total local le permettrait
-    expect(purchase(d.save, 'menthe')).toMatchObject({ ok: true, spent: 150 });
-    expect(d.save.wallet.medals).toBe(10);
+    expect(purchase(d.save, 'carbone-utilitaire')).toMatchObject({ ok: true, spent: 150 }); // 150 confirmés restent
+    expect(spendable(d.save, 'medals')).toBe(150);
+    expect(purchase(d.save, 'dipole')).toEqual({ ok: false, reason: 'insufficient' }); // 200 > 150 : le confirmé seul compte
+    expect(purchase(d.save, 'chantier-orbital')).toMatchObject({ ok: true, spent: 100 });
+    expect(d.save.wallet.medals).toBe(50);
     await d.account.syncNow(true);
     expect(d.account.state.sync.status).toBe('offline');
-    expect(d.save.owned).toEqual(expect.arrayContaining(['aurore', 'menthe']));
+    expect(d.save.owned).toEqual(expect.arrayContaining(['carbone-utilitaire', 'chantier-orbital']));
     d.online.value = true;
     await d.account.syncNow(true);
-    expect(serverBalance(w, d).medals).toBe(10);
-    expect(d.save.economy.confirmedPurchases).toEqual(expect.arrayContaining(['aurore', 'menthe']));
+    expect(serverBalance(w, d).medals).toBe(50);
+    expect(d.save.economy.confirmedPurchases).toEqual(expect.arrayContaining(['carbone-utilitaire', 'chantier-orbital']));
     expect(d.save.economy.purchases).toEqual({});
-    expect(d.save.wallet.medals).toBe(10);
+    expect(d.save.wallet.medals).toBe(50);
   });
 
   it('achat hors ligne financé seulement par des gains PROVISOIRES : refusé localement (rien débité)', async () => {
@@ -605,12 +606,12 @@ describe('Médailles : réclamation, confirmation par le service, achat', () => 
     d.online.value = false;
     claimMedals(d.save, 'survive_600');
     expect(d.save.wallet.medals).toBe(200);
-    expect(purchase(d.save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(purchase(d.save, 'chantier-orbital')).toEqual({ ok: false, reason: 'insufficient' });
     expect(d.save.wallet.medals).toBe(200);
     expect(d.save.owned).toEqual([]);
     d.online.value = true;
     await d.account.syncNow(true);
-    expect(purchase(d.save, 'aurore').ok).toBe(true); // confirmées : dépensables
+    expect(purchase(d.save, 'chantier-orbital').ok).toBe(true); // confirmées : dépensables
   });
 
   it('un client qui ment sur ses fonds confirmés : le service refuse (aucun solde négatif), l’article est retiré', async () => {
@@ -620,9 +621,9 @@ describe('Médailles : réclamation, confirmation par le service, achat', () => 
     d.save.economy.managed = true;
     d.save.economy.confirmed = { shards: 0, medals: 9999, prisms: 0 }; // falsifié
     d.save.wallet.medals = 9999;
-    expect(purchase(d.save, 'prisme').ok).toBe(true);
+    expect(purchase(d.save, 'cartographe').ok).toBe(true);
     await d.account.syncNow(true);
-    expect(d.save.owned).not.toContain('prisme');
+    expect(d.save.owned).not.toContain('cartographe');
     expect(serverBalance(w, d).medals).toBe(0);
     expect(d.save.wallet.medals).toBe(0);
     expect(d.account.state.sync.message).toContain('non confirmé');
@@ -729,6 +730,12 @@ describe('articles premium : débit des Prismes par le service uniquement', () =
   const credit = (w: ReturnType<typeof world>, playerId: string, amount: number): void => {
     w.db.prepare("INSERT INTO ledger (player_id, currency, kind, amount, ref, at) VALUES (?, 'prisms', 'test', ?, ?, 0)").run(playerId, amount, `test:${Math.random()}`);
   };
+  // Un article « au choix » (Éclats OU Prismes) s'achète en Prismes par le service ; le pack factice prouve que la logique de pack reste valide
+  let removePack: () => void;
+  beforeEach(() => {
+    removePack = addTestPack(100);
+  });
+  afterEach(() => removePack());
 
   it('achat en ligne : accordé et débité par le service ; solde local = miroir du service, jamais calculé localement', async () => {
     const w = world();
@@ -738,42 +745,42 @@ describe('articles premium : débit des Prismes par le service uniquement', () =
     credit(w, d.lb.identity()!.playerId, 400);
     await d.account.syncNow(true);
     expect(d.save.wallet.prisms).toBe(400);
-    expect(purchase(d.save, 'neon')).toEqual({ ok: false, reason: 'premium' }); // aucun débit local
+    expect(purchase(d.save, 'long-courrier', 'prisms')).toEqual({ ok: false, reason: 'premium' }); // aucun débit local
     expect(d.save.wallet.prisms).toBe(400);
-    const res = await d.account.buyPremium('neon');
-    expect(res).toEqual({ ok: true, charged: true, price: 150 });
-    expect(d.save.owned).toContain('neon');
-    expect(d.save.wallet.prisms).toBe(250);
-    expect(serverBalance(w, d).prisms).toBe(250);
+    const res = await d.account.buyPremium('long-courrier');
+    expect(res).toEqual({ ok: true, charged: true, price: 60 });
+    expect(d.save.owned).toContain('long-courrier');
+    expect(d.save.wallet.prisms).toBe(340);
+    expect(serverBalance(w, d).prisms).toBe(340);
     // Rejouer : déjà possédé, aucun second débit
-    expect(await d.account.buyPremium('neon')).toEqual({ ok: true, charged: false, price: 0 });
-    expect(serverBalance(w, d).prisms).toBe(250);
+    expect(await d.account.buyPremium('long-courrier')).toEqual({ ok: true, charged: false, price: 0 });
+    expect(serverBalance(w, d).prisms).toBe(340);
     // Les synchronisations suivantes gardent l'article (vérifié par le service)
     await d.account.syncNow(true);
-    expect(d.save.owned).toContain('neon');
+    expect(d.save.owned).toContain('long-courrier');
   });
 
-  it('pack avec un élément déjà possédé : prorata, rien de perdu ni racheté', async () => {
+  it('pack (factice) avec un élément déjà possédé : prorata, rien de perdu ni racheté', async () => {
     const w = world();
     const d = w.device();
     await d.account.start('');
     credit(w, d.lb.identity()!.playerId, 1000);
-    await d.account.buyPremium('neon');
-    const res = await d.account.buyPremium('pack-neon');
-    expect(res.ok && res.price).toBe(67);
-    expect(d.save.owned.sort()).toEqual(['nebuleuse', 'neon']);
-    expect(serverBalance(w, d).prisms).toBe(1000 - 150 - 67);
+    await d.account.buyPremium('long-courrier');
+    const res = await d.account.buyPremium(TEST_PACK_ID);
+    expect(res.ok && res.price).toBe(57); // 100 × 80 / 140
+    expect(d.save.owned.sort()).toEqual(['basalte', 'long-courrier']);
+    expect(serverBalance(w, d).prisms).toBe(1000 - 60 - 57);
   });
 
   it('hors ligne ou solde nul : refus clair, rien n’est accordé ni débité', async () => {
     const w = world();
     const d = w.device();
     await d.account.start('');
-    const none = await d.account.buyPremium('neon');
+    const none = await d.account.buyPremium('long-courrier');
     expect(none).toEqual({ ok: false, message: 'Prismes insuffisants.' });
     expect(d.save.owned).toEqual([]);
     d.online.value = false;
-    const off = await d.account.buyPremium('neon');
+    const off = await d.account.buyPremium('long-courrier');
     expect(off.ok).toBe(false);
     expect(!off.ok && off.message).toContain('Connexion requise');
     expect(d.save.owned).toEqual([]);
@@ -784,11 +791,15 @@ describe('articles premium : débit des Prismes par le service uniquement', () =
     const d = w.device();
     await d.account.start('');
     d.save.wallet.prisms = 1e6;
-    d.save.owned.push('neon', 'nebuleuse');
+    d.save.owned.push('long-courrier', 'basalte');
     await d.account.syncNow(true);
-    expect(d.save.owned).toEqual([]);
     expect(d.save.wallet.prisms).toBe(0);
     expect(serverBalance(w, d).prisms).toBe(0);
+    // Le SERVICE n'accorde jamais un article que le client s'attribue : sa copie de la progression ne contient rien
+    const row = w.db.prepare('SELECT data FROM saves WHERE player_id = ?').get(d.lb.identity()!.playerId) as unknown as { data: string } | undefined;
+    expect(row ? (JSON.parse(row.data) as { owned: string[] }).owned : []).toEqual([]);
+    // (Un article « au choix » peut aussi s'acheter en Éclats : la copie LOCALE n'est donc plus purgée comme l'était un article en Prismes seulement ;
+    // le service reste la seule référence pour les Prismes, et l'attribution locale ne crée ni Prismes ni débit.)
   });
 });
 

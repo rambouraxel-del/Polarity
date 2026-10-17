@@ -76,6 +76,11 @@ export type PurchaseCheck = { ok: true; item: CatalogItem; currency: 'shards' | 
 export function checkPurchase(itemId: string, paid: number): PurchaseCheck {
   const item = catalogItem(itemId);
   if (!item) return { ok: false, reason: 'unknown' };
+  // Achat au choix : la voie différée est celle des Éclats (le prix en Prismes ne se paie qu'en ligne, par le service)
+  if (item.acquire.type === 'choice') {
+    if (!Number.isInteger(paid) || paid !== item.acquire.shards) return { ok: false, reason: 'bad_price' };
+    return { ok: true, item, currency: 'shards', price: item.acquire.shards };
+  }
   if (item.acquire.type !== 'price') return { ok: false, reason: 'not_purchasable' };
   if (item.acquire.currency === 'prisms') return { ok: false, reason: 'premium' };
   if (!Number.isInteger(paid) || paid !== item.acquire.amount) return { ok: false, reason: 'bad_price' };

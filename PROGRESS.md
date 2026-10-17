@@ -1,5 +1,12 @@
 # Suivi d'avancement
 
+## Refonte cosmétique, première partie (travail sur `main`, `BALANCE_VERSION` 4 inchangée)
+- **Skins** : les dix anciens skins sont supprimés (config, catalogue, textures recolorées, succès legacy, apparence exclusive « Faille », pack Néon) ; nouveau catalogue = dix PNG de la planche 01 (`src/assets/skins/`), configuration unique `SKIN_CONFIG` (`config/skins.ts` : id, nom, image, prestige, obtention, prix Médailles/Éclats/Prismes, disponibilité, ordre ; **valeurs provisoires**, `SKIN_ECONOMY_PROVISIONAL`). `tole-brute` = gratuit, équipé pour un nouveau joueur et repli de tout id inconnu (sauvegardes anciennes sans erreur). Trois situations d'obtention : Médailles seulement, Éclats OU Prismes (nouveau `Acquire` `choice`, deux boutons ; Prismes débités par le service seul, `buyPremium` accepte les articles `choice`), indisponible. Aucun achat en argent réel.
+- **Traînées** : catégorie conservée, « Indisponible pour l'instant », achat/équipement/aperçu désactivés (`TRAILS_ENABLED = false`, données conservées).
+- **Orbit** : `config/orbit.ts`, apparence par phase (couleur, opacité, épaisseur, halo, respiration, arcs de la phase 2), plus fine et plus discrète ; indépendante des skins et du garage ; fondu automatique, rien recréé.
+- **Vaisseau** : taille visuelle ×1,25 ; hitbox ×1,15 (`HITBOX.playerScale`), cercle commun explicite, jamais déduit des PNG. **Cela modifie la physique (rejeu serveur) sans changer `BALANCE_VERSION`** (à décider par le propriétaire) : le service doit être mis à jour avec ce code avant/avec le jeu.
+- Tests : `tests/cosmetics.test.ts` (hitbox, quatre côtés, Orbit), `skins`, `economy*`, `ui`… adaptés ; docs : `docs/APPARENCES.md`.
+
 ## Survie à phases (travail sur `main`, `BALANCE_VERSION` 4)
 - [x] Config centralisée (`config/phases.ts`), difficulté par paliers (phase 1), mise en rythme par grilles (analyses hors ligne), motifs `beatShots` / `altBeams`
 - [x] Traversée de 6 s à 300 s (session gelée), entrée en phase 2 (`Simulation.enterPhase2`), menaces courbes (`ProjectileHazard.path`), faisceaux rotatifs, 9 motifs de phase 2, plafonds et validateur d'évitement

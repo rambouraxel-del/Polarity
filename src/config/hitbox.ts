@@ -4,12 +4,17 @@
  * Les rayons d'origine (v1.0) sont agrandis de `growth` (par défaut +6,5 %, plage prévue 5–8 %).
  * Les hitboxes restent volontairement en retrait des silhouettes (voir config/visuals.ts).
  * Les visuels s'agrandissent de 15 % indépendamment : modifier l'un ne modifie pas l'autre.
+ *
+ * Hitbox du vaisseau : UN cercle commun à toutes les apparences, défini ici et nulle part ailleurs — jamais déduit de la taille d'un PNG ni de ses
+ * zones transparentes. `playerScale` (+15 %, refonte cosmétique) s'applique en plus de `growth` ; la taille visuelle est dans config/visuals.ts.
  */
 export const HITBOX = {
   /** Rayon d'origine du vaisseau (v1.0). */
   playerBase: 7,
   /** Rayon d'origine d'un projectile (v1.0). */
   projectileBase: 8,
+  /** Agrandissement de la hitbox du VAISSEAU (+15 % par rapport à la taille précédente), indépendant des apparences et des visuels. */
+  playerScale: 1.15,
   /** Agrandissement par défaut : +6,5 %. */
   defaultGrowth: 0.065,
   /** Plage recommandée. */
@@ -35,7 +40,7 @@ export function setHitboxGrowth(g: number): number {
 }
 
 export function playerHitRadius(): number {
-  return HITBOX.playerBase * (1 + growth);
+  return HITBOX.playerBase * (1 + growth) * HITBOX.playerScale;
 }
 
 export function projectileHitRadius(): number {

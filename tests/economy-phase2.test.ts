@@ -10,6 +10,7 @@ import { buyBonus, grantCharges } from '../src/economy/bonus';
 import { mergeSaves } from '../src/economy/merge';
 import { applyRun } from '../src/progression/progress';
 import { claimableMedals, claimMedals } from '../src/progression/achievements';
+import { DEFAULT_SKIN_ID } from '../src/config/skins';
 import { isOwned } from '../src/progression/shop';
 import { BACKUP_PREFIX, MemoryStore, SAVE_KEY, SAVE_VERSION, defaultSave, loadSave, parseSave, writeSave } from '../src/save/save';
 import { accountScreen } from '../src/ui/accountScreens';
@@ -58,9 +59,11 @@ describe('migration de la sauvegarde v6 vers la v8 : aucun acquis perdu, Médail
     expect(s.stats.totalCycles).toBe(120);
     expect(s.archive['3'].survival.bestTime).toBe(320); // records de la v3 archivés (équilibrage 4)
     expect(s.campaign.reserve).toBe(55);
-    // Cosmétiques débloqués autrefois par les succès : conservés (passés dans « possédés »), jamais re-facturés
-    for (const id of ['solaire', 'glace', 'citron', 'boreale', 'prisme', 'aurore']) expect(isOwned(s, id), id).toBe(true);
-    expect(s.skin).toBe('solaire');
+    // Traînées débloquées autrefois par les succès : conservées (passées dans « possédés »), jamais re-facturées
+    for (const id of ['citron', 'boreale']) expect(isOwned(s, id), id).toBe(true);
+    // Anciennes apparences (aurore, glace, solaire, prisme…) : retirées du jeu, jamais possédées ; l'apparence équipée (solaire) retombe sur Tôle brute
+    for (const id of ['solaire', 'glace', 'prisme', 'aurore']) expect(isOwned(s, id), id).toBe(false);
+    expect(s.skin).toBe(DEFAULT_SKIN_ID);
     expect(s.trail).toBe('citron');
     expect(store.get(`${BACKUP_PREFIX}6`)).toBe(JSON.stringify(v6()));
     // Migration de l'ancien solde pour la synchronisation (une seule fois)
@@ -84,7 +87,7 @@ describe('migration de la sauvegarde v6 vers la v8 : aucun acquis perdu, Médail
     const again = loadSave(store);
     expect(again.status).toBe('ok');
     expect(again.data).toEqual(res.data);
-    expect(again.data.owned.filter((x) => x === 'solaire')).toHaveLength(1);
+    expect(again.data.owned.filter((x) => x === 'citron')).toHaveLength(1);
     expect(again.data.wallet.medals).toBe(20);
     // Une seconde migration depuis le même texte v6 produit le même résultat
     const second = parseSave(JSON.stringify(v6()))!;
@@ -92,11 +95,12 @@ describe('migration de la sauvegarde v6 vers la v8 : aucun acquis perdu, Médail
     expect(second).toEqual(third);
   });
 
-  it('sauvegarde v7 (branche de développement) : cosmétiques d’exclusivité conservés, pas de nouvel import hérité', () => {
+  it('sauvegarde v7 (branche de développement) : traînées d’exclusivité conservées, pas de nouvel import hérité', () => {
     const { res } = migrate({ ...v6(), version: 7, economy: { installId: 'install-aaaa-1111', earned: 5, confirmedEarned: 5, purchases: {}, confirmedPurchases: [], legacy: null } });
     expect(res.data.economy.legacy).toBeNull();
     expect(res.data.economy.installId).toBe('install-aaaa-1111');
-    expect(isOwned(res.data, 'glace')).toBe(true);
+    expect(isOwned(res.data, 'citron') && isOwned(res.data, 'boreale')).toBe(true);
+    expect(isOwned(res.data, 'glace')).toBe(false); // ancienne apparence retirée
     expect(res.data.economy.bonusBought).toEqual({ boost: 0, gel: 0 });
   });
 
@@ -189,8 +193,10 @@ describe('écrans : préparation de la Survie, bonus, confirmations, notificatio
     expect(html).toContain('data-action="cat-bonus"');
     expect(html).not.toContain('En Médailles');
     const ships = S.cosmeticsScreen(save(), 'ships', 'all');
-    expect(ships).toContain('En Médailles');
-    expect(ships).toContain('Premium · en Prismes');
+    // Vaisseaux : une seule grille (ordre de la configuration), sans les anciennes sections par monnaie ; jamais les cartes de bonus
+    expect(ships).toContain('Vaisseaux');
+    expect(ships).not.toContain('En Médailles');
+    expect(ships).not.toContain('Premium · en Prismes');
     expect(ships).not.toContain('data-bonus-card');
   });
 

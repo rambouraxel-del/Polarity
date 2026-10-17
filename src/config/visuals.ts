@@ -5,14 +5,14 @@
 export const VISUAL = {
   /** Agrandissement des visuels (vaisseau et astéroïdes) par rapport à la v1.0 : +15 %. */
   scale: 1.15,
-  /** Lisibilité : vaisseau +45 % (v1.1.x) puis +20 % (v1.4), astéroïdes +35 % par rapport à la taille v1.1 (+15 %). Sans effet sur les hitboxes. */
-  shipScale: 1.45 * 1.2,
+  /** Lisibilité : vaisseau +45 % (v1.1.x), +20 % (v1.4) puis +25 % (refonte cosmétique), astéroïdes +35 % par rapport à la taille v1.1 (+15 %). Sans effet sur les hitboxes. */
+  shipScale: 1.45 * 1.2 * 1.25,
   asteroidScale: 1.35,
   /** Demi-longueur du vaisseau en v1.0. */
   shipBaseRadius: 11,
   /** Rayon d'un astéroïde en v1.0. */
   asteroidBaseRadius: 10,
-  /** Les textures font 128 px de côté ; leur plus grande dimension en occupe 120 (voir scripts/process-sprites.py). */
+  /** Rapports des sprites (canevas 128 px / 120 px de contenu pour les astéroïdes et la Traverse ; PNG des apparences : 256 px / 240 px, même rapport). */
   spriteCanvas: 128,
   spriteContent: 120,
   /** Rapport largeur / longueur du vaisseau (99 / 120). */
@@ -34,7 +34,8 @@ export const asteroidMinHalfExtent = (): number => asteroidRadius() * VISUAL.ast
 export const FX = {
   /** Flamme du vaisseau, derrière lui (opposée au déplacement). */
   /** Les couleurs du réacteur viennent de l'apparence (config/skins.ts). */
-  thruster: { length: 14, width: 6.5, flicker: 0.12 },
+  /** `start` : naissance de la flamme, en fraction de la demi-longueur (au bout des tuyères du PNG) ; `spread` : écart latéral des deux tuyères, en fraction de la demi-largeur. */
+  thruster: { length: 17, width: 8, flicker: 0.12, start: 0.86, spread: 0.43 },
   /** Particules du réacteur : débit (par seconde) et durée de vie. */
   thrusterSparks: { rate: 26, life: 0.32, speed: 38 },
   /** Traînée d'astéroïde : longueur (unités monde). */

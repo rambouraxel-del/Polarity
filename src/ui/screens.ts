@@ -7,17 +7,17 @@ import { prismShopHtml, privacyHtml, type StoreView } from './storeScreens';
 import { BONUS, BONUS_LIST, bonusDef, type BonusKind } from '../config/economy';
 import { bonusStock, maxAffordable } from '../economy/bonus';
 import { chargeProvenance, provisional, spendable } from '../economy/funds';
-import { CATALOG, catalogItem, isPremium, itemsOfKind, type CatalogItem, type ItemKind } from '../config/catalog';
+import { CATALOG, SOON, catalogItem, isPremium, itemsOfKind, type CatalogItem, type Currency, type ItemKind } from '../config/catalog';
 import { CHAPTER, MISSIONS } from '../config/campaign';
 import { LEVELS } from '../config/levels';
 import { maxStars, missionsCleared, nextMission, totalStars } from '../campaign/progress';
-import { trailById } from '../config/trails';
+import { TRAILS_ENABLED, trailById } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
 import { ACHIEVEMENTS, achievementProgress, claimableAchievements, claimableMedals, isClaimable } from '../progression/achievements';
 import { hasLegacyRecords, isLevelUnlocked, legacyDailyList, legacySurvivalBest, type RunReport } from '../progression/progress';
-import { effectivePrice, isOwned, itemPrice, itemState, type ItemState } from '../progression/shop';
-import { resolveEquipped } from '../progression/skins';
+import { canPay, effectivePrice, isOwned, itemState, priceOptions, type ItemState } from '../progression/shop';
+import { resolveEquipped, skinById } from '../progression/skins';
 import { skinThumb } from '../render/skinSprites';
 import type { LeaderboardResponse, MeResponse, BalancesResponse } from '../net/protocol';
 import type { PendingRun } from '../net/leaderboard';
@@ -237,18 +237,22 @@ function itemThumb(save: SaveData, item: CatalogItem): string {
 
 /** Pastille d'état ou de prix d'un article. */
 function itemBadge(state: ItemState, item: CatalogItem, save?: SaveData): string {
-  const p = save ? effectivePrice(save, item) : itemPrice(item);
   switch (state) {
     case 'equipped': return `<span class="chip chip--equipped">${ICONS.check}Équipé</span>`;
     case 'owned': return '<span class="chip chip--owned">Possédé</span>';
-    default: return p ? price(p.currency, p.amount) : '';
+    case 'unavailable': return '<span class="chip chip--soon">Indisponible</span>';
+    default: {
+      // Achat au choix : les deux prix (Éclats ou Prismes)
+      const opts = priceOptions(item).map((o) => (save ? effectivePrice(save, item, o.currency) : null) ?? o);
+      return opts.map((o) => price(o.currency, o.amount)).join('<span class="price__or"> ou </span>');
+    }
   }
 }
 
 function itemCard(save: SaveData, item: CatalogItem, selected: boolean): string {
   const st = itemState(save, item);
   return `<button class="skin item item--${st}${selected ? ' skin--selected' : ''}" data-action="select-item" data-item="${item.id}" aria-pressed="${selected}" aria-label="${escapeHtml(item.name)}">
-    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'soon' || st === 'locked' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
+    <span class="skin__thumb${item.kind === 'pack' ? ' skin__thumb--pack' : ''}">${itemThumb(save, item)}${st === 'soon' || st === 'locked' || st === 'unavailable' ? `<span class="skin__lock">${ICONS.lock}</span>` : ''}</span>
     <span class="skin__name">${escapeHtml(item.name)}</span>
     <span class="item__badge">${itemBadge(st, item, save)}</span>
   </button>`;
@@ -259,11 +263,25 @@ function itemAction(save: SaveData, item: CatalogItem, st: ItemState): { note: s
   const p = effectivePrice(save, item);
   switch (st) {
     case 'buy':
+      // Une ou plusieurs façons de payer : un bouton par monnaie (Éclats OU Prismes pour un achat au choix)
       return {
-        note: p?.currency === 'prisms' ? 'Débit des Prismes par le service, après votre confirmation.' : '',
-        button: button({ action: 'buy', label: 'Acheter', icon: 'shop', variant: 'primary', attrs: `data-item="${item.id}"` }),
+        note: priceOptions(item).some((o) => o.currency === 'prisms') ? 'Débit des Prismes par le service, après votre confirmation.' : '',
+        button: priceOptions(item)
+          .map((o) => {
+            const due = effectivePrice(save, item, o.currency) ?? o;
+            const ok = canPay(save, item, o.currency);
+            const multi = priceOptions(item).length > 1;
+            const label = multi ? `${formatScore(due.amount)} ${CURRENCY_NAME[o.currency]}` : 'Acheter';
+            const sub = !multi || ok ? undefined : o.currency === 'prisms' && !save.economy.managed ? 'Bientôt disponible' : 'Solde insuffisant';
+            return button({ action: 'buy', label, sub, icon: ok ? 'shop' : 'lock', variant: ok ? 'primary' : 'secondary', attrs: `data-item="${item.id}" data-currency="${o.currency}"${ok ? '' : ' disabled'}` });
+          })
+          .join(''),
       };
+    case 'unavailable':
+      return { note: item.acquire.type === 'unavailable' ? item.acquire.reason : SOON, button: button({ action: 'buy', label: SOON, icon: 'lock', variant: 'secondary', attrs: 'disabled' }) };
     case 'insufficient': {
+      // Achat au choix : les deux boutons restent visibles (désactivés), avec le motif de chacun
+      if (priceOptions(item).length > 1) return { ...itemAction(save, item, 'buy'), note: 'Éclats ou Prismes insuffisants : gagnez des Éclats en jouant.' };
       const missing = p ? p.amount - spendable(save, p.currency) : 0;
       const waiting = p ? provisional(save, p.currency) : 0;
       return {
@@ -369,9 +387,10 @@ function bonusCards(save: SaveData): string {
   }).join('');
 }
 
-/** Articles premium (Prismes) : lignes compactes, achat par la confirmation habituelle (débit par le service). Le pack Néon + Nébuleuse y figure. */
+/** Articles premium (Prismes seulement) : lignes compactes, achat par la confirmation habituelle (débit par le service). Aucun pour l'instant : section absente. */
 function premiumRows(save: SaveData): string {
   const items = CATALOG.filter((i) => isPremium(i)).sort((a, b) => (a.kind === 'pack' ? 1 : 0) - (b.kind === 'pack' ? 1 : 0));
+  if (items.length === 0) return '';
   const rows = items
     .map((item) => {
       const st = itemState(save, item);
@@ -382,7 +401,7 @@ function premiumRows(save: SaveData): string {
         : st === 'buy'
           ? button({ action: 'buy', label: 'Acheter', variant: 'primary', size: 'sm', attrs: `data-item="${item.id}" aria-label="Acheter ${escapeHtml(item.name)}, ${p ? formatScore(p.amount) : ''} Prismes"` })
           : button({ action: 'buy', label: st === 'soon' ? 'Bientôt' : 'Insuffisant', variant: 'secondary', size: 'sm', attrs: `data-item="${item.id}" disabled` });
-      const sub = item.kind === 'pack' ? 'Vaisseau + traînée · économie de 25' : KIND_LABEL[item.kind];
+      const sub = item.kind === 'pack' ? 'Lot à prix réduit' : KIND_LABEL[item.kind];
       return `<div class="prem${owned ? ' prem--owned' : ''}" data-premium="${item.id}">
         <span class="prem__thumb prem__thumb--${item.kind}">${itemThumb(save, item)}</span>
         <span class="prem__text"><strong class="prem__name">${escapeHtml(item.name)}</strong><span class="prem__sub">${escapeHtml(sub)}</span>${owned || !p ? '' : `<span class="prem__price">${price(p.currency, p.amount)}</span>`}</span>
@@ -397,7 +416,7 @@ function premiumRows(save: SaveData): string {
 const itemGrid = (save: SaveData, items: CatalogItem[], selectedId: string, label: string): string =>
   `<div class="skins" role="group" aria-label="${escapeHtml(label)}">${items.map((i) => itemCard(save, i, i.id === selectedId)).join('')}</div>`;
 
-/** Menu unique « Boutique » : soldes, onglets compacts, aperçu et action de l'article ; cosmétiques en Médailles, premium et achats de Prismes dans l'onglet Prismes ; Bonus en Éclats. */
+/** Menu unique « Boutique » : soldes, onglets compacts, aperçu et action de l'article ; vaisseaux (Médailles, ou Éclats / Prismes au choix), traînées (fermées pour l'instant), achats de Prismes dans l'onglet Prismes ; Bonus en Éclats. */
 export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: CosmeticsFilter, selectedId?: string, message: { kind: 'ok' | 'error'; text: string } | null = null, store?: StoreView): string {
   const msg = message ? `<div role="${message.kind === 'error' ? 'alert' : 'status'}" class="notice${message.kind === 'ok' ? ' notice--cyan' : ''}">${escapeHtml(message.text)}</div>` : '';
   const wallet = walletBar(save.wallet, { prisms: save.economy.managed });
@@ -421,13 +440,26 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
       <details class="rules"><summary>Règles des bonus</summary><p class="small">${bonusRules()}</p></details>
     </div>`;
   }
+  // Traînées : catégorie fermée pour l'instant (aucun achat, aucun équipement, aucune interaction)
+  if (tab === 'trails' && !TRAILS_ENABLED) {
+    const cards = itemsOfKind('trail')
+      .map((i) => `<div class="skin item item--unavailable" aria-disabled="true"><span class="skin__thumb">${itemThumb(save, i)}<span class="skin__lock">${ICONS.lock}</span></span><span class="skin__name">${escapeHtml(i.name)}</span></div>`)
+      .join('');
+    return `<div class="panel panel--wide compact">${screenHead('Boutique')}
+      ${msg}
+      ${wallet}
+      ${tabBar}
+      <div class="notice trails-off" role="status"><strong>${SOON}</strong><br>Les traînées reviendront dans une prochaine mise à jour. Vos traînées déjà possédées sont conservées.</div>
+      <div class="skins skins--off" role="group" aria-label="Traînées (indisponibles)">${cards}</div>
+    </div>`;
+  }
   const items = cosmeticItems(save, tab, filter);
   // Par défaut : l'article équipé de la liste (sinon le premier)
   const sel = items.find((i) => i.id === selectedId) ?? items.find((i) => itemState(save, i) === 'equipped') ?? items[0];
   const head = `${screenHead('Boutique')}
     ${msg}
     ${wallet}
-    ${waitingNote(save, ['medals'])}
+    ${waitingNote(save, ['medals', 'shards'])}
     ${tabBar}
     <div class="filters" role="group" aria-label="Filtre">${COSMETIC_FILTERS.map((f) => `<button class="filter${f.id === filter ? ' filter--on' : ''}" data-action="filter-${f.id}" aria-pressed="${f.id === filter}">${f.label}</button>`).join('')}</div>`;
   if (!sel) {
@@ -436,30 +468,28 @@ export function cosmeticsScreen(save: SaveData, tab: CosmeticsTab, filter: Cosme
   const st = itemState(save, sel);
   const act = itemAction(save, sel, st);
   const prev = previewOf(save, sel);
-  const p = effectivePrice(save, sel);
-  const rewards = items.filter((i) => i.acquire.type === 'reward');
-  const regular = items.filter((i) => !isPremium(i) && i.acquire.type !== 'reward');
-  const premium = items.filter((i) => isPremium(i));
-  const medalGrid = regular.length > 0 ? `<h3 class="section-title">${coin('medals')} En Médailles</h3>${itemGrid(save, regular, sel.id, 'Cosmétiques en Médailles')}` : '';
-  const prismGrid = premium.length > 0 ? `<h3 class="section-title">${coin('prisms')} Premium · en Prismes</h3>${itemGrid(save, premium, sel.id, 'Cosmétiques premium en Prismes')}` : '';
-  const rewardGrid = rewards.length > 0 ? `<h3 class="section-title">${ICONS.medal} Récompenses de jeu</h3>${itemGrid(save, rewards, sel.id, 'Cosmétiques à débloquer en jouant')}` : '';
+  const opts = priceOptions(sel);
+  const p = opts.length === 1 ? effectivePrice(save, sel) : null;
+  // Une seule grille, dans l'ordre d'affichage de la configuration (config/skins.ts)
+  const grid = `<h3 class="section-title">${sel.kind === 'trail' ? 'Traînées' : 'Vaisseaux'}</h3>${itemGrid(save, items, sel.id, sel.kind === 'trail' ? 'Traînées' : 'Vaisseaux')}`;
+  const prestige = sel.kind === 'ship' ? skinById(sel.id).prestige : 0;
   return `<div class="panel panel--wide compact">${head}
     <div class="skin-stage">
-      <div class="skin-preview${st === 'soon' || st === 'locked' ? ' skin-preview--locked' : ''}">
+      <div class="skin-preview${st === 'soon' || st === 'locked' || st === 'unavailable' ? ' skin-preview--locked' : ''}">
         <canvas class="skin-preview__canvas" data-skin-preview="${prev.skin}"${prev.trail === null ? '' : ` data-trail-color="${prev.trail}"`} role="img" aria-label="Aperçu : ${escapeHtml(sel.name)}"></canvas>
       </div>
       <div class="skin-info">
-        <span class="kind-label">${KIND_LABEL[sel.kind]}</span>
+        <span class="kind-label">${KIND_LABEL[sel.kind]}${prestige > 0 ? ` · prestige ${prestige}` : ''}</span>
         <h3 class="skin-info__name">${escapeHtml(sel.name)}</h3>
         <p class="skin-info__cond">${escapeHtml(sel.blurb)}</p>
         <div class="item__badge item__badge--lg">${itemBadge(st, sel, save)}</div>
         ${p && (st === 'buy' || st === 'insufficient') ? `<p class="shop-balance">Disponible : <strong>${formatScore(spendable(save, p.currency))}</strong> ${CURRENCY_NAME[p.currency]}</p>` : ''}
         ${act.note ? `<p class="shop-note" id="item-note">${act.note}</p>` : ''}
-        ${act.button}
+        <div class="btn-stack buy-options">${act.button}</div>
       </div>
     </div>
-    ${medalGrid}${prismGrid}${rewardGrid}
-    <p class="small shop-foot">Purement cosmétique : aucun effet sur le jeu. Médailles (succès) pour les articles standard, Prismes pour le premium (onglet Prismes). Les « Éclats de campagne » sont une réserve séparée.</p>
+    ${grid}
+    <p class="small shop-foot">Purement cosmétique : aucun effet sur le jeu. Prix provisoires. Les « Éclats de campagne » sont une réserve séparée.</p>
   </div>`;
 }
 
@@ -478,10 +508,12 @@ export function purchaseRefusal(save: SaveData, item: CatalogItem): string {
 }
 
 /** Confirmation d'un achat de cosmétique (Médailles ou Prismes) : récapitulatif, solde avant / après. */
-export function confirmPurchaseScreen(save: SaveData, itemId: string, busy = false): string {
+export function confirmPurchaseScreen(save: SaveData, itemId: string, busy = false, currency?: Currency): string {
   const item = catalogItem(itemId);
-  const p = item ? effectivePrice(save, item) : null;
-  if (!item || !p || itemState(save, item) !== 'buy') {
+  // Sans monnaie précisée : la première option payable (puis la première option)
+  const want = currency ?? (item ? priceOptions(item).find((o) => canPay(save, item, o.currency))?.currency : undefined);
+  const p = item ? effectivePrice(save, item, want) : null;
+  if (!item || !p || itemState(save, item) !== 'buy' || !canPay(save, item, p.currency)) {
     return `<div class="panel panel--pause"><h2 class="title">Achat impossible</h2>
       <p class="sub" role="alert" style="margin:6px 0 14px">${escapeHtml(item ? purchaseRefusal(save, item) : 'Article inconnu : rien n’a été débité.')}</p>
       ${button({ action: 'back-cosmetics', label: 'Retour à la boutique', variant: 'primary', attrs: 'data-autofocus' })}</div>`;
@@ -496,7 +528,7 @@ export function confirmPurchaseScreen(save: SaveData, itemId: string, busy = fal
     <div class="confirm__row"><span>Solde après l’achat</span><strong>${formatScore(Math.max(0, bal - p.amount))}</strong></div>
     ${p.currency === 'prisms' ? '<p class="small">Les Prismes sont débités par le service, en ligne ; rien n’est débité si la connexion échoue.</p>' : ''}
     <div class="btn-stack" style="margin-top:14px">
-      ${button({ action: 'confirm-buy', label: busy ? 'Achat en cours…' : 'Confirmer l’achat', icon: 'check', variant: 'primary', attrs: `data-item="${item.id}" data-autofocus${busy ? ' disabled' : ''}` })}
+      ${button({ action: 'confirm-buy', label: busy ? 'Achat en cours…' : 'Confirmer l’achat', icon: 'check', variant: 'primary', attrs: `data-item="${item.id}" data-currency="${p.currency}" data-autofocus${busy ? ' disabled' : ''}` })}
       ${button({ action: 'back-cosmetics', label: 'Annuler', variant: 'ghost' })}
     </div>
   </div>`;

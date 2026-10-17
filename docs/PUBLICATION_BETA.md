@@ -126,6 +126,13 @@ Ordre en cas de retour arrière complet : jeu (R0) **puis** service (R3).
 ## 9 bis. Mise à jour « Survie à phases » (BALANCE_VERSION 4)
 Aucun schéma SQLite à migrer. **Service d'abord, jeu ensuite** : le jeu v4 envoie `balance: 4` ; un service v3 refuserait ses parties (`unsupported_balance`), et un service v4 refuse les parties d'un jeu v3. Les records de la v3 restent consultables (sélecteur de version du classement) ; côté joueur, les records locaux de la v3 sont rangés dans l'archive (Survie et « Avec bonus » ; le défi quotidien, inchangé, garde ses records). Le rejeu de parties longues (phase 2) coûte plus de calcul : surveiller le CPU du service après publication.
 
+## 9 ter. Mise à jour « refonte cosmétique » (hitbox +15 %, nouveau catalogue de skins)
+À faire **sur autorisation**, service d'abord, jeu ensuite (aucune étape n'a été exécutée) :
+1. **Le rejeu serveur doit utiliser le même code `src/`** : la hitbox du vaisseau est passée à ×1,15 (`HITBOX.playerScale`, `config/hitbox.ts`) alors que `BALANCE_VERSION` reste **4** (décision du propriétaire attendue : rester à 4 ou passer à 5). Un service resté sur l'ancienne hitbox pourrait refuser certaines parties du nouveau jeu (rejeu différent).
+2. Le service doit aussi connaître le **nouveau catalogue** (`config/catalog.ts` / `config/skins.ts`) : sans cela, les achats de skins (Éclats en différé, Prismes via `/api/shop/prisms`) sont rejetés « article inconnu » et `server/accounts.ts` ne sait pas encore débiter un article « au choix ».
+3. Procédure habituelle : sauvegarde de la base (`server:migrate-check` sur une copie), mise à jour du conteneur, vérification, puis publication du jeu (`git push origin main`, GitHub Pages). Aucun changement de schéma SQLite.
+4. Les anciens skins n'existent plus : une sauvegarde qui en équipe un retombe sur « Tôle brute » ; les Médailles déjà dépensées pour d'anciens skins ne sont pas remboursées.
+
 ## 10. Jeu publié avant le service (cas constaté) : diagnostic et résolution
 **Constat** : la branche `feat/polar-rift-economie-v3` a été fusionnée dans `main` (PR n° 1) : GitHub Pages publie donc le **nouveau jeu**, alors que le service OVH est resté **à l'ancienne version** (celle de `836be7d` : classement seulement). L'ordre prévu au § 4 (service d'abord) n'a pas été suivi ; ce n'est pas un défaut du nouveau code.
 **Reproduit en local** (ancien service lancé sur une base de test + nouveau jeu construit pour lui) : les trois anomalies apparaissent exactement :

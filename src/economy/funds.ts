@@ -32,7 +32,7 @@ function pendingItemCost(save: SaveData, currency: Currency): number {
   for (const [id, paid] of Object.entries(save.economy.purchases)) {
     if (confirmed.has(id)) continue;
     const a = catalogItem(id)?.acquire;
-    if (a?.type === 'price' && a.currency === currency) total += paid;
+    if ((a?.type === 'price' && a.currency === currency) || (a?.type === 'choice' && currency === 'shards')) total += paid;
   }
   return total;
 }

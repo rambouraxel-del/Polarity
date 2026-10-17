@@ -3,16 +3,17 @@ import { applyMission, takeIntroScene, takeOutroScene } from '../src/campaign/pr
 import { STORAGE_NAMESPACE } from '../src/config/brand';
 import { SCORE } from '../src/config/balance';
 import { CATALOG, catalogItem, isPremium } from '../src/config/catalog';
+import { TEST_PACK_ID, addTestPack } from './helpers';
 import { ACHIEVEMENT_CONFIG } from '../src/config/achievements';
 import { LEVELS } from '../src/config/levels';
 import { MISSIONS } from '../src/config/campaign';
-import { SKINS } from '../src/config/skins';
+import { DEFAULT_SKIN_ID, SKINS } from '../src/config/skins';
 import { STORY } from '../src/config/story';
 import { WALLET_MAX } from '../src/config/economy';
 import { NullPaymentProvider, setPaymentProvider } from '../src/monetization/payments';
 import { ACHIEVEMENTS, claimMedals, claimableMedals, reconcileAchievements, unlockAchievements } from '../src/progression/achievements';
 import { applyRun, type RunSummary } from '../src/progression/progress';
-import { effectivePrice, equip, isOwned, itemState, purchase } from '../src/progression/shop';
+import { canPay, effectivePrice, equip, isOwned, itemState, priceOptions, purchase } from '../src/progression/shop';
 import { BACKUP_PREFIX, BALANCE_BACKUP_PREFIX, BrowserStore, CORRUPT_KEY, MemoryStore, SAVE_KEY, SAVE_VERSION, defaultSave, eraseAll, loadSave, parseSave, resetProgress, sanitize, writeSave, type SaveData } from '../src/save/save';
 import * as C from '../src/ui/campaignScreens';
 import * as S from '../src/ui/screens';
@@ -152,7 +153,7 @@ describe('succès : Médailles réclamées une seule fois', () => {
     save.wallet.medals = 5000;
     expect(reconcileAchievements(save)).toEqual([]);
     save.stats.totalShards = 0;
-    purchase(save, 'aurore');
+    purchase(save, 'chantier-orbital');
     expect(save.stats.totalShards).toBe(0);
   });
 });
@@ -161,94 +162,124 @@ describe('boutique : achats concurrents et états', () => {
   it('cinquante clics rapides sur « Confirmer » : un seul débit', () => {
     const save = rich(1000);
     let ok = 0;
-    for (let i = 0; i < 50; i++) if (purchase(save, 'spectre').ok) ok++;
+    for (let i = 0; i < 50; i++) if (purchase(save, 'circuit').ok) ok++;
     expect(ok).toBe(1);
-    expect(save.wallet.medals).toBe(830);
-    expect(save.owned.filter((x) => x === 'spectre')).toHaveLength(1);
+    expect(save.wallet.medals).toBe(750);
+    expect(save.owned.filter((x) => x === 'circuit')).toHaveLength(1);
   });
 
   it('deux onglets qui achètent le même article : après adoption, le second est refusé sans débit', () => {
     const [a, b] = twoTabs(rich(500));
-    expect(purchase(a, 'aurore').ok).toBe(true);
+    expect(purchase(a, 'chantier-orbital').ok).toBe(true);
     const store = new MemoryStore();
     writeSave(store, a);
     const adopted = parseSave(store.get(SAVE_KEY))!;
-    expect(purchase(adopted, 'aurore')).toEqual({ ok: false, reason: 'owned' });
-    expect(adopted.wallet.medals).toBe(360);
+    expect(purchase(adopted, 'chantier-orbital')).toEqual({ ok: false, reason: 'owned' });
+    expect(adopted.wallet.medals).toBe(400);
     // Sans adoption, chaque copie ne débite qu'une fois : jamais deux débits sur la même copie
-    expect(purchase(b, 'aurore').ok).toBe(true);
-    expect(b.wallet.medals).toBe(360);
+    expect(purchase(b, 'chantier-orbital').ok).toBe(true);
+    expect(b.wallet.medals).toBe(400);
   });
 
   it('le solde ne devient jamais négatif ; solde incohérent (NaN) : refus sans débit', () => {
-    const save = rich(139);
-    expect(purchase(save, 'aurore').ok).toBe(false);
+    const save = rich(99);
+    expect(purchase(save, 'chantier-orbital').ok).toBe(false);
     save.wallet.medals = Number.NaN;
-    expect(purchase(save, 'aurore')).toEqual({ ok: false, reason: 'insufficient' });
-    expect(isOwned(save, 'aurore')).toBe(false);
+    expect(purchase(save, 'chantier-orbital')).toEqual({ ok: false, reason: 'insufficient' });
+    expect(isOwned(save, 'chantier-orbital')).toBe(false);
   });
 
-  it('pack premium partiellement possédé : prix au prorata, jamais plus cher que les articles restants achetés séparément', () => {
-    for (const pack of CATALOG.filter((i) => i.kind === 'pack')) {
-      const parts = (pack.contents ?? []).map((c) => catalogItem(c)!);
-      const full = effectivePrice(defaultSave(), pack)!.amount;
-      expect(full).toBe(pack.acquire.type === 'price' ? pack.acquire.amount : -1);
-      for (const owned of parts) {
-        const save = defaultSave();
-        save.owned.push(owned.id);
-        const due = effectivePrice(save, pack)!.amount;
-        const rest = parts.filter((p) => p.id !== owned.id).reduce((t, p) => t + (p.acquire.type === 'price' ? p.acquire.amount : 0), 0);
-        expect(due, `${pack.id} sans ${owned.id}`).toBeLessThanOrEqual(rest);
-        expect(due).toBeLessThan(full);
-        expect(due).toBeGreaterThan(0);
+  it('pack premium (factice) partiellement possédé : prix au prorata, jamais plus cher que les articles restants achetés séparément', () => {
+    const remove = addTestPack(100);
+    try {
+      const packs = CATALOG.filter((i) => i.kind === 'pack');
+      expect(packs.map((p) => p.id)).toEqual([TEST_PACK_ID]);
+      const prisms = (i: (typeof CATALOG)[number]): number => priceOptions(i).find((o) => o.currency === 'prisms')?.amount ?? 0;
+      for (const pack of packs) {
+        const parts = (pack.contents ?? []).map((c) => catalogItem(c)!);
+        const full = effectivePrice(defaultSave(), pack)!.amount;
+        expect(full).toBe(pack.acquire.type === 'price' ? pack.acquire.amount : -1);
+        for (const owned of parts) {
+          const save = defaultSave();
+          save.owned.push(owned.id);
+          const due = effectivePrice(save, pack)!.amount;
+          const rest = parts.filter((p) => p.id !== owned.id).reduce((t, p) => t + prisms(p), 0);
+          expect(due, `${pack.id} sans ${owned.id}`).toBeLessThanOrEqual(rest);
+          expect(due).toBeLessThan(full);
+          expect(due).toBeGreaterThan(0);
+        }
       }
+    } finally {
+      remove();
     }
   });
 
   it('tous les états de la boutique sont lisibles sans la couleur, avec un bouton inactif quand l’achat est impossible', () => {
-    const save = rich(150);
-    save.owned.push('menthe');
-    save.skin = 'aurore';
-    save.owned.push('aurore');
-    const cases: [string, string, boolean][] = [
-      ['spectre', 'Médailles insuffisantes', true],
-      ['ambre', 'Médailles insuffisantes', true],
-      ['emeraude', 'Acheter', false],
-      ['classique', 'Équiper', false],
-      ['aurore', 'Équipé', true],
-      ['glace', 'Médailles insuffisantes', true],
-      ['neon', 'Bientôt disponible', true],
-      ['pack-neon', 'Bientôt', true],
-    ];
-    for (const [id, label, disabled] of cases) {
-      const kind = catalogItem(id)!.kind;
-      const html = S.cosmeticsScreen(save, kind === 'ship' ? 'ships' : kind === 'trail' ? 'trails' : 'prisms', 'all', id);
-      expect(html, id).toContain(label);
-      const btn = new RegExp(`<button[^>]*data-action="(buy|equip-item)"[^>]*>`, 'g');
-      const buttons = [...html.matchAll(btn)].map((m) => m[0]);
-      const primary = buttons.find((b) => !b.includes('select-item'));
-      expect(primary, id).toBeDefined();
-      expect(/disabled/.test(primary!), `${id} inactif`).toBe(disabled);
+    const remove = addTestPack(100);
+    try {
+      const save = rich(150);
+      save.owned.push('carbone-utilitaire');
+      save.skin = 'chantier-orbital';
+      save.owned.push('chantier-orbital');
+      const cases: [string, string, boolean][] = [
+        ['circuit', 'Médailles insuffisantes', true],
+        ['dipole', 'Médailles insuffisantes', true],
+        [DEFAULT_SKIN_ID, 'Équiper', false],
+        ['chantier-orbital', 'Équipé', true],
+        ['cartographe', 'Médailles insuffisantes', true],
+        // Achat au choix sans fonds : un bouton par monnaie, tous inactifs, avec le motif
+        ['long-courrier', 'Solde insuffisant', true],
+        ['porcelaine', 'Indisponible', true],
+        [TEST_PACK_ID, 'Bientôt', true],
+      ];
+      for (const [id, label, disabled] of cases) {
+        const kind = catalogItem(id)!.kind;
+        const html = S.cosmeticsScreen(save, kind === 'ship' ? 'ships' : kind === 'trail' ? 'trails' : 'prisms', 'all', id);
+        expect(html, id).toContain(label);
+        const btn = new RegExp(`<button[^>]*data-action="(buy|equip-item)"[^>]*>`, 'g');
+        const buttons = [...html.matchAll(btn)].map((m) => m[0]);
+        const primary = buttons.find((b) => !b.includes('select-item'));
+        expect(primary, id).toBeDefined();
+        expect(/disabled/.test(primary!), `${id} inactif`).toBe(disabled);
+      }
+      // Traînées : catégorie fermée, message lisible et aucune carte cliquable
+      const trails = S.cosmeticsScreen(save, 'trails', 'all', 'emeraude');
+      expect(trails).toContain('Indisponible pour l’instant');
+      expect(trails).not.toContain('select-item');
+      expect(trails).not.toMatch(/data-action="(buy|equip-item)"/);
+      // Achat au choix avec des Éclats : un bouton par monnaie ; les Prismes restent inactifs sans service
+      save.wallet.shards = 5000;
+      const choice = S.cosmeticsScreen(save, 'ships', 'all', 'long-courrier');
+      const shardsBtn = choice.match(/<button[^>]*data-currency="shards"[^>]*>/)?.[0];
+      const prismsBtn = choice.match(/<button[^>]*data-currency="prisms"[^>]*>/)?.[0];
+      expect(shardsBtn).toBeDefined();
+      expect(/disabled/.test(shardsBtn!)).toBe(false);
+      expect(prismsBtn).toBeDefined();
+      expect(/disabled/.test(prismsBtn!)).toBe(true);
+      expect(S.confirmPurchaseScreen(save, 'long-courrier', false, 'shards')).toContain('Confirmer l’achat');
+      expect(S.confirmPurchaseScreen(save, 'long-courrier', false, 'prisms')).toContain('Achat impossible');
+      // Acheter (fonds suffisants) puis confirmation : récapitulatif complet
+      save.wallet.medals = 500;
+      expect(S.cosmeticsScreen(save, 'ships', 'all', 'dipole')).toContain('Acheter');
+      const confirm = S.confirmPurchaseScreen(save, 'dipole');
+      expect(confirm).toContain('Confirmer l’achat');
+      expect(confirm).toContain('Solde après l’achat');
+      expect(S.cosmeticsScreen(save, 'ships', 'all', 'carbone-utilitaire')).toContain('Possédé');
+    } finally {
+      remove();
     }
-    // Acheter (fonds suffisants) puis confirmation : récapitulatif complet
-    save.wallet.medals = 500;
-    expect(S.cosmeticsScreen(save, 'ships', 'all', 'ambre')).toContain('Acheter');
-    const confirm = S.confirmPurchaseScreen(save, 'ambre');
-    expect(confirm).toContain('Confirmer l’achat');
-    expect(confirm).toContain('Solde après l’achat');
-    expect(S.cosmeticsScreen(save, 'ships', 'all', 'menthe')).toContain('Possédé');
   });
 
   it('confirmation d’un article non achetable : « Achat impossible » expliqué, aucun bouton de confirmation', () => {
     const save = rich(10);
-    for (const id of ['aurore', 'glace', 'neon', 'inconnu']) {
+    for (const id of ['chantier-orbital', 'cartographe', 'long-courrier', 'porcelaine', 'emeraude', 'inconnu']) {
       const html = S.confirmPurchaseScreen(save, id);
       expect(html, id).toContain('Achat impossible');
       expect(html).not.toContain('confirm-buy');
     }
-    save.owned.push('aurore');
-    expect(S.purchaseRefusal(save, catalogItem('aurore')!)).toContain('déjà possédé');
-    expect(S.purchaseRefusal(save, catalogItem('spectre')!)).toContain('Rien n’a été débité');
+    save.owned.push('chantier-orbital');
+    expect(S.purchaseRefusal(save, catalogItem('chantier-orbital')!)).toContain('déjà possédé');
+    expect(S.purchaseRefusal(save, catalogItem('circuit')!)).toContain('Rien n’a été débité');
   });
 
   it('un message d’achat (succès ou refus) est annoncé aux lecteurs d’écran', () => {
@@ -261,9 +292,9 @@ describe('boutique : achats concurrents et états', () => {
     expect(CATALOG.every((i) => ['ship', 'trail', 'pack'].includes(i.kind))).toBe(true);
     const a = defaultSave();
     const b = defaultSave();
-    b.owned.push('spectre', 'ultraviolet');
-    equip(b, 'spectre');
-    equip(b, 'ultraviolet');
+    b.owned.push('circuit', 'ultraviolet');
+    equip(b, 'circuit');
+    equip(b, 'ultraviolet'); // traînées fermées : sans effet, et sans aucun effet de jeu de toute façon
     // L'équipement ne change aucune règle : mêmes scores et mêmes records pour la même partie
     const run = surv(80, { score: 42000, cycles: 3, bestMultiplier: 3 });
     const ra = applyRun(a, run);
@@ -275,21 +306,37 @@ describe('boutique : achats concurrents et états', () => {
 
 describe('Prismes : sans service, jamais achetables ; avec un service, jamais débités localement', () => {
   it('sans service : « Bientôt disponible », refus, aucun débit, aucun crédit', () => {
-    const save = rich(100000);
-    save.wallet.shards = 100000;
-    for (const item of CATALOG.filter(isPremium)) {
-      expect(itemState(save, item)).toBe('soon');
-      expect(purchase(save, item.id)).toEqual({ ok: false, reason: 'unavailable' });
-      for (const tab of ['ships', 'trails', 'prisms'] as const) {
-        if (tab !== 'prisms' && !S.cosmeticItems(save, tab, 'all').includes(item)) continue;
-        const html = S.cosmeticsScreen(save, tab, 'all', item.id);
-        expect(html).toContain('Bientôt');
-        expect(html).not.toMatch(/data-action="buy"(?![^>]*disabled)/);
+    const remove = addTestPack(100);
+    try {
+      const save = rich(100000);
+      save.wallet.shards = 100000;
+      const premium = CATALOG.filter(isPremium);
+      expect(premium.map((i) => i.id)).toEqual([TEST_PACK_ID]);
+      for (const item of premium) {
+        expect(itemState(save, item)).toBe('soon');
+        expect(purchase(save, item.id)).toEqual({ ok: false, reason: 'unavailable' });
+        for (const tab of ['ships', 'trails', 'prisms'] as const) {
+          if (tab !== 'prisms' && !S.cosmeticItems(save, tab, 'all').includes(item)) continue;
+          const html = S.cosmeticsScreen(save, tab, 'all', item.id);
+          expect(html).toContain('Bientôt');
+          expect(html).not.toMatch(/data-action="buy"(?![^>]*disabled)/);
+        }
       }
+      // Achat au choix : l'option Prismes n'est jamais payable ni proposée comme active sans service
+      for (const item of CATALOG.filter((i) => i.acquire.type === 'choice')) {
+        expect(canPay(save, item, 'prisms'), item.id).toBe(false);
+        expect(purchase(save, item.id, 'prisms'), item.id).toEqual({ ok: false, reason: 'unavailable' });
+        const prismsBtn = S.cosmeticsScreen(save, 'ships', 'all', item.id).match(/<button[^>]*data-currency="prisms"[^>]*>/)?.[0];
+        expect(prismsBtn, item.id).toBeDefined();
+        expect(/disabled/.test(prismsBtn!), item.id).toBe(true);
+      }
+      expect(save.wallet).toEqual({ shards: 100000, medals: 100000, prisms: 0 });
+      expect(save.owned).toEqual([]);
+      // L'accueil n'affiche pas de solde de Prismes fantôme
+      expect(S.homeScreen(save, '2026-10-12')).not.toContain('wallet__item--prisms');
+    } finally {
+      remove();
     }
-    expect(save.wallet).toEqual({ shards: 100000, medals: 100000, prisms: 0 });
-    // L'accueil n'affiche pas de solde de Prismes fantôme
-    expect(S.homeScreen(save, '2026-10-12')).not.toContain('wallet__item--prisms');
   });
 });
 
@@ -347,7 +394,7 @@ describe('stockage : indisponible, effacement, préférences', () => {
     const store = new MemoryStore();
     const save = defaultSave();
     save.wallet.shards = 500;
-    save.owned.push('aurore');
+    save.owned.push('chantier-orbital');
     save.options = { ...save.options, muted: true, volume: 0.2, musicVolume: 0.5, sfxVolume: 0.3, visualIntensity: 0.4, reducedEffects: true, tutorialSeen: true };
     writeSave(store, save);
     store.set(`${BACKUP_PREFIX}3`, 'x');
@@ -378,7 +425,8 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
     expect(STORAGE_NAMESPACE).toBe('polarite');
     expect(SAVE_KEY).toBe('polarite.save');
     expect(SAVE_VERSION).toBe(10);
-    expect(SKINS.map((s) => s.id)).toEqual(['classique', 'aurore', 'menthe', 'ambre', 'glace', 'solaire', 'prisme', 'spectre', 'faille', 'neon']);
+    expect(SKINS.map((s) => s.id)).toEqual(['tole-brute', 'chantier-orbital', 'carbone-utilitaire', 'dipole', 'circuit', 'cartographe', 'long-courrier', 'basalte', 'arcade-84', 'porcelaine']);
+    expect(DEFAULT_SKIN_ID).toBe('tole-brute');
     expect(STORY.map((s) => s.id)).toEqual(Array.from({ length: 10 }, (_, i) => [`n${i + 1}-before`, `n${i + 1}-after`]).flat());
     expect(MISSIONS.map((m) => `n${m.id}`)).toEqual(Array.from({ length: 10 }, (_, i) => `n${i + 1}`));
   });
@@ -386,7 +434,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
   it('textes de toute nature : jamais d’exception, valeurs toujours dans des bornes sûres', () => {
     const garbage: unknown[] = [
       null, 0, 'x', [], [[]], true, {}, { version: 'six' }, { version: 6, wallet: 'riche' }, { version: 6, wallet: { shards: -5, prisms: 1e99 } },
-      { version: 6, wallet: { shards: Number.NaN } }, { version: 6, owned: 'aurore' }, { version: 6, owned: [1, null, 'a'.repeat(100), 'aurore', 'aurore'] },
+      { version: 6, wallet: { shards: Number.NaN } }, { version: 6, owned: 'chantier-orbital' }, { version: 6, owned: [1, null, 'a'.repeat(100), 'chantier-orbital', 'chantier-orbital'] },
       { version: 6, levels: { 1: { completed: 'oui', stars: 99, bestScore: -3 }, x: {}, 2: null } }, { version: 6, campaign: { missions: { n1: { main: 'yes', challenge: true }, __proto__: { n2: 1 } }, reserve: 'beaucoup', chapterComplete: true } },
       { version: 6, options: { volume: 7, musicVolume: 'fort', visualIntensity: -1, muted: 'non' } }, { version: 6, skin: { id: 1 }, trail: 5 }, { version: 99, wallet: { shards: 5 } },
       JSON.parse('{"version":6,"__proto__":{"polluted":true},"constructor":{"prototype":{"x":1}}}'),
@@ -413,7 +461,7 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
     expect(loadSave(store).status).toBe('corrupt');
     expect(store.get(CORRUPT_KEY)).toBe('{pas du json');
     const fut = new MemoryStore();
-    const text = JSON.stringify({ version: 99, wallet: { shards: 42, prisms: 0 }, owned: ['aurore'] });
+    const text = JSON.stringify({ version: 99, wallet: { shards: 42, prisms: 0 }, owned: ['chantier-orbital'] });
     fut.set(SAVE_KEY, text);
     const r = loadSave(fut);
     expect(r.status).toBe('future');
@@ -438,12 +486,12 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
       levels: { 1: { completed: true, bestScore: 5000, stars: 3 }, 2: { completed: true, bestScore: 4000, stars: 1 } },
       survival: { bestTime: 130, bestScore: 77000, runs: 9 },
       achievements: { first_cycle: 100, survive_60: 200, all_levels: 300 },
-      skin: 'aurore',
+      skin: 'chantier-orbital',
       options: { muted: true, volume: 0.3, reducedEffects: true, tutorialSeen: true },
     };
     for (const version of [1, 2, 3, 4, 5]) {
       const raw: Record<string, unknown> = { ...base, version, balance: version >= 2 ? 3 : undefined };
-      if (version >= 3) Object.assign(raw, { wallet: { shards: 321, prisms: 0 }, owned: ['aurore', 'menthe'], trail: 'emeraude', paid: { 1: { first: true, stars: 3 } } });
+      if (version >= 3) Object.assign(raw, { wallet: { shards: 321, prisms: 0 }, owned: ['chantier-orbital', 'carbone-utilitaire'], trail: 'emeraude', paid: { 1: { first: true, stars: 3 } } });
       if (version >= 4) Object.assign(raw, { rewarded: ['first_cycle', 'survive_60', 'all_levels'], stats: { totalCycles: 50, totalShards: 77, totalEvents: 4, bestScore: 9000, bestMultiplier: 4, totalRuns: 20 } });
       const store = new MemoryStore();
       store.set(SAVE_KEY, JSON.stringify(raw));
@@ -454,12 +502,12 @@ describe('sauvegarde : identifiants stables et données malformées', () => {
       expect(d.version).toBe(SAVE_VERSION);
       expect(d.levels['1']).toEqual({ completed: true, bestScore: 5000, stars: 3 });
       expect(d.levels['2'].stars).toBe(1);
-      expect(d.skin).toBe('aurore');
+      expect(d.skin).toBe('chantier-orbital');
       expect(d.achievements.survive_60).toBe(200);
       expect(d.options).toMatchObject({ muted: true, volume: 0.3, reducedEffects: true, tutorialSeen: true, musicVolume: 1, sfxVolume: 1, visualIntensity: 1 });
       expect(d.survival.bestTime + Object.values(d.archive).reduce((t, a) => t + a.survival.bestTime, 0)).toBeGreaterThanOrEqual(130);
       if (version >= 3) {
-        expect(d.owned).toEqual(expect.arrayContaining(['aurore', 'menthe']));
+        expect(d.owned).toEqual(expect.arrayContaining(['chantier-orbital', 'carbone-utilitaire']));
         expect(d.trail).toBe('emeraude');
         expect(d.wallet.shards).toBeGreaterThanOrEqual(321);
       }

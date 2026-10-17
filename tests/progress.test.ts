@@ -149,7 +149,7 @@ const V1_SAVE = {
   survival: { bestTime: 312.4, bestScore: 88000, runs: 14 },
   daily: { '2026-10-09': { bestTime: 95.5, bestScore: 20000, runs: 3 }, '2026-10-10': { bestTime: 140.2, bestScore: 31000, runs: 2 } },
   achievements: { first_cycle: 1700000000000, first_level: 1700000100000, survive_60: 1700000200000 },
-  skin: 'aurore',
+  skin: 'chantier-orbital',
   options: { muted: true, volume: 0.4, reducedEffects: true, tutorialSeen: true },
   seenIntros: ['projectile', 'sector'],
   stats: { totalCycles: 42, totalRuns: 30 },
@@ -168,7 +168,7 @@ describe('Migration de la sauvegarde v1.0 → v1.1', () => {
     expect(res.data.version).toBe(SAVE_VERSION);
     expect(res.data.levels).toEqual(V1_SAVE.levels);
     expect(res.data.achievements).toEqual(V1_SAVE.achievements);
-    expect(res.data.skin).toBe('aurore');
+    expect(res.data.skin).toBe('chantier-orbital');
     // Les réglages de l'ancienne sauvegarde sont conservés ; les nouveaux (mixage musique/effets, intensité visuelle) prennent leur valeur par défaut
     expect(res.data.options).toEqual({ ...V1_SAVE.options, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, survivalMode: 'plain', dev: { enabled: false, lock: '' } });
     expect(res.data.seenIntros).toEqual(V1_SAVE.seenIntros);
@@ -256,7 +256,7 @@ describe('Migration de la sauvegarde v1.0 → v1.1', () => {
     const res = loadSave(store);
     expect(res.status).toBe('migrated');
     expect(res.data.levels['1'].stars).toBe(3);
-    expect(res.data.skin).toBe('aurore');
+    expect(res.data.skin).toBe('chantier-orbital');
     expect(res.data.survival.bestTime).toBe(0);
   });
 });
@@ -271,7 +271,7 @@ const V2_SAVE = {
   archive: { '1': { survival: { bestTime: 312.4, bestScore: 88000, runs: 14 }, daily: { '2026-10-10': { bestTime: 140.2, bestScore: 31000, runs: 2 } } } },
   balanceNoticeSeen: 2,
   achievements: { first_cycle: 1, first_level: 2, survive_60: 3, max_combo: 4 },
-  skin: 'glace',
+  skin: 'cartographe',
   options: { muted: false, volume: 0.9, reducedEffects: true, tutorialSeen: true },
   seenIntros: ['projectile', 'sector', 'combo'],
   stats: { totalCycles: 77, totalRuns: 51 },
@@ -289,7 +289,7 @@ describe('Migration de la sauvegarde v1.1 → v1.2 (équilibrage 3)', () => {
     expect(res.status).toBe('migrated');
     expect(res.data.levels).toEqual(V2_SAVE.levels);
     expect(res.data.achievements).toEqual(V2_SAVE.achievements);
-    expect(res.data.skin).toBe('glace');
+    expect(res.data.skin).toBe('cartographe');
     expect(res.data.options).toEqual({ ...V2_SAVE.options, musicVolume: 1, sfxVolume: 1, visualIntensity: 1, survivalMode: 'plain', dev: { enabled: false, lock: '' } });
     expect(res.data.seenIntros).toEqual(V2_SAVE.seenIntros);
     expect(res.data.stats).toMatchObject(V2_SAVE.stats);

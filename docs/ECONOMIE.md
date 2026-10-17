@@ -8,7 +8,7 @@
 |---|---|---|
 | **Éclats** (violet) | gameplay : éclat sur l'orbite (Survie), récompenses de niveau | **bonus** : Boost 50, Gel temporel 100 (par charge) |
 | **Médailles** (or) | **réclamer** les 27 succès (1 650 au total) | cosmétiques **non premium** uniquement (1 640 pour tout) |
-| **Prismes** (rose) | très rarement, ou achat (phase 4/5) ; **toujours contrôlés par le service** | cosmétiques **premium** (Néon 150, Nébuleuse 75, Pack 200) ; plus tard secondes chances |
+| **Prismes** (rose) | très rarement, ou achat (phase 4/5) ; **toujours contrôlés par le service** | cosmétiques « au choix Éclats / Prismes » (long-courrier 60, basalte 80, arcade-84 120 — prix provisoires, `config/skins.ts`) ; secondes chances |
 
 La réserve d'**Éclats de campagne** reste indépendante (campagne inchangée).
 
@@ -34,7 +34,7 @@ Le détail (origine, total, nouveau solde) est affiché au résultat ; l'écran 
 - Collection non premium : vaisseaux Aurore 140, Menthe 150, Ambre 160, Spectre 170, Glace 180, Solaire 190, Prisme 200 (= **1 190**) ; traînées Émeraude 70, Glacier 80, Ultraviolet 90, Citron 100, Boréale 110 (= **450**) ; total **1 640** → **10 Médailles** de reste. Classique et Assortie restent gratuits. Plus aucun pack en Médailles (aucun contournement).
 
 ## Récompenses gratuites (phase 4)
-Prime de phase (Survie) : 150 Éclats à l'entrée en phase 2, une fois par partie (`PHASE_BONUS`, `economy/local.ts`) et apparence exclusive « Faille » à la première traversée du profil (`docs/PHASES.md`). Calendrier de connexion de 10 jours (200 Éclats, 2 Boosts, 2 Gels, 5 Prismes), podium du Défi quotidien (5/2/1 Prismes pour les trois premiers, ex æquo au même rang, rien au-delà), drop rare de Prismes en Survie (0,02 % par balise, 1 au plus par partie, partie démarrée en ligne). Tout est distribué par le service dans le registre (idempotent) ; voir `docs/ETAT_MAJ_ECONOMIE.md` (phase 4). Réglages : `src/config/rewards.ts`.
+Prime de phase (Survie) : 150 Éclats à l'entrée en phase 2, une fois par partie (`PHASE_BONUS`, `economy/local.ts`) (l'ancienne apparence exclusive « Faille » a été supprimée avec les anciens skins). Calendrier de connexion de 10 jours (200 Éclats, 2 Boosts, 2 Gels, 5 Prismes), podium du Défi quotidien (5/2/1 Prismes pour les trois premiers, ex æquo au même rang, rien au-delà), drop rare de Prismes en Survie (0,02 % par balise, 1 au plus par partie, partie démarrée en ligne). Tout est distribué par le service dans le registre (idempotent) ; voir `docs/ETAT_MAJ_ECONOMIE.md` (phase 4). Réglages : `src/config/rewards.ts`.
 
 ## Bonus (Boost, Gel temporel)
 Inventaire persistant (`inventory`), 50 / 100 Éclats par charge, jamais supprimé, maximum 99 par bonus. **Acheter ne consomme rien** ; une charge est consommée à chaque **activation réussie** en Survie (3 activations par bonus pendant la première vie ; charges inutilisées conservées ; après une reprise, Boost et Gel sont gratuits). Boost : +50 % de vitesse 5 s (recharge 10 s) ; Gel : menaces à 40 % de vitesse 6 s (recharge 20 s) ; jamais en même temps. Consommation localement immédiate (provisoire), puis déduite par le service à la validation de la partie classée (rejeu) ou déclarée (`bonusUsed`) pour les parties non classées. Une partie où un pouvoir est activé est classée « Avec bonus ». Section « Bonus » de la Boutique et écran **« Préparer la partie »** avant la Survie (stocks, solde, achats avec confirmation, limite de 3, lancement possible sans aucun bonus). Les charges du futur calendrier de connexion s'ajouteront au même inventaire (`grantCharges`).

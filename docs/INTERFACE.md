@@ -46,7 +46,7 @@ Portrait mobile (320 px et plus), paysage bas (accueil sur deux colonnes), ordin
 Grand aperçu animé, grille de cartes, bouton « Équiper », conditions de déblocage : voir `docs/APPARENCES.md`.
 
 ## Menus Cosmétiques, Succès, Classement (v1.6)
-- **Cosmétiques** remplace Apparences + Boutique : catégories Vaisseaux / Traînées / Packs, filtres Tous / Possédés / À débloquer, grand aperçu animé, description, prix ou condition, action Acheter / Équiper / Équipé / Succès requis (+ Solde insuffisant, Bientôt disponible). Soldes affichés une seule fois en haut.
+- **Cosmétiques** remplace Apparences + Boutique : catégories Vaisseaux (une grille, ordre de `SKIN_CONFIG`) / Traînées (fermée : « Indisponible pour l'instant ») / Bonus / Prismes, filtres Tous / Possédés / À débloquer, grand aperçu animé, description, prix ou condition, action Acheter / Équiper / Équipé / Succès requis (+ Solde insuffisant, Bientôt disponible). Soldes affichés une seule fois en haut.
 - **Succès** : par catégorie, progression (n / objectif), gain en Éclats, cosmétique lié, état (obtenu, récompense reçue).
 - **Classement** : état du service, profil (pseudo), top 100, rang, résultats récents (en attente / validé / non validé), version d'équilibrage. Voir `docs/CLASSEMENT.md`.
 
@@ -62,6 +62,6 @@ Grand aperçu animé, grille de cartes, bouton « Équiper », conditions de dé
 Retour d'usage sur iPhone : écrans trop volumineux. Les composants et leurs dispositions sont resserrés **sans zoom global** (classe `.compact` du panneau, `src/styles/screens.css`, fin de fichier) :
 - **Préparation** (ex « Préparer la partie ») : titre « Préparation », record en petit et solde d'Éclats discret sur une ligne, bouton « Lancer la partie » compact sur une seule ligne (`btn--go`), deux cartes de bonus (icône, nom, stock, effet, prix par charge, **×1 et ×5 côte à côte**), une ligne de rappel des règles ; plus de Médailles ni d'explications répétées ; charges provisoires : pastille discrète « dont N à confirmer ». Tient **sans défilement** à 360 × 780, 390 × 844, 844 × 390 (deux cartes côte à côte en paysage) et 1280 × 800. Prix, effets et inventaires inchangés.
 - **Boutique** : onglets Vaisseaux / Traînées / Bonus / Prismes (**l'onglet « Packs » n'existe plus** ; les anciens packs non premium ne sont plus proposés, leurs identifiants restent connus des sauvegardes) ; aperçu réduit à gauche de l'article choisi, cartes et boutons plus petits, notes raccourcies, règles des bonus repliées (« Règles des bonus »).
-- **Prismes** : articles premium en lignes compactes (Néon 150, Nébuleuse 75, **pack Néon + Nébuleuse 200**) puis achats de Prismes en lignes (30 / 100 / 380) ; achats désactivés et expliqués sans fournisseur configuré.
+- **Prismes** : aucun article premium « Prismes seulement » pour l'instant ; achats de Prismes en lignes (30 / 100 / 380) ; achats désactivés et expliqués sans fournisseur configuré.
 - Surfaces tactiles ≥ 44 px, onglets sans texte tronqué dès 360 px (vérifiés par `npm run e2e`, section 360 × 780).
 - Messages « service pas à jour » (distincts de « hors ligne ») : voir `docs/PUBLICATION_BETA.md`.

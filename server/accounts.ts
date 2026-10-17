@@ -709,8 +709,10 @@ export function createAccounts(deps: AccountsDeps): Accounts {
     if (typeof itemId !== 'string') return err(400, 'bad_request', 'Requête invalide.');
     const item = catalogItem(itemId);
     if (!item) return err(404, 'unknown_item', 'Article inconnu.');
-    if (item.acquire.type !== 'price' || item.acquire.currency !== 'prisms') return err(400, 'not_premium', 'Cet article ne s’achète pas avec des Prismes.');
-    const catalogPrice = item.acquire.amount;
+    // Article premium (Prismes seulement) ou achat au choix Éclats / Prismes : le prix en Prismes est celui du catalogue
+    const a = item.acquire;
+    const catalogPrice = a.type === 'price' && a.currency === 'prisms' ? a.amount : a.type === 'choice' ? a.prisms : null;
+    if (catalogPrice === null) return err(400, 'not_premium', 'Cet article ne s’achète pas avec des Prismes.');
     return transaction(db, () => {
       // Dette de remboursement éventuelle recouvrée AVANT de contrôler le solde (jamais de dépense avec des Prismes remboursés)
       settleDebt(db, me.id, now());
@@ -721,7 +723,7 @@ export function createAccounts(deps: AccountsDeps): Accounts {
         json(200, { item: itemId, charged, price, balance: balancesOf(db, me.id), owned: [...owned] } satisfies PremiumPurchaseResponse);
       if (granted.every((g) => owned.has(g))) return reply(false, 0);
       // Prix facturé : celui du catalogue, ou le prorata de ce qui reste à obtenir (calculé sur la possession VÉRIFIÉE par le service)
-      const price = effectivePrice({ owned: [...owned] }, item)?.amount ?? catalogPrice;
+      const price = item.kind === 'pack' ? effectivePrice({ owned: [...owned] }, item, 'prisms')?.amount ?? catalogPrice : catalogPrice;
       const prior = q.ledgerHas.get(me.id, spendRef(itemId)) as unknown as { amount: number } | undefined;
       if (!prior) {
         if (balancesOf(db, me.id).prisms < price) return err(409, 'insufficient', 'Prismes insuffisants.');

@@ -27,7 +27,7 @@ describe('Hitbox : réglage indépendant', () => {
     expect(HITBOX.defaultGrowth).toBeGreaterThanOrEqual(HITBOX.minGrowth);
     expect(HITBOX.defaultGrowth).toBeLessThanOrEqual(HITBOX.maxGrowth);
     expect(getHitboxGrowth()).toBe(HITBOX.defaultGrowth);
-    expect(playerHitRadius()).toBeCloseTo(HITBOX.playerBase * (1 + HITBOX.defaultGrowth), 12);
+    expect(playerHitRadius()).toBeCloseTo(HITBOX.playerBase * (1 + HITBOX.defaultGrowth) * HITBOX.playerScale, 12);
     expect(projectileHitRadius()).toBeCloseTo(HITBOX.projectileBase * (1 + HITBOX.defaultGrowth), 12);
   });
 
@@ -39,11 +39,12 @@ describe('Hitbox : réglage indépendant', () => {
     }
   });
 
-  it('les visuels sont agrandis (vaisseau +45 % puis +20 %, astéroïdes +35 % après le +15 % de la v1.1) sans toucher aux hitboxes', () => {
+  it('les visuels sont agrandis (vaisseau +45 %, +20 % puis +25 %, astéroïdes +35 % après le +15 % de la v1.1) sans toucher aux hitboxes', () => {
     const shipV11 = VISUAL.shipBaseRadius * 1.15;
     const asteroidV11 = VISUAL.asteroidBaseRadius * 1.15;
     expect(VISUAL.scale).toBe(1.15);
-    expect(shipRadius()).toBeCloseTo(shipV11 * 1.45 * 1.2, 12);
+    expect(VISUAL.shipScale).toBeCloseTo(1.45 * 1.2 * 1.25, 12);
+    expect(shipRadius()).toBeCloseTo(shipV11 * 1.45 * 1.2 * 1.25, 12);
     expect(asteroidRadius()).toBeCloseTo(asteroidV11 * 1.35, 12);
     const before = shipRadius();
     setHitboxGrowth(0.08);
@@ -51,17 +52,21 @@ describe('Hitbox : réglage indépendant', () => {
   });
 
   it('les hitboxes actuelles sont conservées (indépendantes des visuels)', () => {
-    expect(playerHitRadius()).toBeCloseTo(7 * 1.065, 12);
+    // Vaisseau : +6,5 % puis +15 % propres à la hitbox du joueur (HITBOX.playerScale) ; projectile inchangé
+    expect(HITBOX.playerScale).toBe(1.15);
+    expect(playerHitRadius()).toBeCloseTo(7 * 1.065 * 1.15, 12);
+    expect(playerHitRadius()).toBeCloseTo(8.57, 2);
     expect(projectileHitRadius()).toBeCloseTo(8 * 1.065, 12);
-    // Silhouettes bien plus grandes que les hitboxes : le vaisseau est ~2× la hitbox, l'astéroïde ~1,7×
+    // Silhouettes bien plus grandes que les hitboxes : le vaisseau est ~2,6× la hitbox, l'astéroïde ~1,7×
     expect(shipHalfWidth() / playerHitRadius()).toBeGreaterThan(1.5);
     expect(asteroidMinHalfExtent() / projectileHitRadius()).toBeGreaterThan(1.3);
   });
 
-  it('traînées : plus épaisses mais pas plus longues que la v1.1', () => {
-    expect(FX.thruster.length).toBe(14);
+  it('traînées : plus épaisses mais pas plus longues que la v1.1 ; le réacteur suit l’agrandissement du vaisseau (+25 %)', () => {
+    expect(FX.thruster.length).toBe(17); // 14 × 1,25 (arrondi) : proportionnel au vaisseau
+    expect(FX.thruster.length).toBeLessThanOrEqual(14 * 1.25);
     expect(FX.thruster.width).toBeGreaterThan(5);
-    expect(FX.thruster.width).toBeLessThanOrEqual(5 * 1.4);
+    expect(FX.thruster.width).toBeLessThanOrEqual(5 * 1.4 * 1.25);
     expect(FX.asteroidTrail.length).toBe(52);
     const v11 = [0.95, 0.6, 0.28];
     FX.asteroidTrail.layers.forEach((w, i) => {
@@ -73,16 +78,16 @@ describe('Hitbox : réglage indépendant', () => {
   });
 
   it('un passage à la limite : épargné sans agrandissement, touché avec +5 %…+8 %', () => {
-    const base = HITBOX.playerBase + HITBOX.projectileBase; // 15
+    const base = HITBOX.playerBase * HITBOX.playerScale + HITBOX.projectileBase; // 16,05
     const near = passingAt(base + 0.3);
     const check = () => projectileHits(near, 0, 0, 0, 0.5, playerHitRadius());
     setHitboxGrowth(0);
     expect(check()).toBe(false);
     setHitboxGrowth(HITBOX.minGrowth);
-    expect(check()).toBe(true); // 15 × 1,05 = 15,75 > 15,3
+    expect(check()).toBe(true); // 8,4525 + 8,4 = 16,85 > 16,35
     setHitboxGrowth(HITBOX.maxGrowth);
     expect(check()).toBe(true);
-    // Un passage plus large reste épargné même à +8 % (16,2)
+    // Un passage plus large reste épargné même à +8 % (17,33)
     setHitboxGrowth(HITBOX.maxGrowth);
     expect(projectileHits(passingAt(base * 1.08 + 0.3), 0, 0, 0, 0.5, playerHitRadius())).toBe(false);
   });

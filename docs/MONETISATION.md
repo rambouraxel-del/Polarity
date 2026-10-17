@@ -4,7 +4,7 @@
 > Sans configuration externe (ci-dessous), les achats et la publicité sont **désactivés** et l'interface l'explique ; aucun succès fictif n'existe en production.
 
 ## Principes
-- Accès gratuit et complet ; aucun avantage de jeu à l'achat. Les Prismes servent aux cosmétiques premium (Néon 150, Nébuleuse 75, pack 200) et aux reprises (5 puis 10). Tarifs **inchangés**.
+- Accès gratuit et complet ; aucun avantage de jeu à l'achat. Les Prismes servent aux cosmétiques « au choix Éclats / Prismes » (long-courrier 60, basalte 80, arcade-84 120, provisoires) et aux reprises (5 puis 10). Tarifs **inchangés**.
 - Prismes achetés et gagnés (calendrier, podium quotidien, drop) : **identiques**. Éclats et Médailles : intacts, jamais convertis.
 - Les Prismes ne sont crédités **que par le service**, après vérification auprès du fournisseur. Aucune valeur (montant, produit, quantité) envoyée par le client ne fait autorité : le service retrouve le pack d'après l'identifiant de produit **vérifié chez le fournisseur** (`src/config/monetization.ts`).
 - Compte connecté obligatoire pour acheter (l'invité joue sans paiement, l'interface propose d'ouvrir Compte).

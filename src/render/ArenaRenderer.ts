@@ -11,6 +11,7 @@ import { trailById } from '../config/trails';
 import { laserAngle, pathX, pathY, projectileX, projectileY, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
 import { PHASES } from '../config/phases';
 import { AMBIENCE } from '../config/ambience';
+import { ORBIT, orbitLook } from '../config/orbit';
 import type { Skin } from '../progression/skins';
 import { shipTextureFor } from './shipTextures';
 import { hexNum, THEME } from '../ui/theme';
@@ -78,6 +79,12 @@ function orbitGlowTexture(scene: Phaser.Scene): string {
 }
 
 /** Hachage entier déterministe → [0, 1) : choix décoratifs liés à l'identifiant d'une menace, sans toucher au RNG du jeu. */
+/** Mélange linéaire de deux couleurs 0xRRGGBB. */
+function lerpColor(a: number, b: number, t: number): number {
+  const ch = (shift: number): number => Math.round(((a >> shift) & 255) * (1 - t) + ((b >> shift) & 255) * t);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
 function hash01(n: number, salt: number): number {
   let x = Math.imul(n | 0, 374761393) + Math.imul(salt | 0, 668265263);
   x = Math.imul(x ^ (x >>> 13), 1274126177);
@@ -220,15 +227,23 @@ export class ArenaRenderer {
 
   /** Taille d'affichage des sprites : la plus grande dimension du dessin = 2 × rayon visuel (+15 %). */
   private applySpriteScale(): void {
-    const shipPx = (2 * shipRadius() * this.scale) / CONTENT;
-    this.shipSprite.setDisplaySize(shipPx, shipPx);
-    this.shipGlow.setDisplaySize(shipPx * FX.shipGlow.grow, shipPx * FX.shipGlow.grow);
-    this.shipRim.setDisplaySize(shipPx * FX.shipRim.grow, shipPx * FX.shipRim.grow);
+    this.sizeShip();
     const astPx = (2 * asteroidRadius() * this.scale) / CONTENT;
     for (const a of this.asteroidPool) {
       a.img.setDisplaySize(astPx * a.sc, astPx * a.sc);
       a.glow.setDisplaySize(astPx * a.sc * FX.asteroidGlow.grow, astPx * a.sc * FX.asteroidGlow.grow);
     }
+  }
+
+  /**
+   * Taille d'affichage du vaisseau (sprite, lueur, liseré) : indépendante de la définition de la texture (128 ou 256 px). À rappeler après chaque
+   * changement de texture, car Phaser conserve le facteur d'échelle d'une image, pas sa taille d'affichage.
+   */
+  private sizeShip(): void {
+    const shipPx = (2 * shipRadius() * this.scale) / CONTENT;
+    this.shipSprite.setDisplaySize(shipPx, shipPx);
+    this.shipGlow.setDisplaySize(shipPx * FX.shipGlow.grow, shipPx * FX.shipGlow.grow);
+    this.shipRim.setDisplaySize(shipPx * FX.shipRim.grow, shipPx * FX.shipRim.grow);
   }
 
   private asteroidSlot(i: number): AsteroidSlot {
@@ -272,6 +287,8 @@ export class ArenaRenderer {
   private oy = 0;
   /** Horloge de rendu (s) de l'image courante (effets décoratifs). */
   private clockNow = 0;
+  /** Fondu de l'orbite entre la phase 1 (0) et la phase 2 (1) : suit la phase de la partie. */
+  private orbitMix = 0;
   /** Voile blanc de la traversée (DOM : reste plein écran malgré le zoom de la caméra). */
   private flashEl: HTMLDivElement | null = null;
   private camKey = '';
@@ -298,6 +315,7 @@ export class ArenaRenderer {
     this.shipGlow.setVisible(false);
     this.shipRim.setVisible(false);
     this.orbitGlow.setVisible(false);
+    this.orbitMix = 0;
     this.shardSprite.setVisible(false);
     this.ambienceLayers.setVisible(false);
     this.gridG.setVisible(true);
@@ -351,7 +369,7 @@ export class ArenaRenderer {
     const emitting = session.phase === 'running';
     this.emitAcc = Math.min(0.1, this.emitAcc + (emitting ? realDt : 0));
 
-    this.drawOrbit(skin);
+    this.drawOrbit(realDt);
     this.drawBeacons(sim ? sim.beacons.active : null, sim ? sim.beacons.angles : null, skin, clock);
     this.drawShard(sim ? sim.shards?.active ?? null : null, t);
     const camp = session.campaign;
@@ -459,31 +477,46 @@ export class ArenaRenderer {
     this.flashEl.style.opacity = String(Math.max(0, Math.min(1, alpha)));
   }
 
-  private drawOrbit(skin: Skin): void {
+  /**
+   * Orbite : apparence propre à la PHASE de la partie (config/orbit.ts), jamais à l'apparence du vaisseau. Fine et discrète : halo doux (une seule
+   * image réutilisée, teinte et opacité mises à jour à chaque image), trait fin, et en phase 2 de petits arcs électriques le long du rail.
+   * Le passage de phase est fondu (`orbitMix`) : rien n'est recréé.
+   */
+  private drawOrbit(realDt: number): void {
     const g = this.g;
     const x = this.sx(0);
     const y = this.sy(0);
     const r = R * this.scale;
     const s = this.scale;
-    // Orbite vive : halo doux (texture en dégradé, teintée) et trait plein de la couleur de l'apparence (cyan vif pour la classique)
-    const c = skin.colors.orbit;
+    const phase = this.ambience?.phase ?? 1;
+    const target = phase >= 2 ? 1 : 0;
+    const step = realDt / ORBIT.blendSeconds;
+    this.orbitMix = target > this.orbitMix ? Math.min(target, this.orbitMix + step) : Math.max(target, this.orbitMix - step);
+    const a = orbitLook(1);
+    const b = orbitLook(2);
+    const m = this.orbitMix;
+    const mix = (p: number, q: number): number => p + (q - p) * m;
+    const color = lerpColor(a.color, b.color, m);
+    const breathe = this.reducedEffects ? 0 : mix(a.breathe, b.breathe);
+    const hz = mix(a.breatheHz, b.breatheHz);
+    const k = 1 + breathe * Math.sin(TAU * hz * this.clockNow);
     const glowPx = 2 * r * ORBIT_GLOW_SPAN;
-    this.orbitGlow.setVisible(true).setPosition(x, y).setDisplaySize(glowPx, glowPx).setTint(c);
-    g.lineStyle(Math.max(2 * this.dpr, 3 * s), c, 1);
+    this.orbitGlow.setVisible(true).setPosition(x, y).setDisplaySize(glowPx, glowPx).setTint(color).setAlpha(Math.min(1, mix(a.glowAlpha, b.glowAlpha) * k));
+    g.lineStyle(Math.max(1 * this.dpr, mix(a.lineWidth, b.lineWidth) * s), color, Math.min(1, mix(a.lineAlpha, b.lineAlpha) * k));
     g.strokeCircle(x, y, r);
     // Phase 2 : l'orbite reste un cercle parfait mais devient électrique (arcs fins qui crépitent le long du rail, plus vifs sur les battements)
-    const look = this.ambience?.look ?? 0;
-    if (look > 0.02 && !this.reducedEffects) {
+    const arcs = mix(a.arcs, b.arcs);
+    if (arcs > 0.02 && !this.reducedEffects) {
       const beat = this.ambience?.beat ?? 0;
       const N = 48;
       const t = Math.floor(this.clockNow * 14);
       for (let i = 0; i < N; i++) {
         const h = hash01(i + t * 61, 7);
-        if (h > 0.34 + 0.4 * beat) continue;
+        if (h > 0.3 + 0.35 * beat) continue;
         const a0 = (i / N) * TAU;
         const a1 = ((i + 1) / N) * TAU;
-        g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), 0xd8e4ff, look * (0.35 + 0.45 * h + 0.3 * beat));
-        const off = (hash01(i + t * 17, 3) - 0.5) * 7 * s;
+        g.lineStyle(Math.max(1 * this.dpr, 1.2 * s), b.arcColor, arcs * (0.3 + 0.4 * h + 0.25 * beat));
+        const off = (hash01(i + t * 17, 3) - 0.5) * 6 * s;
         g.beginPath();
         g.moveTo(x + Math.cos(a0) * (r + off), y + Math.sin(a0) * (r + off));
         g.lineTo(x + Math.cos((a0 + a1) / 2) * (r - off * 0.6), y + Math.sin((a0 + a1) / 2) * (r - off * 0.6));
@@ -707,6 +740,7 @@ export class ArenaRenderer {
       sprite.setTexture(key);
       this.shipGlow.setTexture(key);
       this.shipRim.setTexture(key);
+      this.sizeShip();
     }
     sprite.setVisible(true).setAlpha(1);
     sprite.setPosition(this.sx(px), this.sy(py));
@@ -725,11 +759,11 @@ export class ArenaRenderer {
     const len = th.length * flick;
     const nx = c; // normale (radiale) : décalage latéral des deux tuyères
     const ny = si;
-    const side = shipHalfWidth() * 0.3;
+    const side = shipHalfWidth() * th.spread;
     const g = this.shipG;
     for (const off of [-side, side]) {
-      const sx0 = px - tx * L * 0.72 + nx * off;
-      const sy0 = py - ty * L * 0.72 + ny * off;
+      const sx0 = px - tx * L * th.start + nx * off;
+      const sy0 = py - ty * L * th.start + ny * off;
       const ex = sx0 - tx * len;
       const ey = sy0 - ty * len;
       const w = th.width * 0.5;
@@ -748,8 +782,8 @@ export class ArenaRenderer {
         const off = (Math.random() < 0.5 ? -side : side) + (Math.random() - 0.5) * 2;
         const k = Math.random();
         this.spawn(
-          px - tx * (L * 0.72 + len * 0.6) + nx * off,
-          py - ty * (L * 0.72 + len * 0.6) + ny * off,
+          px - tx * (L * th.start + len * 0.6) + nx * off,
+          py - ty * (L * th.start + len * 0.6) + ny * off,
           -tx * FX.thrusterSparks.speed * (0.6 + k) + nx * (Math.random() - 0.5) * 14,
           -ty * FX.thrusterSparks.speed * (0.6 + k) + ny * (Math.random() - 0.5) * 14,
           FX.thrusterSparks.life * (0.6 + 0.4 * Math.random()),

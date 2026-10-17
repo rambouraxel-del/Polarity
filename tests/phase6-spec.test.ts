@@ -14,17 +14,19 @@ describe('Chiffres validés de la mise à jour économique', () => {
     expect(BONUS.maxActivationsPerRun).toBe(3);
   });
 
-  it('27 succès = 1 650 Médailles ; cosmétiques non premium = 1 640 Médailles', () => {
+  it('27 succès = 1 650 Médailles ; cosmétiques payables en Médailles : cinq vaisseaux = 1 000 (traînées fermées), atteignables par les succès', () => {
     expect(ACHIEVEMENT_CONFIG).toHaveLength(27);
     expect(totalMedals()).toBe(1650);
-    expect(medalCost('ship') + medalCost('trail')).toBe(1640);
+    expect(medalCost('ship')).toBe(1000);
+    expect(medalCost('ship') + medalCost('trail')).toBeLessThanOrEqual(totalMedals());
   });
 
-  it('Premium : vaisseau 150, traînée 75, pack 200 Prismes ; packs de Prismes 30/100/380 pour 0,99/2,99/9,99 €', () => {
+  it('Vaisseaux au choix : Éclats 1 500 / 2 000 / 3 000 ou Prismes 60 / 80 / 120 ; packs de Prismes 30/100/380 pour 0,99/2,99/9,99 €', () => {
     const price = (id: string): unknown => CATALOG.find((i) => i.id === id)?.acquire;
-    expect(price('neon')).toEqual({ type: 'price', currency: 'prisms', amount: 150 });
-    expect(price('nebuleuse')).toEqual({ type: 'price', currency: 'prisms', amount: 75 });
-    expect(price('pack-neon')).toEqual({ type: 'price', currency: 'prisms', amount: 200 });
+    expect(price('long-courrier')).toEqual({ type: 'choice', shards: 1500, prisms: 60 });
+    expect(price('basalte')).toEqual({ type: 'choice', shards: 2000, prisms: 80 });
+    expect(price('arcade-84')).toEqual({ type: 'choice', shards: 3000, prisms: 120 });
+    expect(CATALOG.filter((i) => i.acquire.type === 'price' && i.acquire.currency === 'prisms')).toEqual([]);
     expect(PRISM_PACKS.map((p) => [p.prisms, p.priceCents])).toEqual([[30, 99], [100, 299], [380, 999]]);
   });
 

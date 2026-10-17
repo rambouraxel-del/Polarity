@@ -8,8 +8,9 @@ import { defaultDevOptions, sanitizeDevOptions, type DevModeOptions } from '../d
 import { ACHIEVEMENT_CONFIG } from '../config/achievements';
 import { LEGACY_ACHIEVEMENT_ITEMS } from '../config/catalog';
 import { MISSIONS, UPGRADES, missionKey } from '../config/campaign';
-import { BONUS, LEGACY_SKIN_ACHIEVEMENTS, WALLET_MAX, WALLET_START } from '../config/economy';
+import { BONUS, WALLET_MAX, WALLET_START } from '../config/economy';
 import { LOYALTY, LOYALTY_LENGTH } from '../config/rewards';
+import { DEFAULT_SKIN_ID, SKINS } from '../config/skins';
 import { DEFAULT_TRAIL_ID } from '../config/trails';
 import type { LoyaltyState } from '../net/rewardsProtocol';
 import { BALANCE_VERSION, DAILY_RULES_VERSION } from '../config/version';
@@ -296,7 +297,7 @@ export function defaultSave(): SaveData {
     archive: {},
     balanceNoticeSeen: BALANCE_VERSION,
     achievements: {},
-    skin: 'classique',
+    skin: DEFAULT_SKIN_ID,
     trail: DEFAULT_TRAIL_ID,
     wallet: { ...WALLET_START },
     medals: { claimed: [] },
@@ -426,7 +427,8 @@ export function sanitize(raw: unknown): SaveData {
       if (typeof v === 'number' && Number.isFinite(v)) out.achievements[k] = v;
     }
   }
-  if (typeof raw.skin === 'string' && raw.skin.length < 40) out.skin = raw.skin;
+  // Apparence inconnue (ancienne apparence retirée, valeur corrompue) : apparence par défaut, sans erreur
+  if (typeof raw.skin === 'string' && SKINS.some((k) => k.id === raw.skin)) out.skin = raw.skin;
   if (typeof raw.trail === 'string' && raw.trail.length < 40) out.trail = raw.trail;
   if (isObj(raw.wallet)) {
     out.wallet = {
@@ -607,11 +609,8 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   // Avant la v3 : pas d'économie. Soldes à 0 ; cosmétiques déjà obtenus conservés ; récompenses de niveau historiques
   // marquées comme déjà versées (aucun crédit rétroactif).
   if (v < 3) {
-    const ach = isObj(raw.achievements) ? raw.achievements : {};
-    const owned = Object.entries(LEGACY_SKIN_ACHIEVEMENTS)
-      .filter(([, achievement]) => typeof ach[achievement] === 'number')
-      .map(([id]) => id);
-    out.owned = owned;
+    // (Les anciennes apparences débloquées par des succès ont été retirées du jeu : rien à conserver.)
+    out.owned = [];
     out.wallet = { ...WALLET_START };
     out.trail = DEFAULT_TRAIL_ID;
     const paid: Record<string, LevelPayout> = {};
