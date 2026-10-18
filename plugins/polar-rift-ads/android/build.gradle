@@ -1,10 +1,10 @@
 // Bibliothèque Android du plugin local « polar-rift-ads » (voir plugins/polar-rift-ads/README.md).
 ext {
     androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
-    // SDK Google Mobile Ads et UMP : versions de la branche maintenue pour Capacitor 8 (plugin communautaire capacitor-community/admob 8.2.x).
-    // La borne « 25.4.+ » flotte sur les correctifs ; à figer sur la version exacte résolue après le premier build réussi (Google Maven était inaccessible
-    // depuis l'environnement de développement : non vérifié ici).
-    playServicesAdsVersion = project.hasProperty('playServicesAdsVersion') ? rootProject.ext.playServicesAdsVersion : '25.4.+'
+    // SDK Google Mobile Ads et UMP : versions exactes de l'exemple officiel Google (googleads/googleads-mobile-android-examples, java/admob/RewardedVideoExample,
+    // commit eac5db1 du 18/09/2026 : play-services-ads 25.5.0, user-messaging-platform 4.0.0). Leur publication sur Google Maven n'a PAS pu être
+    // vérifiée depuis l'environnement de développement (dl.google.com refusé) : à confirmer par le premier build réel (docs/PUBLICITE.md).
+    playServicesAdsVersion = project.hasProperty('playServicesAdsVersion') ? rootProject.ext.playServicesAdsVersion : '25.5.0'
     userMessagingPlatformVersion = project.hasProperty('userMessagingPlatformVersion') ? rootProject.ext.userMessagingPlatformVersion : '4.0.0'
 }
 

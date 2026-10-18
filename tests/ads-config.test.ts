@@ -32,9 +32,23 @@ describe('Configuration publicitaire centralisée (mobile/ads.json)', () => {
     expect(c.android.rewardedUnitId).toBe('ca-app-pub-4635509667785777/7300498334');
     expect(c.ios.rewardedUnitId).toBe('ca-app-pub-4635509667785777/7641252998');
     expect(c.unitAssociationConfirmed).toBe(false);
-    // Les ID d'application réels restent à fournir : jamais déduits des identifiants de blocs
-    expect(c.android.appId).toBe('');
-    expect(c.ios.appId).toBe('');
+    // ID d'application réels du compte, enregistrés pour la suite (jamais déduits des identifiants de blocs)
+    expect(c.android.appId).toBe('ca-app-pub-4635509667785777~1257834166');
+    expect(c.ios.appId).toBe('ca-app-pub-4635509667785777~8318066533');
+  });
+
+  it('les ID réels enregistrés ne sont PAS utilisés en mode demo : la version livrée n’utilise que les identifiants de démonstration Google', () => {
+    const c = base();
+    expect(c.mode).toBe('demo');
+    for (const p of ['android', 'ios'] as const) {
+      const r = resolveAds(c, p);
+      expect(r.appId).toBe(GOOGLE_DEMO[p].appId);
+      expect(r.rewardedUnitId).toBe(GOOGLE_DEMO[p].rewardedUnitId);
+      expect(JSON.stringify(r)).not.toContain('4635509667785777');
+    }
+    // Le contrôle de développement passe, celui de production refuse (mode demo)
+    expect(checkAdsConfig(c, false)).toEqual([]);
+    expect(checkAdsConfig(c, true).join(' ')).toMatch(/demo/);
   });
 
   it('mode demo : identifiants de démonstration Google uniquement (jamais ceux du compte) ; mode live : ceux du compte', () => {
@@ -50,7 +64,9 @@ describe('Configuration publicitaire centralisée (mobile/ads.json)', () => {
 
   it('mode live : exige des ID d’application réels (pas un ID de bloc, pas celui de démonstration), des blocs du même éditeur et l’association confirmée', () => {
     expect(checkAdsConfig(live(), false)).toEqual([]);
-    expect(checkAdsConfig(base().mode === 'demo' ? { ...base(), mode: 'live' } : base(), false).join(' ')).toMatch(/android\.appId/);
+    expect(checkAdsConfig(live({ android: { appId: '', rewardedUnitId: 'ca-app-pub-4635509667785777/7300498334' } }), false).join(' ')).toMatch(/android\.appId/);
+    // Les ID réels déjà enregistrés ne suffisent pas : passer en « live » exige encore la confirmation de l'association des blocs
+    expect(checkAdsConfig({ ...base(), mode: 'live' }, false).join(' ')).toMatch(/association/);
     expect(checkAdsConfig(live({ android: { appId: 'ca-app-pub-4635509667785777/7300498334', rewardedUnitId: 'ca-app-pub-4635509667785777/7300498334' } }), false).join(' ')).toMatch(/android\.appId/);
     expect(checkAdsConfig(live({ ios: { appId: GOOGLE_DEMO.ios.appId, rewardedUnitId: 'ca-app-pub-4635509667785777/7641252998' } }), false).join(' ')).toMatch(/ios\.appId/);
     expect(checkAdsConfig(live({ android: { appId: 'ca-app-pub-4635509667785777~1111111111', rewardedUnitId: GOOGLE_DEMO.android.rewardedUnitId } }), false).join(' ')).toMatch(/android\.rewardedUnitId/);

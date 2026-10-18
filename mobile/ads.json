@@ -4,11 +4,11 @@
   "testDeviceIds": [],
   "umpDebugGeography": "off",
   "android": {
-    "appId": "",
+    "appId": "ca-app-pub-4635509667785777~1257834166",
     "rewardedUnitId": "ca-app-pub-4635509667785777/7300498334"
   },
   "ios": {
-    "appId": "",
+    "appId": "ca-app-pub-4635509667785777~8318066533",
     "rewardedUnitId": "ca-app-pub-4635509667785777/7641252998"
   }
 }
