@@ -1,5 +1,48 @@
 apply plugin: 'com.android.application'
 
+import groovy.json.JsonSlurper
+
+// ———————————————————————————————————————————————————————————————— Publicité (AdMob + UMP) : configuration UNIQUE = mobile/ads.json (identifiants PUBLICS).
+// Mode « demo » (défaut) : identifiants de démonstration officiels de Google ; mode « live » : identifiants du compte (voir scripts/ads-config.ts, mêmes règles).
+def adsCfg = new JsonSlurper().parse(rootProject.file('../mobile/ads.json'))
+def ADS_DEMO_APP_ID = 'ca-app-pub-3940256099942544~3347511713'
+def ADS_DEMO_UNIT_ID = 'ca-app-pub-3940256099942544/5224354917'
+def adsLive = adsCfg.mode == 'live'
+def adsAppId = adsLive ? adsCfg.android.appId : ADS_DEMO_APP_ID
+def adsUnitId = adsLive ? adsCfg.android.rewardedUnitId : ADS_DEMO_UNIT_ID
+def adsPublisher = { String id -> (id =~ /^ca-app-pub-(\d{16})/).with { it.find() ? it.group(1) : '' } }
+def adsErrors = { boolean release ->
+    def errors = []
+    if (!(adsCfg.mode in ['demo', 'live'])) errors << "mode : 'demo' ou 'live' attendu"
+    if (!(adsCfg.umpDebugGeography in ['off', 'eea', 'not_eea'])) errors << "umpDebugGeography : 'off', 'eea' ou 'not_eea' attendu"
+    if (adsLive) {
+        if (!(adsCfg.android.appId ==~ /^ca-app-pub-\d{16}~\d{10}$/) || adsPublisher(adsCfg.android.appId) == '3940256099942544') errors << "android.appId : ID d'application AdMob réel attendu (ca-app-pub-…~…), à récupérer dans AdMob"
+        if (!(adsCfg.android.rewardedUnitId ==~ /^ca-app-pub-\d{16}\/\d{10}$/) || adsPublisher(adsCfg.android.rewardedUnitId) == '3940256099942544') errors << "android.rewardedUnitId : identifiant de bloc récompensé réel attendu"
+        else if (adsPublisher(adsCfg.android.appId) != adsPublisher(adsCfg.android.rewardedUnitId)) errors << "android : le bloc et l'application n'appartiennent pas au même éditeur AdMob"
+        if (adsCfg.unitAssociationConfirmed != true) errors << "unitAssociationConfirmed : confirmer l'association des blocs à leur application dans AdMob avant toute activation réelle"
+    }
+    if (release) {
+        if (!adsLive) errors << "Production : le mode 'demo' (identifiants de démonstration Google) est interdit ; passer en 'live'"
+        if (adsCfg.umpDebugGeography != 'off') errors << "Production : umpDebugGeography doit être 'off'"
+        if (adsCfg.testDeviceIds.size() > 0) errors << "Production : testDeviceIds doit être vide"
+    }
+    return errors
+}
+tasks.register('verifyAdsConfig') {
+    doLast {
+        def errors = adsErrors(false)
+        if (!errors.isEmpty()) throw new GradleException("Configuration publicitaire invalide (mobile/ads.json) :\n  - " + errors.join("\n  - "))
+    }
+}
+tasks.register('verifyAdsConfigRelease') {
+    doLast {
+        def errors = adsErrors(true)
+        if (!errors.isEmpty()) throw new GradleException("Compilation de PRODUCTION refusée : configuration publicitaire provisoire ou de debug (mobile/ads.json) :\n  - " + errors.join("\n  - "))
+    }
+}
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'verifyAdsConfig' }
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach { dependsOn 'verifyAdsConfigRelease' }
+
 // Signature de PUBLICATION : jamais de clé ni de mot de passe dans le dépôt. Les valeurs viennent de android/keystore.properties (ignoré par git, voir
 // keystore.properties.example) ou de variables d'environnement. Sans elles, la version « release » est produite NON signée (installable seulement après signature).
 def keystoreProps = new Properties()
@@ -17,6 +60,14 @@ android {
         versionCode 1
         versionName "2.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Métadonnées du manifeste lues par AdMob (ID d'application) et par le plugin PolarRiftAds (bloc, appareils de test, débogage du consentement)
+        manifestPlaceholders = [
+            polarRiftAdMobAppId       : adsAppId,
+            polarRiftAdsMode          : adsCfg.mode,
+            polarRiftAdsRewardedUnit  : adsUnitId,
+            polarRiftAdsTestDevices   : adsCfg.testDeviceIds.join(','),
+            polarRiftAdsUmpGeography  : adsCfg.umpDebugGeography
+        ]
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

@@ -1,0 +1,56 @@
+// Bibliothèque Android du plugin local « polar-rift-ads » (voir plugins/polar-rift-ads/README.md).
+ext {
+    androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
+    // SDK Google Mobile Ads et UMP : versions de la branche maintenue pour Capacitor 8 (plugin communautaire capacitor-community/admob 8.2.x).
+    // La borne « 25.4.+ » flotte sur les correctifs ; à figer sur la version exacte résolue après le premier build réussi (Google Maven était inaccessible
+    // depuis l'environnement de développement : non vérifié ici).
+    playServicesAdsVersion = project.hasProperty('playServicesAdsVersion') ? rootProject.ext.playServicesAdsVersion : '25.4.+'
+    userMessagingPlatformVersion = project.hasProperty('userMessagingPlatformVersion') ? rootProject.ext.userMessagingPlatformVersion : '4.0.0'
+}
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = "polarrift.ads"
+    compileSdk = project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
+    defaultConfig {
+        minSdkVersion project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 24
+        targetSdkVersion project.hasProperty('targetSdkVersion') ? rootProject.ext.targetSdkVersion : 36
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    lintOptions {
+        abortOnError = false
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation "com.google.android.gms:play-services-ads:$playServicesAdsVersion"
+    implementation "com.google.android.ump:user-messaging-platform:$userMessagingPlatformVersion"
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+}

@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync,
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NATIVE_APP_ORIGINS } from '../src/net/origins';
+import { checkAdsConfig, loadAdsConfig, plistIsCurrent } from './ads-config';
 
 export const PLACEHOLDER_ID = 'com.example.polarrift';
 /** Identifiants « exemple » : refusés par les magasins, jamais publiables. */
@@ -153,6 +154,18 @@ export function check(root = ROOT): Report {
   const iScheme = grab(/iosScheme:\s*'([^']*)'/g, cfg)[0];
   const expected = [`${aScheme}://${host}`, `${iScheme}://${host}`];
   if (expected.join() !== NATIVE_APP_ORIGINS.join()) errors.push(`origines WebView du capacitor.config.ts (${expected.join(', ')}) ≠ src/net/origins.ts (${NATIVE_APP_ORIGINS.join(', ')})`);
+  // Publicité (AdMob + UMP) : plugin local branché sur les deux plateformes, configuration cohérente ; les valeurs provisoires ou de debug bloquent la PUBLICATION
+  if (existsSync(join(root, 'mobile/ads.json'))) {
+    const ads = loadAdsConfig(join(root, 'mobile/ads.json'));
+    const base = checkAdsConfig(ads, false);
+    errors.push(...base.map((e) => `mobile/ads.json : ${e}`));
+    for (const e of checkAdsConfig(ads, true)) if (!base.includes(e)) pending.push(`publicité : ${e}`);
+    if (!read(root, 'android/capacitor.settings.gradle').includes("':polar-rift-ads'")) errors.push('plugin polar-rift-ads absent du projet Android : npx cap sync');
+    if (!read(root, 'ios/App/CapApp-SPM/Package.swift').includes('PolarRiftAds')) errors.push('plugin polar-rift-ads absent du projet iOS : npx cap sync');
+    if (!read(root, 'android/app/src/main/AndroidManifest.xml').includes('com.google.android.gms.ads.APPLICATION_ID')) errors.push('ID d\'application AdMob absent du manifeste Android (le SDK planterait au démarrage)');
+    const plist = read(root, 'ios/App/App/Info.plist');
+    if (!plistIsCurrent(plist, ads)) errors.push('ios/App/App/Info.plist n\'est pas à jour avec mobile/ads.json : npm run mobile:ads -- --apply');
+  }
   if (!rel.appIdConfirmed || isPlaceholderId(rel.appId)) pending.push(`identifiant d'application non choisi (« ${rel.appId} ») : npm run mobile:set-id -- <identifiant>`);
   if (!existsSync(join(root, 'android/keystore.properties')) && !process.env.POLAR_RIFT_KEYSTORE) pending.push('clé de signature Android absente (android/keystore.properties) : voir docs/BUILD_MOBILE.md');
   return { errors, pending };

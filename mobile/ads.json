@@ -1,0 +1,14 @@
+{
+  "mode": "demo",
+  "unitAssociationConfirmed": false,
+  "testDeviceIds": [],
+  "umpDebugGeography": "off",
+  "android": {
+    "appId": "",
+    "rewardedUnitId": "ca-app-pub-4635509667785777/7300498334"
+  },
+  "ios": {
+    "appId": "",
+    "rewardedUnitId": "ca-app-pub-4635509667785777/7641252998"
+  }
+}

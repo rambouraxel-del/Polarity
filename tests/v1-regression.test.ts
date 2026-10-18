@@ -138,11 +138,17 @@ describe('V1 — dépôt : aucun secret ni clé', () => {
     for (const f of textual) expect(readFileSync(f, 'utf8'), f).not.toMatch(/BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_|sk-[A-Za-z0-9]{24,}|AKIA[0-9A-Z]{16}/);
   });
 
-  it('les projets natifs ne déclarent aucun service tiers (publicité, statistiques, achats)', () => {
+  it('les projets natifs ne déclarent aucun service tiers non autorisé : seuls AdMob + UMP (plugin local polar-rift-ads) sont permis ; ni statistiques, ni médiation, ni achats', () => {
     const gradle = readFileSync('android/app/build.gradle', 'utf8') + readFileSync('android/app/capacitor.build.gradle', 'utf8');
-    expect(gradle).not.toMatch(/firebase|admob|play-services-ads|billing|crashlytics|analytics|appsflyer|adjust/i);
+    expect(gradle).not.toMatch(/firebase|play-services-ads|billing|crashlytics|analytics|appsflyer|adjust/i);
+    // Le seul SDK publicitaire est celui du plugin local, avec le seul SDK de consentement
+    const plugin = readFileSync('plugins/polar-rift-ads/android/build.gradle', 'utf8') + readFileSync('plugins/polar-rift-ads/Package.swift', 'utf8');
+    expect(plugin).not.toMatch(/firebase|crashlytics|analytics|appsflyer|adjust|mediation|adapter|billing/i);
+    expect(plugin).toContain('play-services-ads');
+    expect(plugin).toContain('user-messaging-platform');
     expect(existsSync('android/app/google-services.json')).toBe(false);
     const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { dependencies: Record<string, string> };
     expect(Object.keys(pkg.dependencies).filter((d) => d.startsWith('@capacitor/')).sort()).toEqual(['@capacitor/android', '@capacitor/app', '@capacitor/core', '@capacitor/ios', '@capacitor/splash-screen']);
+    expect(Object.keys(pkg.dependencies).filter((d) => !d.startsWith('@capacitor/') && /ads|admob|billing|purchase/i.test(d))).toEqual(['polar-rift-ads']);
   });
 });

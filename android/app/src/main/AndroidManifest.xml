@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Aucune autre permission : pas de publicité, pas de statistiques, ni micro, ni caméra, ni position, ni stockage.
+    <!-- Permissions : INTERNET (service du jeu) ; le SDK Google Mobile Ads fusionne celles qui lui sont nécessaires (état du réseau, identifiant publicitaire
+         AD_ID). Ni statistiques, ni micro, ni caméra, ni position, ni stockage.
          Orientation : portrait sur téléphone (userPortrait). Avec targetSdk 36, Android ignore ce verrouillage sur les écrans larges
          (tablettes, pliables ≥ 600 dp) : le jeu s'y adapte (mise en page responsive testée en portrait comme en paysage). -->
     <application
@@ -23,6 +24,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- AdMob : ID d'application (identifiant PUBLIC) + configuration du plugin PolarRiftAds, générés depuis mobile/ads.json (android/app/build.gradle).
+             Sans cet ID valide le SDK plante au démarrage : le mode « demo » (défaut) fournit l'ID d'exemple officiel de Google. -->
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${polarRiftAdMobAppId}" />
+        <meta-data android:name="polarrift.ads.mode" android:value="${polarRiftAdsMode}" />
+        <meta-data android:name="polarrift.ads.rewardedUnitId" android:value="${polarRiftAdsRewardedUnit}" />
+        <meta-data android:name="polarrift.ads.testDevices" android:value="${polarRiftAdsTestDevices}" />
+        <meta-data android:name="polarrift.ads.umpGeography" android:value="${polarRiftAdsUmpGeography}" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

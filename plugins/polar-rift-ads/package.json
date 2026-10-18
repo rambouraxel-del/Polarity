@@ -1,0 +1,15 @@
+{
+  "name": "polar-rift-ads",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plugin Capacitor local de Polar Rift : publicité récompensée AdMob + consentement UMP (Android et iOS). Aucun code web.",
+  "license": "UNLICENSED",
+  "files": ["android/", "ios/", "Package.swift"],
+  "capacitor": {
+    "ios": { "src": "ios" },
+    "android": { "src": "android" }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

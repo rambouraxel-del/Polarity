@@ -35,7 +35,8 @@
     "mobile:android:aab": "npm run mobile:check -- --release && npm run mobile:sync && cd android && ./gradlew bundleRelease",
     "mobile:open:android": "cap open android",
     "mobile:open:ios": "cap open ios",
-    "server:migrate-check": "tsx server/migrate-check.ts"
+    "server:migrate-check": "tsx server/migrate-check.ts",
+    "mobile:ads": "tsx scripts/ads-config.ts"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
@@ -44,7 +45,8 @@
     "@capacitor/ios": "8.5.3",
     "@capacitor/splash-screen": "8.0.2",
     "@fontsource/orbitron": "5.3.0",
-    "phaser": "3.90.0"
+    "phaser": "3.90.0",
+    "polar-rift-ads": "file:plugins/polar-rift-ads"
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.3",

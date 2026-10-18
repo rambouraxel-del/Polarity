@@ -563,7 +563,9 @@ describe('classement hors ligne et honnêteté sur les données', () => {
   });
 
   it('aucune publicité ni achat intégré dans l’interface', () => {
-    const all = [S.homeScreen(defaultSave(), '2026-10-12'), S.cosmeticsScreen(rich(10), 'prisms', 'all'), optionsScreen(defaultSave())].join('');
+    const all = [S.homeScreen(defaultSave(), '2026-10-12'), S.cosmeticsScreen(rich(10), 'prisms', 'all')].join('');
     expect(all).not.toMatch(/publicité|regarder une vidéo|acheter des prismes|achat intégré|abonnement/i);
+    // Réglages : seule la section « Confidentialité » (politique publique, choix de consentement) parle des publicités ; jamais d'incitation à en regarder
+    expect(optionsScreen(defaultSave())).not.toMatch(/regarder une vidéo|acheter des prismes|achat intégré|abonnement/i);
   });
 });

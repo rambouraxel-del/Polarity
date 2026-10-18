@@ -123,12 +123,16 @@ L'origine d'une application Capacitor n'est ni GitHub Pages ni l'adresse du serv
 ## 11. À vérifier sur appareil (liste courte ; complète `docs/VERIFICATIONS_MOBILE.md`)
 Premier toucher → musique démarre ; verrouillage/appel/retour au menu du téléphone pendant une partie → partie en pause, musique coupée, reprise propre ; rotation (tablette) ; encoche et barre d'accueil : HUD et boutons jamais masqués ; WebGL fluide au stade 5 de l'ambiance (chauffe) ; images WebP des scènes de campagne ; sauvegarde conservée après fermeture complète de l'application ; Retour (Android) ; classement (§8).
 
+## 12. Publicité récompensée (AdMob + UMP) — plugin local `polar-rift-ads`
+Configuration unique `mobile/ads.json` (mode `demo` par défaut), plugin dans `plugins/polar-rift-ads/` (branché par `npx cap sync`), garde de production (Gradle `verifyAdsConfigRelease`, phase Xcode, `npm run mobile:ads -- --release`, déjà inclus dans `mobile:check -- --release`), procédure sur appareil et limites : **`docs/PUBLICITE.md`**. Après un changement de `mobile/ads.json` : `npm run mobile:ads -- --apply` (iOS) puis `npm run mobile:sync`. Le build web reste sans SDK.
+
 ## Ce qui est compilé vs ce qui exige vos machines
 | Élément | Statut |
 |---|---|
 | Jeu web (`npm run build`) et jeu embarqué (`npm run build:native`), contrôle des secrets du bundle, `cap sync` Android + iOS | ✅ **exécutés ici** (7,5 Mo, MP3/WebP/polices inclus) |
 | Tests unitaires (config mobile, origines/CORS WebView avec parcours complet sur serveur HTTP éphémère, couche native), typecheck | ✅ exécutés |
 | Projets natifs générés par Capacitor 8.5.3 (Android : cible/compile 36, minSdk 24 ; iOS : cible 15), icônes et écrans de démarrage, manifeste de confidentialité iOS | ✅ générés et validés statiquement (plist, structure) — **non ouverts dans Android Studio / Xcode** |
+| Plugin publicitaire `polar-rift-ads` (Java/Swift) : code écrit, JavaScript et garde-fous testés, sources Java vérifiées par `javac` contre des fausses classes | ⚠️ **non compilé contre les vrais SDK Google** (`docs/PUBLICITE.md`) |
 | APK de débogage, AAB, IPA | ❌ **non produits** : pas de SDK Android (les dépôts Google sont inaccessibles depuis l'environnement), pas de Mac |
 | Signature Android (clé d'import), équipe Apple, identifiant définitif | ❌ **à vous** |
 | Essais sur appareil (audio, cycle de vie, WebGL, classement) | ❌ **à vous** (§8, §11) |

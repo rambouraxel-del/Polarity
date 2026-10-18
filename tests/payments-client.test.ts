@@ -3,7 +3,7 @@ import { TEST_PACK_ID, addTestPack } from './helpers';
 import { PRISM_PACKS } from '../src/config/monetization';
 import { REVIVE } from '../src/config/powers';
 import { reviveWithAd } from '../src/monetization/adReward';
-import { NativeAdProvider, NoAdProvider, getAdProvider, setAdProvider, type AdsPlugin, type RewardedAdProvider } from '../src/monetization/ads';
+import { NativeAdProvider, NoAdProvider, getAdProvider, setAdProvider, type AdsPlugin, type ConsentState, type RewardedAdProvider } from '../src/monetization/ads';
 import { NativePaymentProvider, NullPaymentProvider, getPaymentProvider, premiumAvailable, setPaymentProvider, type BillingPlugin, type PaymentProvider, type StoreReceipt } from '../src/monetization/payments';
 import { StoreService, type StoreConfig, type StoreHost } from '../src/monetization/store';
 import type { NetResult } from '../src/net/leaderboard';
@@ -418,8 +418,17 @@ describe('Publicité récompensée : déroulé complet (plugin et service simul�
     result: 'rewarded' | 'dismissed' | 'failed' = 'rewarded';
     shown: { placement: string; userId: string; customData: string }[] = [];
     loads = 0;
+    private state(): ConsentState {
+      return { canRequestAds: this.consent, privacyOptionsRequired: false, status: this.consent ? 'obtained' : 'required' };
+    }
     async requestConsent() {
-      return { canRequestAds: this.consent };
+      return this.state();
+    }
+    async getConsentState() {
+      return this.state();
+    }
+    async showPrivacyOptions() {
+      return this.state();
     }
     async load() {
       this.loads++;

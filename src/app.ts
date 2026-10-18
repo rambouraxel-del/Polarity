@@ -1610,7 +1610,7 @@ export class App {
       case 'prep':
         html = S.prepScreen(this.save, this.prepMessage);
         break;
-      case 'options': html = S.optionsScreen(this.save, this.lb.configured, this.devMessage); break;
+      case 'options': html = S.optionsScreen(this.save, this.lb.configured, this.devMessage, getAdProvider().privacyOptionsRequired?.() === true); break;
       case 'account': html = accountScreen({ state: this.account.state, methods: this.account.availability() }); break;
       case 'confirm-reset': html = S.confirmResetScreen(); break;
       case 'pause': html = S.pauseScreen(this.modeLabel(), this.session?.config.mode === 'campaign'); break;
@@ -1964,6 +1964,9 @@ export class App {
         this.showScreen('cosmetics');
         break;
       }
+      case 'privacy-choices':
+        void this.openPrivacyChoices();
+        break;
       case 'toggle-sound':
         this.save.options.muted = !this.save.options.muted;
         this.applyAudioOptions();
@@ -2060,7 +2063,7 @@ export class App {
   private refreshOptions(): void {
     const scroll = this.screenEl.scrollTop;
     this.screenEl.classList.add('no-anim');
-    this.screenEl.innerHTML = S.optionsScreen(this.save, this.lb.configured, this.devMessage);
+    this.screenEl.innerHTML = S.optionsScreen(this.save, this.lb.configured, this.devMessage, getAdProvider().privacyOptionsRequired?.() === true);
     this.screenEl.scrollTop = scroll;
   }
 
@@ -2311,6 +2314,14 @@ export class App {
     }
     this.pendingPurchase = null;
     if (this.screen === 'confirm-purchase') this.showScreen('cosmetics');
+  }
+
+  /** « Choix de confidentialité » (UMP) : rouvre le formulaire, invalide la publicité préchargée et réévalue ; l'écran des options se met à jour. */
+  private async openPrivacyChoices(): Promise<void> {
+    const ad = getAdProvider();
+    await ad.showPrivacyOptions?.();
+    this.sfx.resume();
+    if (this.screen === 'options') this.refreshOptions();
   }
 
   private persist(schedule = true): void {

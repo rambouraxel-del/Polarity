@@ -68,5 +68,27 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- polar-rift-ads:begin (généré par npm run mobile:ads -- --apply, ne pas modifier à la main) -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
+	<key>PolarRiftAds</key>
+	<dict>
+		<key>mode</key>
+		<string>demo</string>
+		<key>rewardedUnitId</key>
+		<string>ca-app-pub-3940256099942544/1712485313</string>
+		<key>umpDebugGeography</key>
+		<string>off</string>
+		<key>testDeviceIds</key>
+		<array/>
+	</dict>
+	<!-- polar-rift-ads:end -->
 </dict>
 </plist>

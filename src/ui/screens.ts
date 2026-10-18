@@ -11,6 +11,7 @@ import { CATALOG, SOON, catalogItem, isPremium, itemsOfKind, type CatalogItem, t
 import { CHAPTER, MISSIONS } from '../config/campaign';
 import { LEVELS } from '../config/levels';
 import { maxStars, missionsCleared, nextMission, totalStars } from '../campaign/progress';
+import { PRIVACY_POLICY_URL } from '../config/ads';
 import { TRAILS_ENABLED, trailById } from '../config/trails';
 import { BALANCE_VERSION } from '../config/version';
 import { formatDateFr } from '../modes/daily';
@@ -922,7 +923,7 @@ export function devModeSection(save: SaveData, message: { kind: 'ok' | 'error'; 
     </form>`;
 }
 
-export function optionsScreen(save: SaveData, accountEnabled = false, devMessage: { kind: 'ok' | 'error'; text: string } | null = null): string {
+export function optionsScreen(save: SaveData, accountEnabled = false, devMessage: { kind: 'ok' | 'error'; text: string } | null = null, privacyChoices = false): string {
   const o = save.options;
   const pct = (v: number): string => `${Math.round(v * 100)} %`;
   return `<div class="panel">${screenHead('Options')}
@@ -937,10 +938,22 @@ export function optionsScreen(save: SaveData, accountEnabled = false, devMessage
     <h3 class="section-title">Sauvegarde et données</h3>
     ${accountEnabled ? `${setting('shop', 'Compte et synchronisation', 'Retrouver votre progression sur un autre appareil (facultatif)', button({ action: 'account', label: 'Ouvrir', variant: 'secondary', size: 'sm' }))}<p class="small">Sans compte, votre progression reste <strong>sur cet appareil</strong> (aucune synchronisation).</p>` : ''}
     <p class="small">Votre progression (niveaux, campagne, Éclats, cosmétiques, succès, records) est enregistrée <strong>dans ce navigateur, sur cet appareil</strong>. Elle n’est pas synchronisée automatiquement avec un autre appareil, un autre navigateur ni une version installée (application native) du jeu. Vider les données du site ou passer en navigation privée l’efface. Le profil du classement mondial est lui aussi lié à ce navigateur.</p>
+    ${privacySection(privacyChoices)}
     ${accountEnabled ? `<h3 class="section-title">Achats, publicités et confidentialité</h3>${privacyHtml()}` : ''}
     ${button({ action: 'ask-reset', label: 'Effacer toute la progression…', icon: 'trash', variant: 'danger' })}
     <p class="small" style="margin-top:14px">Sauvegarde locale (cet appareil, ce navigateur). ${escapeHtml(GAME_NAME)} v${__APP_VERSION__} · version ${__BUILD_ID__}</p>
   </div>`;
+}
+
+/**
+ * Confidentialité : lien vers la politique publique (toujours) et « Choix de confidentialité » (application native, seulement quand la plateforme
+ * exige un point d'entrée vers les options de consentement : UMP). Ne confond pas refus de personnalisation et autorisation de charger des publicités.
+ */
+export function privacySection(choices: boolean): string {
+  const link = `<a class="btn btn--secondary btn--sm" href="${PRIVACY_POLICY_URL}" target="_blank" rel="noopener noreferrer"><span class="btn__label">Lire</span></a>`;
+  return `<h3 class="section-title">Confidentialité</h3>
+    ${setting('lock', 'Politique de confidentialité', 'Données traitées par le jeu, le service en ligne et les publicités', link)}
+    ${choices ? setting('lock', 'Choix de confidentialité', 'Modifier votre consentement aux publicités', button({ action: 'privacy-choices', label: 'Modifier', variant: 'secondary', size: 'sm' })) : ''}`;
 }
 
 export function confirmResetScreen(): string {

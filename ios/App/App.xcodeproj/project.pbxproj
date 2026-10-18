@@ -87,6 +87,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
 			buildPhases = (
+				A5D5C0DE2A1B4C3D5E6F7001 /* Controle de la configuration publicitaire (production) */,
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
@@ -156,6 +157,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A5D5C0DE2A1B4C3D5E6F7001 /* Controle de la configuration publicitaire (production) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/App/Info.plist",
+			);
+			name = "Controle de la configuration publicitaire (production)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Production : aucune configuration publicitaire provisoire ou de debug (mobile/ads.json, appliquée par npm run mobile:ads -- --apply)\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n  P=\"${SRCROOT}/App/Info.plist\"\n  B=/usr/libexec/PlistBuddy\n  MODE=$($B -c \"Print :PolarRiftAds:mode\" \"$P\" 2>/dev/null)\n  GEO=$($B -c \"Print :PolarRiftAds:umpDebugGeography\" \"$P\" 2>/dev/null)\n  APPID=$($B -c \"Print :GADApplicationIdentifier\" \"$P\" 2>/dev/null)\n  DEV=$($B -c \"Print :PolarRiftAds:testDeviceIds:0\" \"$P\" 2>/dev/null)\n  if [ \"$MODE\" != \"live\" ] || [ \"$GEO\" != \"off\" ] || [ -n \"$DEV\" ] || echo \"$APPID\" | grep -q \"3940256099942544\"; then\n    echo \"error: Compilation de PRODUCTION refusee : configuration publicitaire provisoire ou de debug (mode demo, ID de demonstration, appareils de test ou debogage du consentement). Voir mobile/ads.json et npm run mobile:ads -- --release.\"\n    exit 1\n  fi\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		504EC3001FED79650016851F /* Sources */ = {

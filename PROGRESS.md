@@ -232,3 +232,8 @@ Voir `docs/EQUILIBRAGE.md`. Assets : `docs/ASSETS.md`.
 
 ## Blocages
 Voir `CHANGELOG.md` (« Décisions requises » et « Points bloquants restants avant une sortie publique »).
+
+## AdMob + UMP + publicité récompensée (branche `feat/admob-ump-rewarded`)
+- Implémenté : plugin natif `PolarRiftAds` (Android/iOS), configuration `mobile/ads.json`, garde-fous de build de production, UMP, options de confidentialité, publicité récompensée avec SSV (session serveur → affichage → réclamation).
+- Vérifié : tests Vitest (plugin simulé + `@capacitor/core` réel avec pont natif simulé), `check:bundle`, `mobile:check`, logique des garde-fous Gradle dans un projet isolé, Java contre des stubs.
+- Non vérifié : compilation contre les vrais SDK (Android/iOS), essai sur appareil, SSV réel. Détail : `docs/PUBLICITE.md`.

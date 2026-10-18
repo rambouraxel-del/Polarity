@@ -5,7 +5,8 @@
  * - détection par l'objet global injecté par l'enveloppe native (`window.Capacitor`) : sur le web, aucun module Capacitor n'est chargé ;
  * - les plugins sont importés dynamiquement (jamais dans le bundle d'une page web) ;
  * - toute erreur de plugin est ignorée : le jeu fonctionne sans cette couche (elle ne fait qu'améliorer le cycle de vie, le bouton Retour d'Android et l'écran de démarrage).
- * Aucun plugin de statistiques, de publicité, de stockage externe, de caméra ou de position n'est utilisé. Voir docs/BUILD_MOBILE.md.
+ * Ce module n'utilise aucun plugin de statistiques, de stockage externe, de caméra ou de position ; la publicité récompensée a son propre plugin local
+ * (plugins/polar-rift-ads, AdMob + UMP, application native seulement : src/monetization/ads.ts). Voir docs/BUILD_MOBILE.md et docs/PUBLICITE.md.
  */
 export type NativePlatform = 'android' | 'ios';
 

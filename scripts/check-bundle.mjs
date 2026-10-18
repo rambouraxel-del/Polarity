@@ -4,7 +4,9 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const dir = process.argv[2] ?? 'dist';
-const FORBIDDEN = ['TICKET_SECRET', 'DATABASE_PATH', 'ALLOWED_ORIGINS', 'BLOCKED_WORDS', 'node:sqlite', 'DatabaseSync', 'token_hash', 'moderation_log', 'server:admin'];
+const FORBIDDEN = ['TICKET_SECRET', 'DATABASE_PATH', 'ALLOWED_ORIGINS', 'BLOCKED_WORDS', 'node:sqlite', 'DatabaseSync', 'token_hash', 'moderation_log', 'server:admin',
+  // Publicité : le SDK AdMob n'existe que dans les applications natives ; ni identifiant publicitaire ni script de régie dans le web
+  'ca-app-pub-', 'googlesyndication', 'pagead2', 'play-services-ads', 'GoogleMobileAds'];
 // Valeurs réelles d'éventuels secrets présents dans l'environnement de construction : leur présence dans le bundle serait une fuite
 const SECRET_VALUES = [process.env.TICKET_SECRET].filter((v) => typeof v === 'string' && v.length >= 8);
 const TEXT = /\.(js|mjs|css|html|json|map|txt|svg|webmanifest)$/i;
