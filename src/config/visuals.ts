@@ -48,8 +48,28 @@ export const FX = {
   },
   /** Contour lumineux orange de l'astéroïde : silhouette remplie d'orange (additif), un peu plus grande, derrière le sprite. */
   asteroidGlow: { tint: 0xff7a2e, alpha: 0.6, grow: 1.16 },
-  /** Lueur discrète du vaisseau : silhouette teintée (couleur du cockpit de l'apparence), en additif, un peu plus grande, derrière le sprite. */
-  shipGlow: { alpha: 0.35, grow: 1.22 },
+  /**
+   * Effet de vitesse du vaisseau (remplace l'ancienne lueur permanente) : deux fines traînées courtes, effilées, derrière le vaisseau ; une troisième,
+   * plus courte, aux vitesses élevées. Aucun effet devant le vaisseau ni sur la coque. Purement décoratif : lit la vitesse de la simulation, ne la modifie jamais.
+   * `factorMin`/`factorMax` : facteurs de vitesse (1 = référence) où l'intensité passe de 0 à 1 ; longueurs en unités monde ; `lateral` en fraction de la demi-largeur.
+   */
+  speedLines: {
+    color: 0xdde2e8,
+    factorMin: 0.3,
+    factorMax: 1.0,
+    /** Départ des traînées derrière le vaisseau (fraction de la demi-longueur) : au-delà de la queue, jamais sur la coque. */
+    startBehind: 1.02,
+    length: { min: 12, max: 34 },
+    width: 2.4,
+    alpha: { min: 0.1, max: 0.3 },
+    /** Variation de longueur et d'opacité (fraction) et vitesse de la variation (rad/s). */
+    wobble: { length: 0.18, alpha: 0.25, rate: 9 },
+    lateral: 0.78,
+    /** Troisième traînée (centrale, plus courte) : seuil d'intensité et rapport de longueur. */
+    third: { from: 0.6, length: 0.6, alpha: 0.7 },
+    /** Facteur d'opacité quand la traînée lumineuse d'apparence est tracée : évite la superposition excessive. */
+    withTrail: 0.65,
+  },
   /** Liseré sombre sous le vaisseau (fond de l'arène, alpha normal) : le détache de l'orbite lumineuse et des menaces. */
   shipRim: { alpha: 0.7, grow: 1.12 },
   asteroidEmbers: { rate: 14, life: 0.4, speed: 22 },

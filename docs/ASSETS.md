@@ -64,7 +64,7 @@ Logo, thème, police Orbitron (OFL), fond spatial : voir `docs/INTERFACE.md`. Le
 
 ## Vaisseau en partie (v1.4)
 - Taille : +20 % par rapport à la v1.1.x (`VISUAL.shipScale = 1,45 × 1,2`) ; hitbox inchangée (`config/hitbox.ts`).
-- Coque plus blanche, cockpit cyan plus vif (recoloration, `src/render/shipPalette.ts`), lueur discrète de la couleur du cockpit (`FX.shipGlow`) et liseré sombre qui détache le vaisseau de l'orbite (`FX.shipRim`).
+- Coque plus blanche, cockpit cyan plus vif (recoloration, `src/render/shipPalette.ts`), liseré sombre qui détache le vaisseau de l'orbite (`FX.shipRim`).
 - Astéroïdes : taille inchangée, contour orange renforcé (`FX.asteroidGlow.alpha` 0,45 → 0,6).
 - Orbite : cyan vif `#00E5FF` (trait plein épais + halo en dégradé, texture générée par code).
 - Une texture par apparence : voir `docs/APPARENCES.md`.
@@ -72,3 +72,6 @@ Logo, thème, police Orbitron (OFL), fond spatial : voir `docs/INTERFACE.md`. Le
 ## Campagne : scènes illustrées et portraits
 Masters PNG dans `art/campagne/` (hors bundle ; `ASSETS.json` = manifeste d'origine). Versions du jeu en WebP dans `src/assets/story/` (mêmes noms, extension `.webp`), chargées à l'affichage de la scène uniquement.
 Illustrations : 1200 px de large, qualité 86 (146–286 Ko) ; portraits : 384 px avec alpha (42–46 Ko). Voir `docs/CAMPAGNE.md` pour le mapping et la procédure.
+
+## Effet de vitesse du vaisseau (rendu seulement)
+Plus aucune lueur permanente autour du vaisseau (l'ancienne `FX.shipGlow` est supprimée, en jeu comme dans l'aperçu des apparences) : les détails de tous les skins restent lisibles. À la place, `FX.speedLines` (`src/config/visuals.ts`) + `src/render/speedLines.ts` (fonctions pures, testées) : deux fines traînées effilées blanc grisé derrière la queue du vaisseau (une troisième, plus courte, aux vitesses élevées), à l'opposé exact du déplacement réel (immédiat à l'inversion), longueur et opacité qui varient légèrement, intensité progressive selon `sim.omega / PLAYER.angularSpeed` (lecture seule). Rien devant le vaisseau ni sur la coque. Atténuée (opacité ×0,65, pas de traînée centrale) quand la traînée lumineuse d'apparence est tracée ; variation supprimée en effets réduits ; uniquement en partie « en cours » (pas au compte à rebours, ni en pause). Bouclier, Boost, Gel et invulnérabilité gardent leurs anneaux et clignotements. Coût : 2 à 3 paires de triangles par image. `BALANCE_VERSION`, simulation, hitbox et rejeu inchangés.

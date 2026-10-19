@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ARENA, BEACONS } from '../config/balance';
+import { ARENA, BEACONS, PLAYER } from '../config/balance';
 import { playerHitRadius, projectileHitRadius } from '../config/hitbox';
 import { asteroidMinHalfExtent, asteroidRadius, FX, shipHalfWidth, shipRadius, VISUAL } from '../config/visuals';
 import { TAU } from '../core/math';
@@ -16,6 +16,7 @@ import type { Skin } from '../progression/skins';
 import { shipTextureFor } from './shipTextures';
 import { hexNum, THEME } from '../ui/theme';
 import { heading, spriteRotation } from './geometry';
+import { speedIntensity, speedStreaks, streakTriangle } from './speedLines';
 import type { AmbienceState } from '../ambience/director';
 import { AmbienceRenderer } from './ambience/AmbienceRenderer';
 
@@ -138,9 +139,9 @@ export class ArenaRenderer {
   private readonly dbg: Phaser.GameObjects.Graphics;
   private readonly flash: Phaser.GameObjects.Rectangle;
   private readonly shipSprite: Phaser.GameObjects.Image;
-  /** Lueur discrète du vaisseau : copie teintée de la silhouette, derrière le sprite (additif). */
-  private readonly shipGlow: Phaser.GameObjects.Image;
-  /** Liseré sombre : silhouette de la couleur du fond, sous la lueur, pour détacher le vaisseau de l'orbite. */
+  /** Traînées de vitesse (blanc grisé, alpha normal), derrière le vaisseau et sous le réacteur : jamais de lueur sur la coque. */
+  private readonly speedG: Phaser.GameObjects.Graphics;
+  /** Liseré sombre : silhouette de la couleur du fond, sous le vaisseau, pour le détacher de l'orbite. */
   private readonly shipRim: Phaser.GameObjects.Image;
   private shipKey: string = SHIP_TEXTURE;
   /** Éclat sur l'orbite : sprite au-dessus du rail, sous les astéroïdes. */
@@ -194,10 +195,10 @@ export class ArenaRenderer {
     this.g = scene.add.graphics().setDepth(2);
     this.trailG = scene.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
     this.shipG = scene.add.graphics().setDepth(4.5).setBlendMode(Phaser.BlendModes.ADD);
+    this.speedG = scene.add.graphics().setDepth(4.4);
     this.orbitGlow = scene.add.image(0, 0, orbitGlowTexture(scene)).setDepth(1.9).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
     this.shardSprite = scene.add.image(0, 0, SHARD_TEXTURE).setDepth(3.8).setVisible(false);
     this.shipRim = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(4.7).setVisible(false).setTintFill(COLORS.background).setAlpha(FX.shipRim.alpha);
-    this.shipGlow = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(4.8).setVisible(false).setBlendMode(Phaser.BlendModes.ADD).setAlpha(FX.shipGlow.alpha);
     this.shipSprite = scene.add.image(0, 0, SHIP_TEXTURE).setDepth(5).setVisible(false);
     this.fx = scene.add.graphics().setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
     this.flash = scene.add.rectangle(0, 0, 10, 10, 0xffffff, 0).setOrigin(0, 0).setDepth(7);
@@ -236,13 +237,12 @@ export class ArenaRenderer {
   }
 
   /**
-   * Taille d'affichage du vaisseau (sprite, lueur, liseré) : indépendante de la définition de la texture (128 ou 256 px). À rappeler après chaque
+   * Taille d'affichage du vaisseau (sprite, liseré) : indépendante de la définition de la texture (128 ou 256 px). À rappeler après chaque
    * changement de texture, car Phaser conserve le facteur d'échelle d'une image, pas sa taille d'affichage.
    */
   private sizeShip(): void {
     const shipPx = (2 * shipRadius() * this.scale) / CONTENT;
     this.shipSprite.setDisplaySize(shipPx, shipPx);
-    this.shipGlow.setDisplaySize(shipPx * FX.shipGlow.grow, shipPx * FX.shipGlow.grow);
     this.shipRim.setDisplaySize(shipPx * FX.shipRim.grow, shipPx * FX.shipRim.grow);
   }
 
@@ -309,10 +309,10 @@ export class ArenaRenderer {
     this.g.clear();
     this.trailG.clear();
     this.shipG.clear();
+    this.speedG.clear();
     this.fx.clear();
     this.dbg.clear();
     this.shipSprite.setVisible(false);
-    this.shipGlow.setVisible(false);
     this.shipRim.setVisible(false);
     this.orbitGlow.setVisible(false);
     this.orbitMix = 0;
@@ -336,6 +336,7 @@ export class ArenaRenderer {
     g.clear();
     this.trailG.clear();
     this.shipG.clear();
+    this.speedG.clear();
     this.fx.clear();
     this.dbg.clear();
     if (this.shake > 0) {
@@ -399,12 +400,12 @@ export class ArenaRenderer {
     this.updateTrail(angle, realDt);
     if (alive) {
       this.drawTrail(skin);
+      if (emitting && sim) this.drawSpeedLines(sim, angle, dir, clock);
       this.drawShip(angle, dir, skin, clock, emitting);
       if (camp) this.drawShield(camp, angle, t, clock);
       else if (sim) this.drawPowers(sim, angle, clock);
     } else {
       this.shipSprite.setVisible(false);
-      this.shipGlow.setVisible(false);
       this.shipRim.setVisible(false);
     }
 
@@ -738,7 +739,6 @@ export class ArenaRenderer {
     if (key !== this.shipKey) {
       this.shipKey = key;
       sprite.setTexture(key);
-      this.shipGlow.setTexture(key);
       this.shipRim.setTexture(key);
       this.sizeShip();
     }
@@ -746,9 +746,6 @@ export class ArenaRenderer {
     sprite.setPosition(this.sx(px), this.sy(py));
     // La texture pointe vers le haut : rotation instantanée, sans interpolation
     sprite.setRotation(spriteRotation(tx, ty));
-    // Lueur discrète : même silhouette, teinte du cockpit de l'apparence
-    const glow = this.shipGlow;
-    glow.setVisible(true).setPosition(sprite.x, sprite.y).setRotation(sprite.rotation).setTintFill(skin.colors.cockpit);
     this.shipRim.setVisible(true).setPosition(sprite.x, sprite.y).setRotation(sprite.rotation);
 
     // Réacteur : derrière le vaisseau, à l'opposé du déplacement. Purement décoratif.
@@ -793,6 +790,33 @@ export class ArenaRenderer {
         );
       }
       if (n > 0) this.emitAcc = 0;
+    }
+  }
+
+  /**
+   * Effet de vitesse (purement visuel) : fines traînées effilées derrière la queue du vaisseau, à l'opposé exact de son déplacement réel (même sens
+   * que le sprite : immédiat à l'inversion). Intensité selon la vitesse de la simulation (lecture seule). Atténué quand la traînée d'apparence est tracée.
+   */
+  private drawSpeedLines(sim: Simulation, angle: number, dir: 1 | -1, clock: number): void {
+    const g = this.speedG;
+    const calm = this.reducedEffects;
+    const withTrail = !calm && this.trailCount >= 2;
+    const intensity = speedIntensity(sim.omega / PLAYER.angularSpeed);
+    const streaks = speedStreaks(intensity, clock, shipHalfWidth(), calm, withTrail);
+    const L = shipRadius();
+    for (const st of streaks) {
+      const q = streakTriangle(angle, dir, R, L, st);
+      // Deux couches : corps long et très léger, cœur plus court un peu plus net (effilées, jamais de halo)
+      g.fillStyle(FX.speedLines.color, st.alpha * 0.55);
+      g.fillTriangle(this.sx(q.x0), this.sy(q.y0), this.sx(q.x1), this.sy(q.y1), this.sx(q.tx), this.sy(q.ty));
+      const mx = (q.x0 + q.x1) / 2;
+      const my = (q.y0 + q.y1) / 2;
+      g.fillStyle(FX.speedLines.color, st.alpha * 0.5);
+      g.fillTriangle(
+        this.sx(mx + (q.x0 - mx) * 0.5), this.sy(my + (q.y0 - my) * 0.5),
+        this.sx(mx + (q.x1 - mx) * 0.5), this.sy(my + (q.y1 - my) * 0.5),
+        this.sx(mx + (q.tx - mx) * 0.55), this.sy(my + (q.ty - my) * 0.55),
+      );
     }
   }
 

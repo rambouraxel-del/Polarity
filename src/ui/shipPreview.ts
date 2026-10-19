@@ -133,7 +133,7 @@ export class ShipPreview {
     ctx.restore();
   }
 
-  /** Vaisseau au point courant du repère (nez vers le haut) : réacteur animé derrière, lueur discrète puis sprite. */
+  /** Vaisseau au point courant du repère (nez vers le haut) : réacteur animé derrière, puis sprite (aucune lueur sur la coque). */
   private drawShip(ctx: CanvasRenderingContext2D, sprite: HTMLCanvasElement, shipPx: number, time: number, dt: number): void {
     const c = this.skin.colors;
     const L = (shipPx * (VISUAL.spriteContent / VISUAL.spriteCanvas)) / 2;
@@ -151,12 +151,6 @@ export class ShipPreview {
       this.flame(ctx, x0, y0, w2 * 0.45, len * 0.5, rgba(c.thruster.core, 0.85));
     }
     this.updateSparks(ctx, dt, off, y0 + len * 0.6, k);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = FX.shipGlow.alpha;
-    ctx.globalCompositeOperation = 'lighter';
-    const gp = shipPx * FX.shipGlow.grow;
-    ctx.drawImage(this.tinted(sprite, c.cockpit), -gp / 2, -gp / 2, gp, gp);
-    ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(sprite, -shipPx / 2, -shipPx / 2, shipPx, shipPx);
   }
@@ -191,24 +185,5 @@ export class ShipPreview {
       ctx.fill();
     }
   }
-
-  /** Silhouette teintée d'une couleur (lueur) : mise en cache par apparence. */
-  private tinted(sprite: HTMLCanvasElement, color: number): HTMLCanvasElement {
-    const key = `${this.skin.id}:${color}`;
-    let c = tintCache.get(key);
-    if (!c) {
-      c = document.createElement('canvas');
-      c.width = sprite.width;
-      c.height = sprite.height;
-      const t = c.getContext('2d')!;
-      t.drawImage(sprite, 0, 0);
-      t.globalCompositeOperation = 'source-in';
-      t.fillStyle = css(color);
-      t.fillRect(0, 0, c.width, c.height);
-      tintCache.set(key, c);
-    }
-    return c;
-  }
 }
 
-const tintCache = new Map<string, HTMLCanvasElement>();

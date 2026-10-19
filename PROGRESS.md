@@ -232,3 +232,6 @@ Voir `docs/EQUILIBRAGE.md`. Assets : `docs/ASSETS.md`.
 
 ## Blocages
 Voir `CHANGELOG.md` (« Décisions requises » et « Points bloquants restants avant une sortie publique »).
+
+## Effet de vitesse du vaisseau (rendu seulement)
+- [x] Halo/lueur permanente supprimé (jeu + aperçu) ; traînées de vitesse discrètes (`src/render/speedLines.ts`, `FX.speedLines`) ; tests `tests/speed-lines.test.ts` ; simulation, hitbox, rejeu, serveur et `BALANCE_VERSION` inchangés.
