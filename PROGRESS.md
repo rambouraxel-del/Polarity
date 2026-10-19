@@ -235,3 +235,7 @@ Voir `CHANGELOG.md` (« Décisions requises » et « Points bloquants restants a
 
 ## Effet de vitesse du vaisseau (rendu seulement)
 - [x] Halo/lueur permanente supprimé (jeu + aperçu) ; traînées de vitesse discrètes (`src/render/speedLines.ts`, `FX.speedLines`) ; tests `tests/speed-lines.test.ts` ; simulation, hitbox, rejeu, serveur et `BALANCE_VERSION` inchangés.
+
+## iOS sans Mac : Codemagic → TestFlight (préparation)
+- [x] `codemagic.yaml` (parcours `ios-verification` sans signature + `ios-testflight` signé, TestFlight interne), `scripts/ios-ci.ts` (garde Bundle ID, numéro de build), `npm run mobile:ios:guard`, tests `tests/ios-ci.test.ts`, guide `docs/CODEMAGIC_IOS.md`.
+- [ ] À faire par l'éditeur : Bundle ID définitif, App Store Connect (clé API, fiche, groupe interne), Codemagic (intégration `polar-rift-asc`, groupe `polar_rift_ios`), puis lancer `ios-verification`. **Aucune exécution cloud faite : compilation iOS non prouvée.**

@@ -1,0 +1,166 @@
+# Codemagic — compilation iOS de Polar Rift (Capacitor 8, Swift Package Manager, SANS CocoaPods), sans Mac personnel.
+# Guide pas à pas : docs/CODEMAGIC_IOS.md. AUCUN secret dans ce fichier : certificats, clé App Store Connect et Bundle ID vivent dans Codemagic.
+#
+# Deux parcours, à lancer À LA MAIN (aucun déclenchement automatique : pas de compilation ni d'envoi à chaque commit) :
+#   1. ios-verification : vérification technique SANS signature (compte Apple non requis). Ne produit PAS d'IPA.
+#   2. ios-testflight   : compilation SIGNÉE + envoi à App Store Connect pour TestFlight INTERNE (jamais de soumission à l'App Store ni de revue bêta externe).
+#
+# L'état « compilation iOS réussie » n'existe que lorsque ce pipeline cloud est passé au vert : rien dans ce dépôt ne le prouve à l'avance.
+
+definitions:
+  # Réglages communs. Xcode 26 minimum : exigé par Apple pour envoyer une application (SDK iOS 26) ; Capacitor 8 le demande aussi.
+  instance: &instance
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+  scripts:
+    - &check_xcode
+      name: Vérifier Xcode (26 ou ultérieur) et Node
+      script: |
+        set -euo pipefail
+        xcodebuild -version
+        node --version
+        XC_MAJOR=$(xcodebuild -version | awk '/^Xcode/{split($2,a,"."); print a[1]}')
+        test "$XC_MAJOR" -ge 26 || { echo "Xcode 26 ou ultérieur requis (trouvé : $XC_MAJOR)."; exit 1; }
+    - &npm_ci
+      name: Installer les dépendances (npm ci)
+      script: |
+        set -euo pipefail
+        npm ci
+    - &control_js
+      name: Contrôles du jeu (typecheck + tests) et cohérence mobile
+      script: |
+        set -euo pipefail
+        npm run typecheck
+        npm test
+        npm run mobile:check
+    - &sync_native
+      name: Construire le jeu embarqué et synchroniser Capacitor (npm run mobile:sync)
+      script: |
+        set -euo pipefail
+        # build:native (mode « native »), contrôle du bundle (aucun secret ni code serveur), puis « cap sync » : copie dist-native/ dans ios/App/App/public
+        # et régénère CapApp-SPM/Package.swift. VITE_LEADERBOARD_URL (publique) vient du groupe Codemagic ; vide = classement désactivé.
+        npm run mobile:sync
+        test -f ios/App/App/public/index.html || { echo "Le jeu n'a pas été copié dans le projet iOS."; exit 1; }
+        test -f ios/App/App/capacitor.config.json || { echo "capacitor.config.json absent du projet iOS."; exit 1; }
+    - &resolve_spm
+      name: Résoudre les paquets Swift (Swift Package Manager) et lister les schémas
+      script: |
+        set -euo pipefail
+        xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+        xcodebuild -list -project ios/App/App.xcodeproj
+
+workflows:
+  # ————————————————————————————————————————————————————————————— 1. Vérification technique, sans signature, sans compte Apple
+  ios-verification:
+    name: Polar Rift — iOS, vérification technique (sans signature)
+    <<: *instance
+    max_build_duration: 45
+    environment:
+      xcode: latest
+      node: 22.14.0
+    scripts:
+      - *check_xcode
+      - *npm_ci
+      - *control_js
+      - *sync_native
+      - *resolve_spm
+      - name: Archive Xcode non signée (compilation réelle du projet iOS)
+        script: |
+          set -euo pipefail
+          mkdir -p build
+          # Aucune signature : on prouve que le projet iOS et ses paquets Swift compilent. Aucun IPA n'est produit par ce parcours.
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build/xcodebuild.log | tail -n 60
+      - name: Inspecter l'application compilée (identifiant, versions, ressources, confidentialité)
+        script: |
+          set -euo pipefail
+          APP=build/App.xcarchive/Products/Applications/App.app
+          test -d "$APP" || { echo "App.app absente de l'archive."; exit 1; }
+          PB=/usr/libexec/PlistBuddy
+          {
+            echo "Identifiant        : $($PB -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+            echo "Nom affiché        : $($PB -c 'Print :CFBundleDisplayName' "$APP/Info.plist")"
+            echo "Version            : $($PB -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+            echo "Numéro de build    : $($PB -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+            echo "iOS minimum        : $($PB -c 'Print :MinimumOSVersion' "$APP/Info.plist")"
+            echo "Chiffrement export : $($PB -c 'Print :ITSAppUsesNonExemptEncryption' "$APP/Info.plist")"
+            echo "Jeu embarqué       : $(test -f "$APP/public/index.html" && echo oui || echo NON)"
+            echo "Manifeste confid.  : $(test -f "$APP/PrivacyInfo.xcprivacy" && echo oui || echo NON)"
+            echo "Icône (catalogue)  : $(test -f "$APP/Assets.car" && echo oui || echo NON)"
+          } | tee build/rapport-ios.txt
+          test -f "$APP/public/index.html"
+          test -f "$APP/PrivacyInfo.xcprivacy"
+          test "$($PB -c 'Print :ITSAppUsesNonExemptEncryption' "$APP/Info.plist")" = "false"
+          # Aucun trafic en clair : aucune exception de sécurité réseau (ATS) ne doit exister
+          if $PB -c 'Print :NSAppTransportSecurity' "$APP/Info.plist" >/dev/null 2>&1; then echo "NSAppTransportSecurity présent : interdit."; exit 1; fi
+    artifacts:
+      - build/xcodebuild.log
+      - build/rapport-ios.txt
+
+  # ————————————————————————————————————————————————————————————— 2. Compilation signée + TestFlight INTERNE
+  ios-testflight:
+    name: Polar Rift — iOS, compilation signée + TestFlight interne
+    <<: *instance
+    integrations:
+      # Intégration « Clé API App Store Connect » créée dans Codemagic (Teams → Personal Account → Integrations) sous CE NOM EXACT. Aucun secret ici.
+      app_store_connect: polar-rift-asc
+    environment:
+      xcode: latest
+      node: 22.14.0
+      # Groupe de variables Codemagic « polar_rift_ios » (voir docs/CODEMAGIC_IOS.md) :
+      #   BUNDLE_ID                 Bundle ID Apple DÉFINITIF (jamais inventé ; doit être le même que dans le dépôt)
+      #   APP_STORE_APPLE_ID        identifiant numérique de l'app dans App Store Connect (Informations sur l'app → « Identifiant Apple »)
+      #   CERTIFICATE_PRIVATE_KEY   clé privée du certificat de distribution (SECRÈTE : cochez « Secure »)
+      #   VITE_LEADERBOARD_URL      adresse HTTPS publique du service de classement (optionnelle ; vide = classement désactivé)
+      groups:
+        - polar_rift_ios
+    scripts:
+      - *check_xcode
+      - name: Garde de signature (Bundle ID définitif fourni, identique au dépôt, jamais « com.example »)
+        script: |
+          set -euo pipefail
+          # Échoue AVANT toute signature tant que le Bundle ID définitif n'est pas fourni et appliqué (npm run mobile:set-id)
+          npm ci
+          npm run mobile:ios:guard
+          test -n "${APP_STORE_APPLE_ID:-}" || { echo "Variable APP_STORE_APPLE_ID absente (groupe polar_rift_ios)."; exit 1; }
+          test -n "${CERTIFICATE_PRIVATE_KEY:-}" || { echo "Variable CERTIFICATE_PRIVATE_KEY absente (groupe polar_rift_ios)."; exit 1; }
+      - *control_js
+      - *sync_native
+      - name: Numéro de build (toujours supérieur au dernier build TestFlight)
+        script: |
+          set -euo pipefail
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null | tail -n 1 || true)
+          case "$LATEST" in ''|*[!0-9]*) LATEST="" ;; esac
+          BUILD=$(npx tsx scripts/ios-ci.ts next-build "$LATEST")
+          echo "Dernier build TestFlight : ${LATEST:-aucun} → numéro de build de cette compilation : $BUILD"
+          # Appliqué à l'espace de travail seulement (jamais commité) ; mobile/release.json reste le plancher
+          npx tsx scripts/ios-ci.ts set-build "$BUILD"
+      - *resolve_spm
+      - name: Signature Apple (certificat de distribution + profil App Store, créés/récupérés via l'API App Store Connect)
+        script: |
+          set -euo pipefail
+          keychain initialize
+          # Récupère (ou crée, avec CERTIFICATE_PRIVATE_KEY) le certificat « Apple Distribution » et le profil App Store du Bundle ID.
+          # Le Bundle ID doit être enregistré dans Apple Developer (docs/CODEMAGIC_IOS.md, étape A).
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Compiler l'IPA signée
+        script: |
+          set -euo pipefail
+          xcode-project build-ipa --project ios/App/App.xcodeproj --scheme App
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # TestFlight INTERNE uniquement : l'envoi à App Store Connect suffit (le build apparaît pour les testeurs internes). « true » déclencherait une
+        # revue bêta pour des testeurs EXTERNES : volontairement désactivé. Aucune soumission à l'App Store.
+        submit_to_testflight: false

@@ -1,5 +1,7 @@
 # Reprise
 
+**iOS sans Mac (préparation, rien exécuté dans le cloud) :** `codemagic.yaml` (parcours `ios-verification` sans signature, `ios-testflight` signé + TestFlight interne), garde du Bundle ID définitif (`npm run mobile:ios:guard`), numéro de build automatique, guide `docs/CODEMAGIC_IOS.md`. **Reste :** Bundle ID définitif (`mobile:set-id`), App Store Connect + Codemagic (guide), lancer `ios-verification`. `BALANCE_VERSION` et gameplay inchangés.
+
 **Effet de vitesse du vaisseau (rendu seulement, `BALANCE_VERSION` 4 inchangée) :** lueur/halo permanent du vaisseau supprimé pour tous les skins ; à la place deux ou trois fines traînées blanc grisé derrière le vaisseau, orientées selon le déplacement réel, intensité selon la vitesse. Voir `docs/ASSETS.md` (« Effet de vitesse »).
 
 **Refonte cosmétique (partie 1) :** dix nouveaux skins (planche 01, PNG 256 px) à la place des anciens, configuration unique et provisoire `SKIN_CONFIG` (`src/config/skins.ts`) ; `tole-brute` par défaut et repli ; achats : Médailles seules, Éclats OU Prismes, indisponible (Porcelaine) ; Traînées fermées (« Indisponible pour l'instant ») ; Orbit par phase (`src/config/orbit.ts`) sans lien avec les skins ; vaisseau +25 % (visuel) et hitbox +15 % (`HITBOX.playerScale`). **`BALANCE_VERSION` reste 4 alors que la hitbox change la physique** : décision du propriétaire (passer à 5 ou non) ; **service OVH à mettre à jour (même code `src/` + `server/accounts.ts` pour l'achat Prismes au choix) — non fait**. Voir `docs/APPARENCES.md`.

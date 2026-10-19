@@ -33,6 +33,7 @@
     "mobile:check": "tsx scripts/mobile-config.ts check",
     "mobile:android:debug": "npm run mobile:sync && cd android && ./gradlew assembleDebug",
     "mobile:android:aab": "npm run mobile:check -- --release && npm run mobile:sync && cd android && ./gradlew bundleRelease",
+    "mobile:ios:guard": "tsx scripts/ios-ci.ts guard-signed",
     "mobile:open:android": "cap open android",
     "mobile:open:ios": "cap open ios",
     "server:migrate-check": "tsx server/migrate-check.ts"

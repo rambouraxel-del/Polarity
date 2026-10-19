@@ -71,6 +71,8 @@ Vérifiez la disponibilité dans Play Console / Apple Developer avant de vous en
 - Sauvegarde automatique Android (`allowBackup`) : conservée, voir §9.
 
 ## 6. iOS : Xcode → TestFlight (sur un Mac)
+> **Sans Mac :** compilation cloud et envoi TestFlight interne via Codemagic (`codemagic.yaml`) : voir **`docs/CODEMAGIC_IOS.md`** (guide pas à pas, audit, secrets). Les étapes ci-dessous restent valables si vous avez un Mac.
+
 1. `git pull`, `npm ci`, `npm run mobile:sync`, `npm run mobile:open:ios`.
 2. Xcode → cible **App** → *Signing & Capabilities* : choisir votre **Team** (compte Apple Developer). L'identifiant doit être celui du §2 (déjà appliqué par `mobile:set-id`). Xcode récupère le paquet Swift de Capacitor au premier lancement (réseau requis).
 3. Choisir un iPhone réel ou un simulateur → ▶ pour tester.
@@ -129,6 +131,7 @@ Premier toucher → musique démarre ; verrouillage/appel/retour au menu du tél
 | Jeu web (`npm run build`) et jeu embarqué (`npm run build:native`), contrôle des secrets du bundle, `cap sync` Android + iOS | ✅ **exécutés ici** (7,5 Mo, MP3/WebP/polices inclus) |
 | Tests unitaires (config mobile, origines/CORS WebView avec parcours complet sur serveur HTTP éphémère, couche native), typecheck | ✅ exécutés |
 | Projets natifs générés par Capacitor 8.5.3 (Android : cible/compile 36, minSdk 24 ; iOS : cible 15), icônes et écrans de démarrage, manifeste de confidentialité iOS | ✅ générés et validés statiquement (plist, structure) — **non ouverts dans Android Studio / Xcode** |
+| Pipeline Codemagic iOS (`codemagic.yaml`, garde de signature `scripts/ios-ci.ts`, numéro de build) | ✅ fichiers prêts et testés **en local** (YAML valide, garde, tests) — ❌ **aucune exécution cloud encore** : la compilation iOS n'est prouvée que par un parcours `ios-verification` vert dans Codemagic |
 | APK de débogage, AAB, IPA | ❌ **non produits** : pas de SDK Android (les dépôts Google sont inaccessibles depuis l'environnement), pas de Mac |
 | Signature Android (clé d'import), équipe Apple, identifiant définitif | ❌ **à vous** |
 | Essais sur appareil (audio, cycle de vie, WebGL, classement) | ❌ **à vous** (§8, §11) |
