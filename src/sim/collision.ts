@@ -1,7 +1,7 @@
 import { ARENA, SECTOR } from '../config/balance';
 import { projectileHitRadius } from '../config/hitbox';
 import { minDistanceLinear, sweepOverlapsArc } from '../core/math';
-import { laserAngle, projectileX, projectileY, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from './hazards';
+import { laserAngle, projectileX, projectileY, sectorCenterAt, sectorHalfAt, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from './hazards';
 
 /**
  * Détection continue : le joueur se déplace de l'angle a0 à a0 + delta pendant [t0, t1].
@@ -60,6 +60,13 @@ export function sectorHits(
   const f1 = span > 0 ? (s1 - t0) / span : 1;
   const sa = a0 + delta * f0;
   const sd = delta * (f1 - f0);
+  if (h.morph) {
+    // Arc mouvant : balayage du vaisseau RELATIF au centre qui dérive, demi-largeur maximale du pas (respiration)
+    const c0 = sectorCenterAt(h, s0);
+    const c1 = sectorCenterAt(h, s1);
+    const halfM = Math.max(sectorHalfAt(h, s0), sectorHalfAt(h, s1)) - SECTOR.edgeForgiveness + (playerRadius + extraMargin) / ARENA.orbitRadius;
+    return sweepOverlapsArc(sa - c0, sd - (c1 - c0), 0, halfM);
+  }
   const half = h.half - SECTOR.edgeForgiveness + (playerRadius + extraMargin) / ARENA.orbitRadius;
   return sweepOverlapsArc(sa, sd, h.center, half);
 }

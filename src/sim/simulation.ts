@@ -14,6 +14,8 @@ import { omegaAt, type SpeedFn } from './speed';
 import { GEL_SHIFT, Powers, type PowerAct, type PowerEvent, type PowerKind, type PowerStock } from './powers';
 import { POWERS, REVIVE } from '../config/powers';
 import { PHASES } from '../config/phases';
+import { WORLD_COUNT, worldStartStep } from '../config/worlds';
+import type { SpeedField } from './field';
 
 export type SimEvent =
   | { type: 'flip' }
@@ -33,6 +35,8 @@ export type SimEvent =
   | { type: 'shield-absorb'; x: number; y: number; hitX: number; hitY: number; by: Hazard['kind'] }
   /** Entrée en phase 2 (survie ACTIVE = 300 s) : l'arène a été aspirée, plus aucune menace n'existe. */
   | { type: 'phase'; phase: 2 }
+  /** Voyage des univers : entrée dans l'univers `world` (1-based) ; l'arène a été vidée pendant la transition (hors temps de jeu). */
+  | { type: 'world'; world: number }
   /** Reprise après une mort : numéro de la nouvelle vie (2 ou 3). */
   | { type: 'revive'; life: number }
   /** Éclat sur l'orbite : apparition, collecte (gain unique), disparition. */
@@ -118,6 +122,10 @@ export class Simulation {
   stepIndex = 0;
   /** Phase de la Survie : 1 jusqu'à 300 s de survie active, 2 ensuite (jamais en niveaux ni au défi quotidien). */
   phase: 1 | 2 = 1;
+  /** Voyage des univers : univers courant (1-based) ; toujours 1 hors de ce mode. */
+  world = 1;
+  /** Champ de vitesse selon la position (univers) ; null = vitesse fonction du temps seul (tous les modes historiques). */
+  readonly field: SpeedField | null;
   angle: number = PLAYER.startAngle;
   dir: 1 | -1 = PLAYER.startDirection;
   flips = 0;
@@ -130,6 +138,7 @@ export class Simulation {
     this.rng = new Rng(opts.seed);
     this.director = new Director(opts.profile, this.rng, opts.seed);
     this.speedFn = opts.profile.speed;
+    this.field = opts.profile.createField?.(opts.seed) ?? null;
     this.timeLimit = opts.timeLimit;
     this.limitSteps = opts.timeLimit === null ? Infinity : Math.round(opts.timeLimit / SIM.dt);
     this.invincible = opts.invincible ?? false;
@@ -205,6 +214,8 @@ export class Simulation {
 
     // 1 ter. Phase 2 : à 300 s de survie active, l'arène est aspirée (la traversée de 6 s a eu lieu AVANT ce pas : elle n'est pas du temps de jeu)
     if (this.phase === 1 && this.director.phased && this.stepIndex >= PHASES.phase2Step) this.enterPhase2();
+    // 1 quater. Voyage des univers : frontière exacte (la transition de 4 s a eu lieu AVANT ce pas, simulation gelée)
+    if (this.director.worlds && this.world < WORLD_COUNT && this.stepIndex >= worldStartStep(this.world)) this.enterWorld(this.world + 1);
 
     // 2. Nouvelle vague éventuelle (un seul directeur : normal, annonce, événement ou respiration)
     const added = this.director.update(t0, this);
@@ -243,6 +254,8 @@ export class Simulation {
     const from = this.angle;
     // Vitesse réelle à cet instant (courbe progressive en Survie) : la direction seule change à l'inversion
     let delta = this.dir * omegaAt(this.speedFn, t0 + dt / 2) * dt;
+    // Univers : facteur du champ à mi-pas (position estimée), dans le sens du déplacement. Sans champ : strictement l'ancien calcul.
+    if (this.field) delta *= this.field.factor(from + delta * 0.5, t0 + dt / 2, this.dir);
     // Boost : multiplie la vitesse RÉELLE courante (la courbe de difficulté reprend d'elle-même à la fin de l'effet)
     if (this.powers.boostActive(this.stepIndex)) delta *= POWERS.boost.multiplier;
     const t1 = t0 + dt;
@@ -326,6 +339,23 @@ export class Simulation {
     this.absorbed.clear();
     this.director.enterPhase2(this.time);
     this.events.push({ type: 'phase', phase: 2 });
+  }
+
+  /** Entrée dans un nouvel univers : menaces effacées, directeur relancé pour cet univers. Score, combo, balises, bonus et vies sont conservés. */
+  private enterWorld(world: number): void {
+    this.world = world;
+    this.hazards.length = 0;
+    this.absorbed.clear();
+    this.director.enterWorld(this.time);
+    this.events.push({ type: 'world', world });
+  }
+
+  /** Facteur de vitesse RÉEL du vaisseau (courbe × champ × Boost) : affichage seulement. */
+  get speedFactorNow(): number {
+    let f = this.speedFn(this.time);
+    if (this.field) f *= this.field.factor(this.angle, this.time, this.dir);
+    if (this.powers.boostActive(this.stepIndex)) f *= POWERS.boost.multiplier;
+    return f;
   }
 
   /** Ajoute un motif tout de suite, sans validation d'évitement (outil de démonstration `?demo` et tests). */

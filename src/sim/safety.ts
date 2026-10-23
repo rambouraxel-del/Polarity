@@ -3,6 +3,7 @@ import { playerHitRadius } from '../config/hitbox';
 import { hazardHits } from './collision';
 import { dangerWindow, type Hazard } from './hazards';
 import { omegaAt, timeAfterTravel, type SpeedFn } from './speed';
+import type { SpeedField } from './field';
 
 /**
  * Validateur d'évitement.
@@ -29,6 +30,11 @@ export interface EscapeQuery {
   speed: SpeedFn;
   margin?: number;
   horizon?: number;
+  /**
+   * Univers : champ de vitesse selon la position (nuages, hémisphères, tourbillons). Présent = modèle à pas de TEMPS constants (les positions ne sont
+   * plus sur un réseau d'angles régulier) ; absent = modèle historique, strictement inchangé.
+   */
+  field?: SpeedField;
 }
 
 /** Une marge de pas supplémentaire : la vitesse peut augmenter pendant l'horizon (pas plus courts). */
@@ -40,6 +46,7 @@ const relevant: Hazard[] = [];
 const stepTimes = new Float64Array(MAX_STEPS + 2);
 
 export function hasEscapePath(hazards: readonly Hazard[], q: EscapeQuery): boolean {
+  if (q.field) return hasEscapePathField(hazards, q, q.field);
   const ds = SAFETY.decisionStep;
   const sub = SAFETY.subSteps;
   const margin = q.margin ?? SAFETY.margin;
@@ -118,6 +125,84 @@ function transitionSafe(a: number, delta: number, t0: number, dt: number, sub: n
     for (const h of relevant) {
       if (hazardHits(h, sa, sd, s0, s0 + st, pr, margin, SAFETY.timeMargin)) return false;
     }
+  }
+  return true;
+}
+
+/**
+ * Modèle à champ de vitesse : les positions atteignables sont regroupées par cases d'angle de `FIELD_BIN_UNIT` × (angle parcouru en une décision à
+ * la vitesse de base), comme le réseau du modèle historique (dont les positions d'un même pas sont espacées de 2 unités). Sous-pas : 3.
+ */
+const FIELD_BIN_UNIT = 0.6;
+const FIELD_SUB = 3;
+const FIELD_MAX_STATES = 200;
+let fieldCur = new Float64Array(FIELD_MAX_STATES);
+let fieldNxt = new Float64Array(FIELD_MAX_STATES);
+const fieldSeen = new Set<number>();
+
+/**
+ * Validateur à vitesse VARIABLE selon la position : le joueur modélisé décide toutes les `decisionStep` secondes (continuer ou inverser) ; chaque
+ * décision est intégrée en sous-pas avec la vitesse réelle (courbe de temps × champ à sa position, dans son sens), et testée par la même détection
+ * continue que la simulation. Les positions atteignables sont regroupées par cases d'angle (`FIELD_BIN`) pour rester bornées.
+ */
+function hasEscapePathField(hazards: readonly Hazard[], q: EscapeQuery, field: SpeedField): boolean {
+  const ds = SAFETY.decisionStep;
+  const sub = FIELD_SUB;
+  const margin = q.margin ?? SAFETY.margin;
+  let lastEnd = q.time;
+  for (const h of hazards) {
+    const w = dangerWindow(h);
+    if (w.to > lastEnd) lastEnd = w.to;
+  }
+  const endTime = q.time + Math.min(q.horizon ?? SAFETY.maxHorizon, SAFETY.maxHorizon, lastEnd - q.time);
+  if (endTime <= q.time) return true;
+  const pr = playerHitRadius();
+  const bin = Math.max(0.04, FIELD_BIN_UNIT * omegaAt(q.speed, q.time) * ds);
+  const forcedUntil = q.time + q.forcedTime - 1e-9;
+  let n = 1;
+  fieldCur[0] = q.angle;
+  for (let t0 = q.time; t0 < endTime; t0 += ds) {
+    const t1 = t0 + ds;
+    relevant.length = 0;
+    for (const h of hazards) {
+      const w = dangerWindow(h);
+      if (w.to + SAFETY.timeMargin >= t0 && w.from - SAFETY.timeMargin <= t1) relevant.push(h);
+    }
+    const forced = t0 < forcedUntil;
+    fieldSeen.clear();
+    let m = 0;
+    const st = ds / sub;
+    for (let i = 0; i < n; i++) {
+      for (let s = -1; s <= 1; s += 2) {
+        if (forced && s !== q.forcedDir) continue;
+        let a = fieldCur[i];
+        let ok = true;
+        for (let j = 0; j < sub && ok; j++) {
+          const s0 = t0 + st * j;
+          const mid = s0 + st / 2;
+          // Même estimation que la simulation : facteur du champ à mi-sous-pas
+          const base = s * omegaAt(q.speed, mid) * st;
+          const sd = base * field.factor(a + base * 0.5, mid, s as 1 | -1);
+          for (const h of relevant) {
+            if (hazardHits(h, a, sd, s0, s0 + st, pr, margin, SAFETY.timeMargin)) {
+              ok = false;
+              break;
+            }
+          }
+          a += sd;
+        }
+        if (!ok) continue;
+        const key = Math.round(a / bin);
+        if (fieldSeen.has(key)) continue;
+        fieldSeen.add(key);
+        if (m < FIELD_MAX_STATES) fieldNxt[m++] = a;
+      }
+    }
+    if (m === 0) return false;
+    const tmp = fieldCur;
+    fieldCur = fieldNxt;
+    fieldNxt = tmp;
+    n = m;
   }
   return true;
 }

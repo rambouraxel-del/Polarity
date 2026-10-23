@@ -7,6 +7,7 @@ import type { RunMode } from '../progression/progress';
 import { Simulation } from '../sim/simulation';
 import { dailySeed } from './daily';
 import { levelProfile, survivalProfile } from './profiles';
+import { worldsProfile } from './worlds';
 
 export interface RunConfig {
   mode: RunMode;
@@ -26,6 +27,11 @@ export interface RunConfig {
    * (classement, record, gains, succès, cosmétiques) ni envoyée au service ; le rejeu du service ne définit jamais ce champ.
    */
   test?: boolean;
+  /**
+   * VOYAGE DES UNIVERS (refonte de la Survie, en validation) : Survie seulement, TOUJOURS une partie de test (jamais classée ni récompensée, jamais
+   * envoyée au service). Vaisseau mortel par défaut (l'immortalité reste disponible dans la fenêtre DEV).
+   */
+  worlds?: boolean;
 }
 
 /** Les trois modes partagent exactement la même simulation ; seuls la courbe et la durée changent. */
@@ -39,6 +45,9 @@ export function createSimulation(cfg: RunConfig): Simulation {
   const seed = cfg.mode === 'daily' && cfg.date ? dailySeed(cfg.date) : cfg.seed;
   // Éclats sur l'orbite : réglage par mode dans config/economy.ts (Survie seulement pour l'instant)
   const shards = cfg.mode === 'daily' ? SHARDS.modes.daily : SHARDS.modes.survival;
+  if (cfg.worlds === true && cfg.mode === 'survival') {
+    return new Simulation({ seed, profile: worldsProfile(shards), timeLimit: null, powers: { stock: cfg.stock, bonus: cfg.bonus } });
+  }
   // Pouvoirs : Survie seulement (jamais le défi quotidien, les niveaux ni la campagne)
   return new Simulation({ seed, profile: survivalProfile(shards, cfg.mode === 'survival'), timeLimit: null, powers: cfg.mode === 'survival' ? { stock: cfg.stock, bonus: cfg.bonus } : undefined, invincible: cfg.test === true && cfg.mode === 'survival' });
 }

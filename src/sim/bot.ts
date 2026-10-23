@@ -34,7 +34,7 @@ export class Bot {
     }
     this.stepsUntilDecision = this.decisionSteps - 1;
     const sim = this.sim;
-    const base = { angle: sim.angle, time: sim.time, forcedTime: this.reaction, speed: sim.speedFn, margin: this.margin };
+    const base = { angle: sim.angle, time: sim.time, forcedTime: this.reaction, speed: sim.speedFn, margin: this.margin, field: sim.field ?? undefined };
     const keepOk = hasEscapePath(sim.hazards, { ...base, dir: sim.dir, forcedDir: sim.dir });
     let flipOk: boolean | null = null;
     const flipSafe = (): boolean => {

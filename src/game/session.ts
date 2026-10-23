@@ -1,5 +1,6 @@
 import { SIM, UI } from '../config/balance';
 import { PHASES } from '../config/phases';
+import { WORLD_COUNT, WORLDS, worldStartStep } from '../config/worlds';
 import { CampaignSimulation, NO_UPGRADES, type CampaignEvent } from '../campaign/simulation';
 import { createSimulation, type RunConfig } from '../modes/run';
 import type { RunSummary } from '../progression/progress';
@@ -22,7 +23,10 @@ export interface SessionHooks {
   onFirstDeath?(summary: RunSummary, session: GameSession): void;
   /** Une reprise est-elle proposable après cette mort ? (absent ou faux : la partie se termine directement) */
   canOffer?(session: GameSession): boolean;
-  /** Traversée de la faille (Survie, 300 s de survie active) : `start` (tout est suspendu) puis `end` (la phase 2 commence au pas suivant). */
+  /**
+   * Traversée de la faille (Survie à phases : 300 s ; voyage des univers : chaque frontière) : `start` (tout est suspendu) puis `end` (le nouvel
+   * univers ou la phase 2 commence au pas suivant).
+   */
   onTransit?(stage: 'start' | 'end', session: GameSession): void;
   /** Phase « offer » atteinte : l'application affiche l'écran de reprise. */
   onOffer?(life: number, session: GameSession): void;
@@ -49,6 +53,10 @@ export class GameSession {
   transitLeft = 0;
   /** La traversée a déjà eu lieu pendant cette partie (une seule fois, reprises comprises). */
   private transitDone = false;
+  /** Durée totale de la traversée en cours (s) : 6 (phase 2) ou 4 (univers). */
+  transitTotal: number = PHASES.transit;
+  /** Univers : univers vers lequel la dernière transition a mené (1 = départ). Une seule transition par frontière, reprises comprises. */
+  transitTo = 1;
 
   constructor(readonly config: RunConfig, private readonly hooks: SessionHooks = {}) {
     if (config.mode === 'campaign') {
@@ -73,7 +81,17 @@ export class GameSession {
 
   /** Partie de test : lancée en mode développeur, ou ayant utilisé une commande de test. */
   get isTest(): boolean {
-    return this.config.mode === 'survival' && (this.config.test === true || this.testUsed);
+    return this.config.mode === 'survival' && (this.config.test === true || this.config.worlds === true || this.testUsed);
+  }
+
+  /** Voyage des univers ? */
+  get worlds(): boolean {
+    return this.config.mode === 'survival' && this.sim.director.worlds;
+  }
+
+  /** Avancement de la transition en cours (0 hors transition, 0 → 1 pendant). */
+  get transitProgress(): number {
+    return this.transitLeft > 0 ? 1 - this.transitLeft / this.transitTotal : 0;
   }
 
   /** Marque la partie comme partie de test (aucun effet sur une partie hors Survie). */
@@ -121,7 +139,7 @@ export class GameSession {
     if (!this.isTest || this.phase !== 'running') return this.sim.time;
     this.markTest();
     this.skipping = true;
-    const done = (): boolean => (throughTransit ? this.sim.phase === 2 && this.transitLeft === 0 : this.transitLeft === 0 && this.sim.time >= target);
+    const done = (): boolean => (throughTransit && !this.worlds ? this.sim.phase === 2 && this.transitLeft === 0 : this.transitLeft === 0 && this.sim.time >= target);
     try {
       for (let guard = 0; guard < 400000 && this.phase === 'running' && this.sim.state === 'running' && !done(); guard++) this.tick(SIM.maxFrameTime);
     } finally {
@@ -152,8 +170,17 @@ export class GameSession {
         }
         this.acc += dt;
         while (this.acc >= SIM.dt && this.sim.state === 'running') {
+          if (this.shouldWorldTransit()) {
+            this.transitTo = this.sim.world + 1;
+            this.transitTotal = WORLDS.transition;
+            this.transitLeft = WORLDS.transition;
+            this.acc = 0;
+            this.hooks.onTransit?.('start', this);
+            break;
+          }
           if (this.shouldTransit()) {
             this.transitDone = true;
+            this.transitTotal = PHASES.transit;
             this.transitLeft = PHASES.transit;
             this.acc = 0;
             this.hooks.onTransit?.('start', this);
@@ -200,6 +227,12 @@ export class GameSession {
   /** La traversée commence-t-elle maintenant ? (Survie à phases, exactement à 300 s de survie active, une seule fois) */
   private shouldTransit(): boolean {
     return this.config.mode === 'survival' && !this.transitDone && this.sim.director.phased && this.sim.phase === 1 && this.sim.stepIndex >= PHASES.phase2Step;
+  }
+
+  /** Voyage des univers : la transition commence-t-elle maintenant ? (frontière exacte de temps actif, une seule fois par frontière) */
+  private shouldWorldTransit(): boolean {
+    const s = this.sim;
+    return this.worlds && s.world < WORLD_COUNT && this.transitTo <= s.world && s.stepIndex >= worldStartStep(s.world);
   }
 
   /** Action de jeu (clic, toucher, Espace) : une inversion, uniquement en jeu (jamais pendant la traversée). */

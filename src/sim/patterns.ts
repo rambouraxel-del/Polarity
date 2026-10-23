@@ -1,10 +1,11 @@
 import { ARENA } from '../config/balance';
 import { ALT_BEAMS, ARC_SHOT, CONVOY, FRAGMENT, LASER, ROT_BEAM, SPIRAL, SWEEP_BEAM } from '../config/hazards';
-import { beatPeriodAt, nextBeat } from '../config/phases';
+import { beatPeriodAt, nextAccent, nextBeat } from '../config/phases';
+import { WORLD_HAZARDS as WH } from '../config/worlds';
 import { TAU } from '../core/math';
 import type { Rng } from '../core/rng';
 import type { DifficultyParams } from './difficulty';
-import { makeArcProjectile, makeChordProjectile, makeLaser, makeRayProjectile, makeSector, makeSpiralProjectile, shiftHazard, firstOrbitContact, type Hazard } from './hazards';
+import { makeArcProjectile, makeChordProjectile, makeCurveProjectile, makeLaser, makeRayProjectile, makeSector, makeSpiralProjectile, shiftHazard, firstOrbitContact, type Hazard, type ProjectileHazard } from './hazards';
 import { angularTravel, type SpeedFn } from './speed';
 
 export type PatternId =
@@ -33,9 +34,38 @@ export type PatternId =
   | 'altBeams'
   | 'arcSector'
   | 'spiralArc'
-  | 'beamShot';
+  | 'beamShot'
+  // Voyage des univers (config/worlds.ts) — L'Entre-deux
+  | 'riftOrb'
+  | 'orbPair'
+  | 'surgeArc'
+  | 'surgeOrb'
+  // Mer nébulaire
+  | 'gasMass'
+  | 'gasDrift'
+  | 'nebulaDebris'
+  | 'debrisVolley'
+  | 'massDebris'
+  | 'gasPair'
+  // Monde des vents
+  | 'windShards'
+  | 'emberStream'
+  | 'gust'
+  | 'windWall'
+  | 'gustShards'
+  | 'emberSpiral';
 
-export type Family = 'projectile' | 'sector' | 'combo' | 'fragment' | 'convoy' | 'laser' | 'rhythm' | 'bigarc' | 'spiral' | 'rotbeam' | 'sweepbeam' | 'altbeams';
+export type Family = 'projectile' | 'sector' | 'combo' | 'fragment' | 'convoy' | 'laser' | 'rhythm' | 'bigarc' | 'spiral' | 'rotbeam' | 'sweepbeam' | 'altbeams'
+  | 'orb' | 'surge' | 'gas' | 'debris' | 'ember' | 'gust';
+
+/** Grille de rythme (instants de jeu actif) : battements, moments forts, période. Calculée hors ligne, jamais lue dans l'audio. */
+export interface Rhythm {
+  nextBeat(t: number): number;
+  nextAccent(t: number): number;
+  beatPeriodAt(t: number): number;
+}
+
+const PHASED_RHYTHM: Rhythm = { nextBeat, nextAccent, beatPeriodAt };
 
 export interface PatternContext {
   now: number;
@@ -45,6 +75,8 @@ export interface PatternContext {
   playerDir: 1 | -1;
   /** Facteur de vitesse du vaisseau selon le temps (pour prévoir sa position). */
   speed: SpeedFn;
+  /** Grille de rythme du mode (absente = grilles de la Survie à phases). */
+  rhythm?: Rhythm;
 }
 
 export interface PatternDef {
@@ -329,9 +361,10 @@ export const PATTERNS: Record<PatternId, PatternDef> = {
       for (let i = 0; i < n; i++) {
         const h = shotThrough(ctx, 'beatShots', ctx.now, base + i * sweep, rng.range(1.7, 2.5));
         // Le passage sur l'orbite tombe sur un battement ; les tirs suivants tombent sur les battements suivants
-        const target = nextBeat(Math.max(from, firstOrbitContact(h)));
+        const rh = ctx.rhythm ?? PHASED_RHYTHM;
+        const target = rh.nextBeat(Math.max(from, firstOrbitContact(h)));
         shiftHazard(h, target - firstOrbitContact(h));
-        from = target + 0.2 * beatPeriodAt(target);
+        from = target + 0.2 * rh.beatPeriodAt(target);
         out.push(h);
       }
       void p;
@@ -426,7 +459,274 @@ export const PATTERNS: Record<PatternId, PatternDef> = {
       return [...beams, shotThrough(ctx, 'beamShot', ws + p.comboStagger * 2, aim, rng.range(1.8, 2.6))];
     },
   },
+
+  // ————————————————————————— Voyage des univers : L'Entre-deux (instabilité énergétique)
+  riftOrb: {
+    id: 'riftOrb', family: 'orb', name: 'Orbe de faille', cost: 1.3,
+    build(ctx) {
+      const h = riftOrb(ctx, 'riftOrb', ctx.now);
+      return [h ?? shotThrough(ctx, 'riftOrb', ctx.now, aimAngle(ctx, crossingTime(ctx, ctx.now)))];
+    },
+  },
+  orbPair: {
+    id: 'orbPair', family: 'orb', name: 'Orbes jumelles', cost: 1.8,
+    build(ctx) {
+      const a = riftOrb(ctx, 'orbPair', ctx.now);
+      const b = riftOrb(ctx, 'orbPair', ctx.now + ctx.rng.range(WH.riftOrb.pairStagger.min, WH.riftOrb.pairStagger.max) * Math.max(1, ctx.p.comboStagger / 0.6));
+      return [a, b].filter((h): h is ProjectileHazard => h !== null);
+    },
+  },
+  surgeArc: {
+    id: 'surgeArc', family: 'surge', name: 'Arc mouvant', cost: 1.3,
+    build(ctx) {
+      return [surgeArc(ctx, 'surgeArc', ctx.now)];
+    },
+  },
+  surgeOrb: {
+    id: 'surgeOrb', family: 'combo', name: 'Arc mouvant + orbe', cost: 2,
+    build(ctx) {
+      const arc = surgeArc(ctx, 'surgeOrb', ctx.now);
+      const orb = riftOrb(ctx, 'surgeOrb', ctx.now + ctx.p.comboStagger);
+      return orb ? [arc, orb] : [arc];
+    },
+  },
+
+  // ————————————————————————— Mer nébulaire (masses lentes, débris ondulants)
+  gasMass: {
+    id: 'gasMass', family: 'gas', name: 'Masse gazeuse', cost: 1.5,
+    build(ctx) {
+      return [gasMass(ctx, 'gasMass', ctx.now)];
+    },
+  },
+  gasDrift: {
+    id: 'gasDrift', family: 'gas', name: 'Masse à la dérive', cost: 1.7,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const speed = p.projectileSpeed * WH.gasDrift.speedScale;
+      const warn = p.projectileWarn + WH.gasDrift.extraWarn;
+      const aimA = aimAngle(ctx, ctx.now + warn + approachTime(speed));
+      const side = rng.sign();
+      const spread = rng.range(1.2, 1.7);
+      const depth = rng.range(150, 230);
+      const h = shortFlight(makeArcProjectile('gasDrift', ctx.now, warn, speed,
+        [S * Math.cos(aimA - side * spread), S * Math.sin(aimA - side * spread)],
+        [depth * Math.cos(aimA), depth * Math.sin(aimA)],
+        [S * Math.cos(aimA + side * spread), S * Math.sin(aimA + side * spread)]));
+      if (!h) return [gasMass(ctx, 'gasDrift', ctx.now)];
+      h.scale = WH.gasDrift.scale;
+      return [h];
+    },
+  },
+  nebulaDebris: {
+    id: 'nebulaDebris', family: 'debris', name: 'Débris nébulaires', cost: 1.3,
+    build(ctx) {
+      const { rng } = ctx;
+      const n = rng.int(WH.debris.count.min, WH.debris.count.max);
+      const base = aimAngle(ctx, ctx.now + 2.2);
+      const out: Hazard[] = [];
+      for (let i = 0; i < n; i++) out.push(debris(ctx, 'nebulaDebris', ctx.now + i * rng.range(WH.debris.stagger.min, WH.debris.stagger.max), base + rng.range(-0.9, 0.9)));
+      return out;
+    },
+  },
+  debrisVolley: {
+    id: 'debrisVolley', family: 'debris', name: 'Nuée de débris', cost: 1.8,
+    build(ctx) {
+      const { rng, playerDir } = ctx;
+      const sweep = playerDir * rng.range(0.4, 0.6);
+      const base = aimAngle(ctx, ctx.now + 2.4) - sweep;
+      const gap = rng.range(WH.debris.stagger.min, WH.debris.stagger.max) * 1.2;
+      const out: Hazard[] = [];
+      for (let i = 0; i < 4; i++) out.push(debris(ctx, 'debrisVolley', ctx.now + i * gap, base + i * sweep));
+      return out;
+    },
+  },
+  massDebris: {
+    id: 'massDebris', family: 'combo', name: 'Masse + débris', cost: 2.1,
+    build(ctx) {
+      const mass = gasMass(ctx, 'massDebris', ctx.now);
+      const side = ctx.rng.sign();
+      const a = (mass.kind === 'projectile' ? mass.cross1 : ctx.playerAngle) + side * ctx.rng.range(1.0, 1.6);
+      return [mass, debris(ctx, 'massDebris', ctx.now + ctx.p.comboStagger * 1.4, a), debris(ctx, 'massDebris', ctx.now + ctx.p.comboStagger * 2.2, a + side * 0.5)];
+    },
+  },
+  gasPair: {
+    id: 'gasPair', family: 'gas', name: 'Masses croisées', cost: 2.3,
+    build(ctx) {
+      const a = gasMass(ctx, 'gasPair', ctx.now);
+      const b = gasMass(ctx, 'gasPair', ctx.now + ctx.rng.range(WH.gasMass.pairStagger.min, WH.gasMass.pairStagger.max));
+      return [a, b];
+    },
+  },
+
+  // ————————————————————————— Monde des vents (courants, fronts)
+  windShards: {
+    id: 'windShards', family: 'ember', name: 'Fragments emportés', cost: 1.5,
+    build(ctx) {
+      return windShards(ctx, 'windShards', ctx.now, WH.windShard.count.max);
+    },
+  },
+  emberStream: {
+    id: 'emberStream', family: 'ember', name: 'Courant de braises', cost: 1.9,
+    build(ctx) {
+      const { rng, p } = ctx;
+      const first = shortFlight(bigArc(ctx, 'emberStream', ctx.now, 0));
+      if (!first || !first.path) return windShards(ctx, 'emberStream', ctx.now, 2);
+      first.scale = 0.75;
+      const n = rng.int(WH.emberStream.count.min, WH.emberStream.count.max);
+      const stagger = Math.max(CONVOY.minStagger, p.comboStagger * rng.range(WH.emberStream.stagger.min, WH.emberStream.stagger.max) * 1.6);
+      const out: Hazard[] = [first];
+      for (let i = 1; i < n; i++) {
+        const c = { ...first, path: { ...first.path }, warned: false };
+        shiftHazard(c, i * stagger);
+        out.push(c);
+      }
+      return out;
+    },
+  },
+  gust: {
+    id: 'gust', family: 'gust', name: 'Vague de vent', cost: 1.9,
+    build(ctx) {
+      return gustFronts(ctx, 'gust', ctx.now, 1);
+    },
+  },
+  windWall: {
+    id: 'windWall', family: 'gust', name: 'Mur de vent', cost: 2.3,
+    build(ctx) {
+      return gustFronts(ctx, 'windWall', ctx.now, 2);
+    },
+  },
+  gustShards: {
+    id: 'gustShards', family: 'combo', name: 'Vague + fragments', cost: 2.3,
+    build(ctx) {
+      return [...gustFronts(ctx, 'gustShards', ctx.now, 1), ...windShards(ctx, 'gustShards', ctx.now + ctx.p.comboStagger * 2, 2)];
+    },
+  },
+  emberSpiral: {
+    id: 'emberSpiral', family: 'ember', name: 'Spirale de braises', cost: 2,
+    build(ctx) {
+      return spiralArms(ctx, 'emberSpiral', ctx.now, 3);
+    },
+  },
 };
+
+// ————————————————————————————————————————————— dangers des univers (constructions)
+
+/** Rejette un danger courbe dont le vol est trop long (il longerait l'orbite) : le motif se replie alors sur une trajectoire droite. */
+function shortFlight<T extends ProjectileHazard | null>(h: T): T | null {
+  return h && h.end - h.launch <= WH.maxCurveFlight ? h : null;
+}
+
+/** Orbe de faille : grand arc d'énergie (même géométrie que le grand arc, vitesse et taille propres). */
+function riftOrb(ctx: PatternContext, pattern: string, warnStart: number): ProjectileHazard | null {
+  const { rng, p } = ctx;
+  const speed = p.projectileSpeed * WH.riftOrb.speedScale;
+  const warn = p.projectileWarn + WH.riftOrb.extraWarn;
+  const aimA = aimAngle(ctx, warnStart + warn + approachTime(speed));
+  const side = rng.sign();
+  const spread = rng.range(ARC_SHOT.spread.min, ARC_SHOT.spread.max);
+  const depth = rng.range(ARC_SHOT.depth.min, ARC_SHOT.depth.max);
+  const h = makeArcProjectile(pattern, warnStart, warn, speed,
+    [S * Math.cos(aimA - side * spread), S * Math.sin(aimA - side * spread)],
+    [depth * Math.cos(aimA), depth * Math.sin(aimA)],
+    [S * Math.cos(aimA + side * spread * rng.range(0.8, 1.2)), S * Math.sin(aimA + side * spread * rng.range(0.8, 1.2))]);
+  if (h) h.scale = WH.riftOrb.scale;
+  return shortFlight(h);
+}
+
+/** Arc électrique mouvant : secteur dont la largeur respire et dont le centre dérive (fonction pure du temps). */
+function surgeArc(ctx: PatternContext, pattern: string, warnStart: number): Hazard {
+  const { rng, p } = ctx;
+  const sa = WH.surgeArc;
+  const warn = p.sectorWarn + sa.extraWarn;
+  const half = p.sectorHalfWidth * rng.range(sa.halfFrom.min, sa.halfFrom.max);
+  const halfTo = Math.min(0.62, half * rng.range(sa.halfTo.min, sa.halfTo.max));
+  const drift = rng.sign() * rng.range(sa.drift.min, sa.drift.max);
+  const r = rng.next();
+  const center = r < 0.45 ? predict(ctx, warnStart + warn) - drift * warn : predict(ctx, warnStart + warn) + rng.range(-0.9, 0.9);
+  const h = makeSector(pattern, warnStart, warn, p.sectorActive + sa.extraActive, center, half);
+  h.morph = { halfTo, drift };
+  return h;
+}
+
+/** Masse gazeuse : grand projectile lent sur une corde de l'orbite. */
+function gasMass(ctx: PatternContext, pattern: string, warnStart: number): Hazard {
+  const { rng, p } = ctx;
+  const speed = p.projectileSpeed * WH.gasMass.speedScale;
+  const warn = p.projectileWarn + WH.gasMass.extraWarn;
+  const a = aimAngle(ctx, warnStart + warn + approachTime(speed));
+  const other = a + rng.sign() * rng.range(1.6, 2.6);
+  const h = rng.next() < 0.33 ? makeChordProjectile(pattern, warnStart, warn, speed, other, a) : makeChordProjectile(pattern, warnStart, warn, speed, a, other);
+  h.scale = WH.gasMass.scale;
+  // La masse est large : sa menace dure tant que son bord peut encore toucher l'orbite
+  h.threatEnd = Math.min(h.end, h.threatEnd + (asteroidReach(WH.gasMass.scale) / speed));
+  return h;
+}
+
+/** Marge temporelle ajoutée à la fin de menace d'un projectile large (unités monde de rayon supplémentaire). */
+function asteroidReach(scale: number): number {
+  return 14 * (scale - 1);
+}
+
+/** Débris nébulaire : petit projectile lent dont la trajectoire ondule ; passe près de l'angle `angle`. */
+function debris(ctx: PatternContext, pattern: string, warnStart: number, angle: number): Hazard {
+  const { rng, p } = ctx;
+  const d = WH.debris;
+  const speed = p.projectileSpeed * d.speedScale;
+  const other = angle + rng.sign() * rng.range(1.5, 2.6);
+  // Corde de l'orbite entre `angle` et `other`, prolongée hors champ ; l'ondulation s'ajoute perpendiculairement
+  const p1x = R * Math.cos(angle);
+  const p1y = R * Math.sin(angle);
+  let ux = R * Math.cos(other) - p1x;
+  let uy = R * Math.sin(other) - p1y;
+  const len = Math.hypot(ux, uy) || 1;
+  ux /= len;
+  uy /= len;
+  const along = p1x * ux + p1y * uy;
+  const x0 = p1x - along * ux - S * ux;
+  const y0 = p1y - along * uy - S * uy;
+  const amp = rng.range(d.amp.min, d.amp.max);
+  const k = rng.range(d.k.min, d.k.max);
+  const h = makeCurveProjectile(pattern, warnStart, p.projectileWarn + d.extraWarn, { type: 'wave', x0, y0, vx: ux * speed, vy: uy * speed, amp, k }, (2 * S) / speed, d.scale);
+  return h;
+}
+
+/** Fragments emportés : spirales entrantes, comme entraînées par un courant. */
+function windShards(ctx: PatternContext, pattern: string, warnStart: number, maxCount: number): Hazard[] {
+  const { rng, p } = ctx;
+  const w = WH.windShard;
+  const speed = p.projectileSpeed * w.speedScale;
+  const warn = p.projectileWarn + w.extraWarn;
+  const n = rng.int(w.count.min, Math.min(maxCount, w.count.max));
+  const spin = rng.sign() * rng.range(w.spin.min, w.spin.max);
+  const tc = (S - R) / speed;
+  const aim = predict(ctx, warnStart + warn + tc) + rng.range(-0.7, 0.7);
+  const stagger = rng.range(w.stagger.min, w.stagger.max);
+  const out: Hazard[] = [];
+  for (let k = 0; k < n; k++) {
+    const h = makeSpiralProjectile(pattern, warnStart + k * stagger, warn, S, -speed, aim - spin * tc + (k * 2 * Math.PI) / n, spin);
+    h.scale = w.scale;
+    out.push(h);
+  }
+  return out;
+}
+
+/** Vagues de vent : un ou deux fronts qui tournent lentement (faisceaux rotatifs aux couleurs du vent). */
+function gustFronts(ctx: PatternContext, pattern: string, warnStart: number, count: 1 | 2): Hazard[] {
+  const { rng, p } = ctx;
+  const g = WH.gust;
+  const warn = Math.max(CAPS_LASER_WARN, g.warn * Math.min(1.2, (p.laserWarn / 1.15) ** 0.5));
+  const rate = (rng.range(g.rate.min, g.rate.max) / paceBeam(ctx)) * rng.sign();
+  const dur = rng.range(g.duration.min, g.duration.max);
+  const start = predict(ctx, warnStart + warn) + rng.sign() * rng.range(1.3, 2.3);
+  const out: Hazard[] = [];
+  for (let i = 0; i < count; i++) {
+    const b = makeLaser(pattern, warnStart, warn, start + i * Math.PI, rate, Math.abs(rate) * dur, g.half);
+    b.rotating = true;
+    b.coverage = g.coverage;
+    out.push(b);
+  }
+  return out;
+}
 
 // ————————————————————————————————————————————— menaces de la phase 2 (constructions)
 
@@ -507,8 +807,9 @@ function rotatingBeams(ctx: PatternContext, pattern: string, warnStart: number, 
 function alternatingBeams(ctx: PatternContext, pattern: string, warnStart: number): Hazard[] {
   const { rng, p } = ctx;
   const ws = warnStart;
-  const b = beatPeriodAt(ws) * ALT_BEAMS.beatsPerStep;
-  const first = nextBeat(ws + Math.max(ALT_BEAMS.warn, p.sectorWarn));
+  const rh = ctx.rhythm ?? PHASED_RHYTHM;
+  const b = rh.beatPeriodAt(ws) * ALT_BEAMS.beatsPerStep;
+  const first = rh.nextBeat(ws + Math.max(ALT_BEAMS.warn, p.sectorWarn));
   const steps = rng.int(ALT_BEAMS.steps.min, ALT_BEAMS.steps.max);
   const sep = rng.range(ALT_BEAMS.spread.min, ALT_BEAMS.spread.max) * rng.sign();
   const c0 = predict(ctx, first) + rng.range(-0.8, 0.8);
@@ -536,6 +837,12 @@ export const FAMILY_INTRO: Record<Family, string> = {
   rotbeam: 'Faisceau rotatif : un rayon tourne lentement, bien moins vite que votre vaisseau. Gardez vos distances.',
   sweepbeam: 'Faisceau balayeur : un rayon balaie une large zone annoncée ; la zone de refuge est de l’autre côté.',
   altbeams: 'Faisceaux alternés : les directions annoncées s’allument l’une après l’autre, sur le rythme.',
+  orb: 'Orbe de faille : une sphère d’énergie suit une courbe ; tout son tracé est annoncé.',
+  surge: 'Arc mouvant : la zone électrique glisse et respire ; anticipez sa position.',
+  gas: 'Masse gazeuse : grande et lente ; son contour est sa zone dangereuse.',
+  debris: 'Débris nébulaires : petits fragments ondulants ; suivez leur tracé.',
+  ember: 'Fragments emportés : ils tournent avec le courant avant de couper l’orbite.',
+  gust: 'Vague de vent : un front tourne lentement autour de l’arène ; restez devant lui ou laissez-le passer.',
 };
 
 export type PatternWeights = Partial<Record<PatternId, number>>;

@@ -13,7 +13,9 @@ import { wrapAngle } from '../core/math';
  */
 export type ProjectilePath =
   | { type: 'arc'; cx: number; cy: number; rho: number; a0: number; w: number }
-  | { type: 'spiral'; r0: number; vr: number; a0: number; w: number };
+  | { type: 'spiral'; r0: number; vr: number; a0: number; w: number }
+  /** Univers : ligne droite (x0, y0) + (vx, vy)·s ondulant latéralement (amplitude `amp`, pulsation `k` rad/s) — débris nébulaires. */
+  | { type: 'wave'; x0: number; y0: number; vx: number; vy: number; amp: number; k: number };
 
 export interface ProjectileHazard {
   kind: 'projectile';
@@ -63,6 +65,23 @@ export interface SectorHazard {
   half: number;
   warned: boolean;
   activated: boolean;
+  /**
+   * Univers (arcs électriques mouvants) : la demi-largeur passe de `half` à `halfTo` pendant l'activité et le centre dérive de `drift` rad/s dès
+   * l'annonce. Fonction pure du temps ; absent = secteur fixe (comportement historique, inchangé).
+   */
+  morph?: { halfTo: number; drift: number };
+}
+
+/** Centre d'un secteur à l'instant t (dérive des arcs mouvants comprise). */
+export function sectorCenterAt(h: SectorHazard, t: number): number {
+  return h.morph ? h.center + h.morph.drift * (Math.max(h.warnStart, Math.min(t, h.end)) - h.warnStart) : h.center;
+}
+
+/** Demi-largeur d'un secteur à l'instant t (respiration des arcs mouvants comprise). */
+export function sectorHalfAt(h: SectorHazard, t: number): number {
+  if (!h.morph) return h.half;
+  const k = t <= h.activeStart ? 0 : t >= h.end ? 1 : (t - h.activeStart) / (h.end - h.activeStart);
+  return h.half + (h.morph.halfTo - h.half) * k;
 }
 
 /**
@@ -180,11 +199,13 @@ export function makeSector(
 /** Position sur une trajectoire courbe à l'instant s = t − launch. */
 export function pathX(p: ProjectilePath, s: number): number {
   if (p.type === 'arc') return p.cx + p.rho * Math.cos(p.a0 + p.w * s);
+  if (p.type === 'wave') return p.x0 + p.vx * s - (p.vy / Math.hypot(p.vx, p.vy)) * p.amp * Math.sin(p.k * s);
   return (p.r0 + p.vr * s) * Math.cos(p.a0 + p.w * s);
 }
 
 export function pathY(p: ProjectilePath, s: number): number {
   if (p.type === 'arc') return p.cy + p.rho * Math.sin(p.a0 + p.w * s);
+  if (p.type === 'wave') return p.y0 + p.vy * s + (p.vx / Math.hypot(p.vx, p.vy)) * p.amp * Math.sin(p.k * s);
   return (p.r0 + p.vr * s) * Math.sin(p.a0 + p.w * s);
 }
 
@@ -220,7 +241,7 @@ export function laserAngle(h: LaserHazard, t: number): number {
 
 /** Part de la circonférence mobilisée par un secteur ou un laser (radians) : sert aux plafonds de couverture. */
 export function arcCoverage(h: Hazard): number {
-  if (h.kind === 'sector') return 2 * h.half;
+  if (h.kind === 'sector') return h.morph ? 2 * Math.max(h.half, h.morph.halfTo) + Math.abs(h.morph.drift) * (h.end - h.warnStart) : 2 * h.half;
   if (h.kind === 'laser') return h.coverage ?? h.span + 2 * h.half;
   return 0;
 }

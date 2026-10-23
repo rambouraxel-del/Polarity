@@ -2,6 +2,7 @@ import { CAPS, RESPITE, SAFETY, SECTOR } from '../config/balance';
 import { PHASE2_CAPS } from '../config/hazards';
 import { PHASES, nextAccent, nextBeat } from '../config/phases';
 import { SURVIVAL } from '../config/survival';
+import { WORLDS } from '../config/worlds';
 import { EVENTS, eventDef, type EventDef, type EventKind } from '../config/events';
 import { TAU } from '../core/math';
 import { Rng } from '../core/rng';
@@ -9,6 +10,8 @@ import { paramsFor, type DifficultyParams } from './difficulty';
 import { arcCoverage, firstOrbitContact, shiftHazard, type Hazard } from './hazards';
 import { PATTERNS, PATTERN_IDS, type PatternId, type PatternWeights } from './patterns';
 import { hasEscapePath } from './safety';
+import type { SpeedField } from './field';
+import type { Rhythm } from './patterns';
 
 /** Courbe de difficulté fournie par un mode de jeu (Survie, Niveau, Défi). */
 export interface DifficultyProfile {
@@ -40,6 +43,20 @@ export interface DifficultyProfile {
   phased?: boolean;
   /** Part des vagues dont le premier contact avec l'orbite est calé sur un battement de la grille de rythme (config/phases.ts) ; absent = aucune. */
   beatChance?(t: number): number;
+  /** Voyage des univers (config/worlds.ts) : frontières d'univers, champs de vitesse, calendriers propres. Absent = modes historiques inchangés. */
+  worlds?: boolean;
+  /** Aucune nouvelle vague à l'instant t (approche d'une faille). */
+  quiet?(t: number): boolean;
+  /** Plafonds de secteurs/faisceaux à l'instant t (sinon : plafonds historiques). */
+  caps?(t: number): { maxSectors: number; maxCoverage: number };
+  /** Champ de vitesse selon la position, créé avec la graine (univers). */
+  createField?(seed: number): SpeedField;
+  /** Grille de rythme propre au mode (univers) ; absent = grilles de la Survie à phases. */
+  rhythm?: Rhythm;
+  /** Événements (pluie, tempête) permis dans l'univers de l'instant t. */
+  worldEvents?(t: number): boolean;
+  /** Un événement [start, end] (respiration comprise) tient-il entièrement avant la prochaine faille ? */
+  eventFits?(start: number, end: number): boolean;
 }
 
 export interface BreathParams {
@@ -67,7 +84,12 @@ export interface DirectorWorld {
   hazards: Hazard[];
   playerAngle: number;
   playerDir: 1 | -1;
+  /** Champ de vitesse (univers) : transmis au validateur d'évitement. */
+  field?: SpeedField | null;
 }
+
+/** Délai avant la première vague d'un nouvel univers (s) : voir config/worlds.ts. */
+const WORLD_FIRST_WAVE = WORLDS.firstWaveDelay;
 
 export class Director {
   nextWaveAt: number;
@@ -131,6 +153,10 @@ export class Director {
    */
   private advancePhase(now: number): void {
     if (!this.profile.events) return;
+    if (this.phase === 'normal' && now >= this.eventStart - EVENTS.announce && this.profile.eventFits && !this.profile.eventFits(this.eventStart, this.eventStart + eventDef(this.eventKind).duration + EVENTS.breath)) {
+      // Univers : l'événement ne tiendrait pas avant la faille — il n'a pas lieu dans cet univers
+      this.eventStart = Infinity;
+    }
     if (this.phase === 'normal' && now >= this.eventStart - EVENTS.announce) {
       this.phase = 'announce';
       this.pendingEvents.push({ stage: 'announce', kind: this.eventKind });
@@ -176,10 +202,28 @@ export class Director {
     this.respiteThisWave = 0;
   }
 
+  /** Voyage des univers ? */
+  get worlds(): boolean {
+    return this.profile.worlds === true;
+  }
+
+  /** Nouvel univers : tout a été effacé ; calendrier d'événements propre à l'univers, première vague retardée, rythme repart. */
+  enterWorld(now: number): void {
+    this.phase = 'normal';
+    this.eventEnd = Infinity;
+    this.breathEnd = Infinity;
+    this.eventStart = this.profile.worldEvents?.(now) ? now + this.eventRng.range(EVENTS.first.min, EVENTS.first.max) : Infinity;
+    this.nextWaveAt = now + WORLD_FIRST_WAVE;
+    const b = this.profile.breath?.(now);
+    this.nextBreathWave = this.waveCount + (b ? this.rng.int(b.every.min, b.every.max) : 6);
+    this.lastRespiteAt = -Infinity;
+    this.respiteThisWave = 0;
+  }
+
   /** Construit un motif donné à l'instant `now`, sans validation (outil de démonstration et de test). */
   buildPattern(id: PatternId, now: number, world: DirectorWorld): Hazard[] {
     const p = paramsFor(this.profile.difficulty(now), undefined, { warnScale: this.profile.warnScale ?? 1, speed: this.profile.speed(now) });
-    return PATTERNS[id].build({ now, rng: this.rng, p, playerAngle: world.playerAngle, playerDir: world.playerDir, speed: this.profile.speed });
+    return PATTERNS[id].build({ now, rng: this.rng, p, playerAngle: world.playerAngle, playerDir: world.playerDir, speed: this.profile.speed, rhythm: this.profile.rhythm });
   }
 
   /** Lance une vague si elle est due. Renvoie les menaces ajoutées (ou null). */
@@ -189,6 +233,8 @@ export class Director {
     if (now < this.nextWaveAt) return null;
     // Juste avant la traversée : le noyau s'ouvre, plus aucune vague
     if (this.profile.phased && now >= PHASES.phase2At - PHASES.quietBefore && now < PHASES.phase2At) return null;
+    // Univers : plus aucune vague à l'approche de la faille
+    if (this.profile.quiet?.(now)) return null;
     const until = this.profile.spawnUntil;
     if (until !== null && now >= until) {
       this.nextWaveAt = Infinity;
@@ -211,7 +257,7 @@ export class Director {
       return null;
     }
 
-    const ctx = { now, rng: this.rng, p, playerAngle: world.playerAngle, playerDir: world.playerDir, speed: this.profile.speed };
+    const ctx = { now, rng: this.rng, p, playerAngle: world.playerAngle, playerDir: world.playerDir, speed: this.profile.speed, rhythm: this.profile.rhythm };
     for (let attempt = 0; attempt < SAFETY.attempts; attempt++) {
       const id = this.idBuf[this.rng.weighted(this.weightBuf)];
       const def = PATTERNS[id];
@@ -229,6 +275,7 @@ export class Director {
         forcedTime: SAFETY.reactionTime,
         forcedDir: world.playerDir,
         speed: this.profile.speed,
+        field: world.field ?? undefined,
       });
       all.length = 0;
       if (!ok) continue;
@@ -251,11 +298,12 @@ export class Director {
     let contact = Infinity;
     for (const h of added) contact = Math.min(contact, firstOrbitContact(h));
     const roll = this.rhythmRng.next();
-    const accent = nextAccent(contact);
+    const rh = this.profile.rhythm;
+    const accent = rh ? rh.nextAccent(contact) : nextAccent(contact);
     let target = Infinity;
     if (accent - contact <= SURVIVAL.beat.accentWindow) target = accent;
     else if (roll < chance) {
-      const beat = nextBeat(contact);
+      const beat = rh ? rh.nextBeat(contact) : nextBeat(contact);
       if (beat - contact <= SURVIVAL.beat.maxShift) target = beat;
     }
     if (!Number.isFinite(target) || target <= contact) return;
@@ -291,6 +339,8 @@ export class Director {
     }
     if (count > p.maxHazards) return false;
     for (const h of added) if (h.kind !== 'projectile') { sectors++; coverage += arcCoverage(h); }
+    const custom = this.profile.caps?.(now);
+    if (custom) return sectors <= custom.maxSectors && coverage / TAU <= custom.maxCoverage;
     // Phase 2 : davantage de faisceaux simultanés (faisceaux alternés), couverture un peu plus large
     const late = this.profile.phased === true && now >= PHASES.phase2At;
     if (sectors > (late ? PHASE2_CAPS.maxSectors : SECTOR.maxSimultaneous)) return false;
