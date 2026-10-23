@@ -114,3 +114,14 @@ il y a une seule transition par frontière.
   inversions).
 - Univers 3 et 4 sans musique : fond procédural seulement, aucune réaction rythmique (voulu).
 - Les captures sont générées en navigateur sans GPU (fps réduits). Le rendu final est à vérifier sur un vrai téléphone.
+
+## Prévisualisation sur téléphone (hors site officiel)
+
+- `npm run build:preview` construit `dist-preview/` (mode « preview » de `vite.config.ts`). L'adresse du service y est **forcée à vide**, même si
+  `VITE_LEADERBOARD_URL` est défini. Conséquences : aucun classement, aucun compte, aucune récompense du service, aucun score envoyé. Le contrôle des
+  secrets (`check:bundle`) est lancé automatiquement.
+- Chemins relatifs : le dossier fonctionne sous n'importe quelle URL HTTPS.
+- Hébergement actuel : page Claude privée « Polar Rift Univers ». Elle est ouverte depuis le compte Claude du propriétaire ; sa sauvegarde locale
+  est séparée de celle du jeu officiel.
+- Pour jouer au voyage : Options → mode développeur (mot de passe habituel) → fenêtre DEV → « Voyage des univers ».
+- Le site GitHub Pages ne se publie que depuis `main` (`.github/workflows/pages.yml`) : pousser cette branche ne change rien au jeu officiel.

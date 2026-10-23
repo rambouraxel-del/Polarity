@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "build:beta": "tsc --noEmit && vite build --mode beta --outDir dist-beta",
     "build:native": "tsc --noEmit && vite build --mode native --outDir dist-native",
+    "build:preview": "tsc --noEmit && vite build --mode preview --outDir dist-preview && node scripts/check-bundle.mjs dist-preview",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

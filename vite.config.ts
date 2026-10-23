@@ -45,14 +45,23 @@ function checkLeaderboardUrl(mode: string): void {
   }
 }
 
+/**
+ * Mode « preview » (`npm run build:preview` → dist-preview/) : version de prévisualisation hébergée hors du site officiel. Le classement, les comptes et
+ * les récompenses du service y sont TOUJOURS désactivés (adresse du service forcée à vide, quelle que soit la variable d'environnement) : aucun score
+ * envoyé, aucun crédit réel. Chemins relatifs (`base: './'`) : la page fonctionne sous n'importe quelle URL HTTPS.
+ */
+const PREVIEW_MODE = 'preview';
+
 export default defineConfig(({ mode }) => {
-  checkLeaderboardUrl(mode);
+  const preview = mode === PREVIEW_MODE;
+  if (!preview) checkLeaderboardUrl(mode);
   return {
   plugins: [brand, versionFile],
   base: './',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-    __BUILD_ID__: JSON.stringify(BUILD_ID),
+    __BUILD_ID__: JSON.stringify(preview ? `${BUILD_ID}-preview` : BUILD_ID),
+    ...(preview ? { 'import.meta.env.VITE_LEADERBOARD_URL': JSON.stringify('') } : {}),
   },
   build: {
     target: 'es2020',
