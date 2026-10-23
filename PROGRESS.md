@@ -1,5 +1,15 @@
 # Suivi d'avancement
 
+## Voyage à travers les univers — refonte de la Survie (branche `feat/survie-univers`, NON fusionnée, rien publié ni déployé)
+- [x] Architecture : `config/worlds.ts` (4 univers × 120 s, transition 4 s hors temps), session (gel, une transition par frontière, pause/arrière-plan/reprise), mode isolé `RunConfig.worlds` = partie de test
+- [x] Univers 1 et 2 (motifs, décor, orbite, faille violette) ; univers 3 Mer nébulaire (nuages lents, ondes, bulles d'ombre, gaz/débris) ; univers 4 Monde des vents (hémisphères 120 %/50 %, inversions, tourbillons, rafales, braises) ; prolongement plafonné après 480 s
+- [x] Validateur d'évitement à vitesse variable (`hasEscapePathField`) ; collision continue des secteurs mouvants ; bot : 4 univers franchis sans mort
+- [x] Audio : univers 1 monté sur 120 s, univers 2 = phase 2, fondus de 4 s sur l'horloge audio, fonds procéduraux en 3 et 4 (aucun faux battement) ; audit des réactions fantômes (basse ≠ battement)
+- [x] Outils DEV (univers, saut avant la transition, transition immédiate, calques vitesse/hitbox/trajectoire, diagnostic audio/particules)
+- [x] Tests `tests/worlds.test.ts` (35), 945 tests au total, build, `check:bundle`, e2e ; docs `docs/UNIVERS.md`
+- [ ] Validation par le propriétaire (jeu sur téléphone, ressenti, mesure `npm run perf` de l'univers 3)
+- [ ] Avant toute activation classée : rejeu du service (`server/verify.ts`) + `WORLDS_BALANCE_VERSION` 5 + primes à valider — **service d'abord, avec accord explicite**
+
 ## Mise à jour du service « refonte cosmétique » (commit du service ; déploiement à lancer sur la machine OVH)
 - `server/accounts.ts` : remboursement idempotent des anciens skins (dépense exacte, pack Néon au prorata, table historique `REMOVED_SKINS` sinon ; rien pour les skins gratuits / par succès ; aucun solde remis à zéro) ; catalogue = celui du jeu (dix skins, mêmes prix).
 - `deploy/mise-a-jour-service.sh` (sauvegarde sqlite + archive du volume + .env, mise à jour, santé), `deploy/verifier-service.mjs` + `deploy/credit-test-prisms.mjs` (vérification manuelle).

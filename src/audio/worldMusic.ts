@@ -149,14 +149,17 @@ export class WorldMusic {
     out.playing = false;
     const ctx = this.host.context();
     const d = this.current;
-    if (!ctx || !d || d.pad || this.state === 'idle') return out;
+    if (!ctx || this.state === 'idle') return out;
+    // En pause, la platine est fermée : la position mémorisée fait foi (reprise au même endroit)
+    const paused = this.state === 'paused';
+    if (!paused && (!d || d.pad)) return out;
     const ac = ctx as AudioContext;
     const st = ac.state as string | undefined;
     const heard = ctx.currentTime - (ac.outputLatency || ac.baseLatency || 0);
-    const pos = this.state === 'paused' ? this.pausedPos : heard - d.t0;
+    const pos = paused ? this.pausedPos : heard - (d as Deck).t0;
     if (pos < 0) return out;
-    out.playing = this.state === 'playing' && (st === undefined || st === 'running');
-    const track = WORLD_MUSIC[d.world]?.track;
+    out.playing = !paused && (st === undefined || st === 'running');
+    const track = WORLD_MUSIC[paused ? this.world : (d as Deck).world]?.track;
     if (track === 'phase1') {
       if (pos < MUSIC.introDuration) {
         out.track = 'intro';
