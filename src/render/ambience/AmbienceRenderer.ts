@@ -11,6 +11,8 @@ import { Shards } from './Shards';
 import { StarField } from './StarField';
 import { AMB_TEX, ensureAmbienceTextures } from './textures';
 import { Tunnel } from './Tunnel';
+import { WorldDecor, worldColor } from './WorldDecor';
+import { WORLDS } from '../../config/worlds';
 import { clamp01, type AmbienceView } from './view';
 
 const smooth = (x: number): number => {
@@ -37,6 +39,8 @@ export class AmbienceRenderer {
   private readonly shards: Shards;
   private readonly hole: Hole;
   private readonly bolts: Bolts;
+  /** Décors des univers 3 et 4 (voyage des univers). */
+  private readonly decor: WorldDecor;
   private readonly veil: Phaser.GameObjects.Image;
   private readonly vignette: Phaser.GameObjects.Image;
   private visible = false;
@@ -58,6 +62,7 @@ export class AmbienceRenderer {
     // Faille : au-dessus du voile (visible au centre), sous l'orbite, les menaces et le vaisseau
     this.hole = new Hole(scene, 0.65);
     this.bolts = new Bolts(scene, 0.69);
+    this.decor = new WorldDecor(scene, 0.12, 0.655);
   }
 
   layout(cx: number, cy: number, scale: number, width: number, height: number, dpr: number): void {
@@ -88,6 +93,7 @@ export class AmbienceRenderer {
     this.shards.setVisible(v);
     this.hole.setVisible(v);
     this.bolts.setVisible(v);
+    this.decor.setVisible(v);
     this.veil.setVisible(v);
     this.vignette.setVisible(v);
     if (!v) {
@@ -122,13 +128,25 @@ export class AmbienceRenderer {
     const tr = AMBIENCE.transit;
     const g = s.transit > 0 ? smooth(s.transit / tr.engulfBy) : 0;
     // Le tunnel apparaît pendant l'engloutissement (sous le cœur sombre de la faille), puis occupe tout l'écran
-    const tunnelAmount = s.phase === 2 ? 1 : s.transit > 0 ? smooth((s.transit - tr.tunnelFrom) / (tr.tunnelTo - tr.tunnelFrom)) : 0;
+    let tunnelAmount = s.phase === 2 ? 1 : s.transit > 0 ? smooth((s.transit - tr.tunnelFrom) / (tr.tunnelTo - tr.tunnelFrom)) : 0;
     // Rubans : quelques courants à peine visibles en phase 1 (un peu plus présents avec le stade), pleins en phase 2
-    const ribbonAmount = clamp01((0.55 + 0.2 * (s.stage / 4)) * (1 + 1.4 * g) * (1 - s.look) + s.look);
+    let ribbonAmount = clamp01((0.55 + 0.2 * (s.stage / 4)) * (1 + 1.4 * g) * (1 - s.look) + s.look);
+    let tunnelTint = 0;
+    let tunnelMix = 0;
+    if (s.world > 0) {
+      // Univers : le tunnel est le décor de l'Entre-deux et le couloir de TOUTE traversée (teinté vers l'univers de destination)
+      const tl = WORLDS.timeline;
+      const bell = s.transit > 0 ? smooth((s.transit - tl.open) / (tl.pull - tl.open)) * (1 - smooth((s.transit - tl.cross) / (1 - tl.cross))) : 0;
+      tunnelAmount = Math.max(s.amt[1], bell);
+      ribbonAmount *= Math.min(1, s.amt[0] + s.amt[1]);
+      tunnelTint = worldColor(s, 'primary');
+      tunnelMix = s.variant === 'rift' || s.world === 2 ? 0 : 0.75;
+    }
 
     this.rift.draw(s, v);
     this.stars.draw(s, v, dt);
-    this.tunnel.draw(s, v, dt, tunnelAmount);
+    this.tunnel.draw(s, v, dt, tunnelAmount, tunnelTint, tunnelMix);
+    this.decor.draw(s, v, dt);
     this.ribbons.draw(s, v, dt, ribbonAmount, Math.pow(g, 1.6) * (1 - s.look));
     this.particles.draw(s, v, dt);
     this.effects.draw(s, v, dt);

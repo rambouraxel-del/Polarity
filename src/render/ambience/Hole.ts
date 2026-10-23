@@ -80,7 +80,9 @@ export class Hole {
     // Ouverture : sphère → faille (core) puis, pendant la traversée, enveloppe tout l'écran (g)
     const core = s.core;
     const g = s.transit > 0 ? smooth(s.transit / tr.engulfBy) : 0;
-    const open = 1 - s.look; // le cœur sombre s'efface sous le flash
+    // Univers : la faille se forme à la fin de chaque univers et se referme à l'arrivée (couleurs de la transition)
+    const open = s.world > 0 ? s.holeOpen : 1 - s.look; // le cœur sombre s'efface sous le flash
+    const worlds = s.world > 0;
     const cover = (v.halfDiag / v.scale) * 2.1;
     // Ouverture rapide au début (la faille est bien visible dès 4 min 45) puis qui s'affine
     const base0 = cfg.radiusMin + (cfg.radiusMax - cfg.radiusMin) * Math.pow(core, 0.5);
@@ -98,13 +100,15 @@ export class Hole {
 
     // Lueur de fond et sphère centrale / point de fuite
     const heat = clamp01(s.p.heat);
-    const tint = lerpColor(AMBIENCE_COLORS.azure, AMBIENCE_COLORS.violet, heat * 0.6 + 0.25 * s.drop);
+    const tint = worlds ? lerpColor(s.riftFrom, s.riftTo, 0.4 + 0.4 * g) : lerpColor(AMBIENCE_COLORS.azure, AMBIENCE_COLORS.violet, heat * 0.6 + 0.25 * s.drop);
     const glowBoost = 0.8 + 0.45 * s.bass + 0.3 * s.beat + 0.4 * s.drop;
     const haloSize = Math.max(40 * v.dpr, this.radius * sx * 5.4 * v.scale);
     const haloA = Math.min(cfg.alphaMax, (0.15 + 0.55 * Math.pow(core, 0.5)) * glowBoost * open * (1 - 0.85 * ge) * user);
     this.halo.setPosition(v.cx, v.cy).setTint(tint).setAlpha(haloA).setDisplaySize(haloSize, haloSize * (1 / (sx * sx)) * 1.25).setRotation(rot);
     const orbSize = (60 + 90 * core) * v.scale * (1 + 0.45 * s.beat + 0.2 * s.drop) * (1 + 0.5 * g);
-    const orbA = Math.min(1, (0.2 + 0.55 * (1 - core * 0.7)) * user * (0.85 + 0.3 * s.bass) * (1 - 0.75 * g) + 0.1 * s.look * user);
+    let orbA = Math.min(1, (0.2 + 0.55 * (1 - core * 0.7)) * user * (0.85 + 0.3 * s.bass) * (1 - 0.75 * g) + 0.1 * s.look * user);
+    // Univers 3 et 4 : leurs noyaux propres (sphère gazeuse, œil) remplacent la sphère d'origine, sauf quand la faille se forme
+    if (worlds) orbA *= Math.min(1, s.amt[0] + s.amt[1] + core);
     this.orb.setPosition(v.cx, v.cy).setTint(lerpColor(lerpColor(AMBIENCE_COLORS.ice, AMBIENCE_COLORS.azure, Math.max(s.look, g) * 0.7), AMBIENCE_COLORS.white, s.beat * 0.5)).setAlpha(Math.min(cfg.alphaMax + 0.25, orbA * (s.look > 0.5 ? 0.45 : 1))).setDisplaySize(orbSize, orbSize);
     if (open <= 0.01 || user <= 0) return;
 
@@ -141,8 +145,8 @@ export class Hole {
     // Liseré lumineux : deux passes douces d'un seul tenant, une passe fine dont l'éclat circule le long du contour
     const strength = Math.min(1, 0.25 + 0.9 * core + 0.4 * g) * open * user;
     const widthK = (0.45 + 0.55 * core) * (1 + 2.5 * ge) * (1 + 0.5 * s.beat) * v.scale;
-    const c1 = AMBIENCE_COLORS.violet;
-    const c2 = lerpColor(AMBIENCE_COLORS.azure, AMBIENCE_COLORS.violet, heat * 0.6 + 0.3 * s.drop);
+    const c1 = worlds ? s.riftTo : AMBIENCE_COLORS.violet;
+    const c2 = worlds ? lerpColor(s.riftFrom, s.riftTo, 0.5 + 0.3 * s.drop) : lerpColor(AMBIENCE_COLORS.azure, AMBIENCE_COLORS.violet, heat * 0.6 + 0.3 * s.drop);
     const c3 = lerpColor(AMBIENCE_COLORS.ice, AMBIENCE_COLORS.white, s.beat * 0.6 + 0.2 * s.drop);
     const pulse = 0.78 + 0.22 * Math.min(1, s.beat + 0.6 * s.bass + s.drop * 0.5);
     for (let p = 0; p < 2; p++) {

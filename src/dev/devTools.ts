@@ -7,6 +7,7 @@ import { formatTime } from '../ui/format';
 import { escapeHtml } from '../ui/format';
 import type { SaveData } from '../save/save';
 import { hasRecords } from './records';
+import { WORLD_LIST, WORLDS, nextBoundary, worldStart } from '../config/worlds';
 
 /** Phrase exigée avant toute remise à zéro (interface et service). */
 export const RESET_PHRASE = 'REMETTRE À ZÉRO';
@@ -28,6 +29,12 @@ export interface DevHost {
   session(): GameSession | null;
   /** Lance (ou relance) une partie de Survie de test. */
   restartTest(): void;
+  /** Voyage des univers (partie de test) : avec ou sans pouvoirs (charges de test). */
+  startWorlds(bonus: boolean): void;
+  /** Affichage de contrôle des univers : secteurs de vitesse, hitboxes, trajectoires prévues. */
+  worldOverlay(on: boolean): void;
+  /** Diagnostic audio et ambiance (lecture seule). */
+  diag(): { track: string; pos: number; beat: number; bass: number; intensity: number; drop: number; build: number; nextBeat: number; reacting: boolean; particles: number };
   persist(): void;
   /** Effet décoratif de l'ambiance. */
   trigger(kind: 'bolt' | 'wave' | 'ring' | 'fissure'): void;
@@ -68,6 +75,8 @@ export class DevTools {
   private worst = 0;
   private samples: number[] = [];
   private lastRefresh = 0;
+  private overlay = false;
+  private worldsBonus = false;
 
   constructor(
     private readonly host: DevHost,
@@ -130,8 +139,17 @@ export class DevTools {
 
   private phaseLabel(s: GameSession | null): string {
     if (!s) return '—';
+    if (s.worlds) return s.transitLeft > 0 ? `transition ${s.sim.world} → ${s.transitTo}` : `univers ${s.sim.world} · ${WORLD_LIST[s.sim.world - 1]?.name ?? ''}`;
     if (s.transitLeft > 0) return 'traversée';
     return s.config.mode === 'survival' ? `phase ${s.sim.phase}` : s.config.mode;
+  }
+
+  private audioLine(): string {
+    const d = this.host.diag();
+    const s = this.s();
+    const speed = s ? `×${s.sim.speedFactorNow.toFixed(2)}` : '—';
+    return `${escapeHtml(d.track)} ${d.pos.toFixed(2)} s · prochain battement ${Number.isFinite(d.nextBeat) ? `${d.nextBeat.toFixed(2)} s` : '—'} · ${d.reacting ? 'réaction réelle' : 'aucune réaction (musique absente ou muette)'}<br>
+      battement ${d.beat.toFixed(2)} · basses ${d.bass.toFixed(2)} · intensité ${d.intensity.toFixed(2)} · montée ${d.build.toFixed(2)} · passage fort ${d.drop.toFixed(2)}<br>vitesse réelle du vaisseau ${speed} · particules ${d.particles}`;
   }
 
   private live(): string {
@@ -143,7 +161,8 @@ export class DevTools {
       <dt>Temps actif</dt><dd id="dv-time">${t}</dd>
       <dt>Vitesse</dt><dd id="dv-rate">${s ? `×${s.testRate}${s.testFrozen ? ' · gelé' : ''}` : '—'}</dd>
       <dt>Immortel</dt><dd id="dv-inv">${s ? (s.sim.invincible ? 'oui' : 'non') : '—'}</dd>
-      <dt>Qualité</dt><dd id="dv-q">${q.current}${q.forced ? ' (forcée)' : ' (auto)'}</dd></dl>`;
+      <dt>Qualité</dt><dd id="dv-q">${q.current}${q.forced ? ' (forcée)' : ' (auto)'}</dd>
+      <dt>Audio</dt><dd id="dv-audio">${this.audioLine()}</dd></dl>`;
   }
 
   private refreshLive(): void {
@@ -157,6 +176,7 @@ export class DevTools {
     set('dv-time', s ? formatTime(s.sim.time) : '—');
     set('dv-rate', s ? `×${s.testRate}${s.testFrozen ? ' · gelé' : ''}` : '—');
     set('dv-inv', s ? (s.sim.invincible ? 'oui' : 'non') : '—');
+    set('dv-audio', this.audioLine());
     if (this.tab === 'board') this.refreshBoard();
   }
 
@@ -195,6 +215,13 @@ export class DevTools {
       <h4>Partie</h4>
       <div class="dev-row"><button type="button" class="dev-btn-x" data-dev="invincible"${dis}>Immortalité : ${s?.sim.invincible ? 'activée' : 'désactivée'}</button>
         <button type="button" class="dev-btn-x" data-dev="restart">Relancer une partie de test</button></div>
+      <h4>Voyage des univers <small>(refonte en validation · toujours une partie de test)</small></h4>
+      <div class="dev-row"><button type="button" class="dev-btn-x" data-dev="worlds">Lancer le voyage</button>
+        <button type="button" class="dev-chip${this.worldsBonus ? ' dev-chip--on' : ''}" data-dev="worlds-bonus">Pouvoirs : ${this.worldsBonus ? 'oui' : 'non'}</button>
+        <button type="button" class="dev-chip${this.overlay ? ' dev-chip--on' : ''}" data-dev="overlay">Contrôle : ${this.overlay ? 'affiché' : 'masqué'}</button></div>
+      <div class="dev-row"><span class="dev-lab">Univers</span>${WORLD_LIST.map((w) => `<button type="button" class="dev-btn-x" data-dev="world" data-w="${w.index}" title="${escapeHtml(w.name)}">${w.index}</button>`).join('')}
+        <button type="button" class="dev-btn-x" data-dev="before-transit"${s?.worlds ? '' : ' disabled'}>Avant la transition</button>
+        <button type="button" class="dev-btn-x" data-dev="transit-now"${s?.worlds ? '' : ' disabled'}>Transition maintenant</button></div>
       <h4>Temps</h4>
       <div class="dev-row"><button type="button" class="dev-btn-x" data-dev="freeze"${dis}>${s?.testFrozen ? 'Reprendre' : 'Pause'}</button>
         <button type="button" class="dev-btn-x" data-dev="advance" data-s="0.1"${dis}>+0,1 s</button><button type="button" class="dev-btn-x" data-dev="advance" data-s="1"${dis}>+1 s</button>
@@ -269,6 +296,12 @@ export class DevTools {
       case 'disable': this.host.disable(); return;
       case 'scope': this.scope = el.getAttribute('value') as ResetScope; this.resetMessage = null; this.render(); return;
       case 'restart': this.message = ''; this.host.restartTest(); this.render(); return;
+      case 'worlds': this.message = 'Voyage des univers lancé (partie de test : aucun record, gain ni envoi).'; this.host.startWorlds(this.worldsBonus); this.render(); return;
+      case 'worlds-bonus': this.worldsBonus = !this.worldsBonus; this.render(); return;
+      case 'overlay': this.overlay = !this.overlay; this.host.worldOverlay(this.overlay); this.render(); return;
+      case 'world': this.gotoWorld(Number(el.dataset.w)); break;
+      case 'before-transit': if (s?.worlds) this.skipWorld(s, nextBoundary(s.sim.time) - 2.5); break;
+      case 'transit-now': if (s?.worlds) this.skipWorld(s, nextBoundary(s.sim.time)); break;
       case 'invincible': if (s) s.setTestInvincible(!s.sim.invincible); break;
       case 'freeze': if (s) s.setTestFrozen(!s.testFrozen); break;
       case 'rate': if (s) s.setTestRate(Number(el.dataset.rate)); break;
@@ -290,6 +323,28 @@ export class DevTools {
       default: return;
     }
     this.render();
+  }
+
+  /** Univers : saut au début de l'univers `w` (nouvelle partie si besoin) ; les transitions intermédiaires sont traversées sans rendu. */
+  private gotoWorld(w: number): void {
+    let s = this.s();
+    if (!s || !s.worlds || s.sim.time > worldStart(w - 1)) {
+      this.host.startWorlds(this.worldsBonus);
+      s = this.s();
+    }
+    if (!s) return;
+    if (w > 1) this.skipWorld(s, worldStart(w - 1) + 0.05);
+    this.message = `Univers ${w} — ${WORLD_LIST[w - 1]?.name ?? ''} (partie de test).`;
+  }
+
+  private skipWorld(s: GameSession, target: number): void {
+    if (!Number.isFinite(target) || target <= s.sim.time) {
+      this.message = 'Aucune transition à venir : le dernier univers se prolonge.';
+      return;
+    }
+    s.markTest();
+    s.skipTo(target);
+    this.message = `Saut à ${formatTime(s.sim.time)} (transition de ${WORLDS.transition} s traversée sans rendu ni son).`;
   }
 
   /** Saut dans le temps : repart d'une nouvelle partie de test quand la cible est dans le passé. */

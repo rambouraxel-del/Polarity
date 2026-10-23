@@ -41,3 +41,18 @@ export function orbitLook(phase: number): OrbitLook {
   for (const key of keys) if (key <= phase) k = key;
   return ORBIT.phases[k];
 }
+
+/**
+ * Voyage des univers : apparence de l'orbite par UNIVERS (fondue pendant la traversée). Univers 1 et 2 = phases 1 et 2 ; 3 et 4 : couleurs propres,
+ * toujours à plus de 30° de teinte des couleurs des dangers (corail, magenta).
+ */
+export const WORLD_ORBITS: Readonly<Record<number, OrbitLook>> = {
+  1: ORBIT.phases[1],
+  2: ORBIT.phases[2],
+  3: { color: 0x8fe7ff, lineAlpha: 0.6, lineWidth: 1.7, glowAlpha: 0.42, breathe: 0.14, breatheHz: 0.18, arcs: 0, arcColor: 0xd8fff8 },
+  4: { color: 0xffd9a0, lineAlpha: 0.62, lineWidth: 1.7, glowAlpha: 0.36, breathe: 0.1, breatheHz: 0.4, arcs: 0, arcColor: 0xfff0d0 },
+};
+
+export function worldOrbitLook(world: number): OrbitLook {
+  return WORLD_ORBITS[world] ?? WORLD_ORBITS[1];
+}

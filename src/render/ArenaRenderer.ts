@@ -8,10 +8,11 @@ import type { Simulation } from '../sim/simulation';
 import type { GameSession } from '../game/session';
 import { SHARDS } from '../config/economy';
 import { trailById } from '../config/trails';
-import { laserAngle, pathX, pathY, projectileX, projectileY, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
-import { PHASES } from '../config/phases';
+import { laserAngle, pathX, pathY, projectileX, projectileY, sectorCenterAt, sectorHalfAt, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
+import { CLOUDS, CURRENTS, WORLDS } from '../config/worlds';
+import { WorldsField } from '../sim/field';
 import { AMBIENCE } from '../config/ambience';
-import { ORBIT, orbitLook } from '../config/orbit';
+import { ORBIT, orbitLook, worldOrbitLook } from '../config/orbit';
 import type { Skin } from '../progression/skins';
 import { shipTextureFor } from './shipTextures';
 import { hexNum, THEME } from '../ui/theme';
@@ -93,6 +94,21 @@ function hash01(n: number, salt: number): number {
   return (x >>> 0) / 4294967296;
 }
 
+function smoothstep01(x: number): number {
+  const t = x < 0 ? 0 : x > 1 ? 1 : x;
+  return t * t * (3 - 2 * t);
+}
+
+type WorldLook = 'rock' | 'orb' | 'gas' | 'debris' | 'ember';
+
+/** Apparence d'un projectile dans le voyage des univers (décoratif : la hitbox ne dépend que de `scale`). */
+function hazardLook(h: ProjectileHazard, world: number): WorldLook {
+  if (world === 2) return 'orb';
+  if (world === 3) return (h.scale ?? 1) >= 1.5 ? 'gas' : 'debris';
+  if (world >= 4) return 'ember';
+  return 'rock';
+}
+
 interface Popup {
   text: Phaser.GameObjects.Text;
   life: number;
@@ -148,12 +164,24 @@ export class ArenaRenderer {
   private readonly shardSprite: Phaser.GameObjects.Image;
   /** Traînée équipée (identifiant) : change la couleur de la traînée lumineuse, jamais la hitbox. */
   trailId = 'auto';
+  /** Voyage des univers : affichage de contrôle (champ de vitesse, hitboxes, trajectoires) demandé par la fenêtre DEV. */
+  worldDebug = false;
+  /** Voyage des univers : la partie affichée en est une (apparences des dangers, orbite, champs). */
+  private worlds = false;
+  /** Couleur du voile de la transition (blanc ; brume turquoise ; braise). */
+  private flashColor = '#ffffff';
   /** Halo de l'orbite : texture en dégradé radial (pas de traits translucides qui se recouvrent). */
   private readonly orbitGlow: Phaser.GameObjects.Image;
   private readonly asteroidPool: AsteroidSlot[] = [];
   private readonly scene: Phaser.Scene;
   private readonly rings: Ring[] = [];
   private emitAcc = 0;
+  /** Aspiration visuelle du vaisseau pendant une transition d'univers (0–1). */
+  private aspire = 0;
+  private aspireScaled = false;
+  private readonly cloudBuf: { center: number; half: number; presence: number }[] = [];
+  private readonly waveBuf: { angle: number; warn: number; active: boolean; sign: 1 | -1 }[] = [];
+  private readonly vortexBuf: { angle: number; spin: 1 | -1; warn: number; presence: number }[] = [];
   /** Divisions d'astéroïdes déjà animées (décoratif, jamais lu par la simulation). */
   private readonly splitDone = new Set<number>();
   /** Affiche les hitboxes et silhouettes (URL ?debug). */
@@ -350,7 +378,9 @@ export class ArenaRenderer {
 
     // Caméra d'abord (la traversée l'éloigne) : l'ambiance compense le zoom pour rester plein écran
     this.clockNow = clock;
-    const transit = session.transitLeft > 0 ? 1 - session.transitLeft / PHASES.transit : 0;
+    const transit = session.transitProgress;
+    this.worlds = session.worlds;
+    this.flashColor = !this.worlds || !this.ambience?.variant || this.ambience.variant === 'rift' ? '#ffffff' : this.ambience.variant === 'mist' ? '#c8fff6' : '#ffe2b8';
     this.applyCamera(transit);
 
     // Ambiance (Survie, défi quotidien) : figée en pause ; ailleurs, décor fixe inchangé
@@ -370,15 +400,20 @@ export class ArenaRenderer {
     const emitting = session.phase === 'running';
     this.emitAcc = Math.min(0.1, this.emitAcc + (emitting ? realDt : 0));
 
-    this.drawOrbit(realDt);
-    this.drawBeacons(sim ? sim.beacons.active : null, sim ? sim.beacons.angles : null, skin, clock);
+    // Univers : pendant la transition, l'orbite et les balises s'effacent à l'aspiration et se reconstituent à l'émergence
+    const tl = WORLDS.timeline;
+    const rebuild = this.worlds && transit > 0 ? Math.max(1 - smoothstep01((transit - tl.open) / (tl.pull - tl.open)), smoothstep01((transit - tl.cross) / (1 - tl.cross))) : 1;
+    this.drawOrbit(realDt, rebuild);
+    if (this.worlds && sim.field instanceof WorldsField && rebuild > 0.02) this.drawField(sim.field, sim.time, clock, rebuild);
+    if (rebuild > 0.02) this.drawBeacons(sim ? sim.beacons.active : null, sim ? sim.beacons.angles : null, skin, clock);
     this.drawShard(sim ? sim.shards?.active ?? null : null, t);
     const camp = session.campaign;
     this.drawMissionObjects(camp, t);
 
     let asteroids = 0;
     // Traversée : à partir du flash, les menaces de la phase 1 ont été aspirées (la simulation les efface au pas suivant la traversée)
-    const swallowed = transit > AMBIENCE_FLASH_FROM;
+    // Univers : les dangers de l'ancien univers disparaissent dès l'aspiration (la simulation les efface à l'entrée du nouvel univers)
+    const swallowed = this.worlds ? transit > tl.open : transit > AMBIENCE_FLASH_FROM;
     if (sim && !swallowed) {
       for (const h of sim.hazards) {
         if (h.kind === 'sector') this.drawSector(h, t, clock);
@@ -388,7 +423,11 @@ export class ArenaRenderer {
         if (h.kind !== 'projectile') continue;
         this.drawProjectileWarning(h, t, clock);
         if (h.split && t >= h.split.t && !this.splitDone.has(h.id)) this.splitBurst(h.id, h.split.x, h.split.y);
-        if (t >= h.launch && t <= h.end) this.drawAsteroid(h, t, asteroids++, emitting, realDt);
+        if (t >= h.launch && t <= h.end) {
+          const look = this.worlds ? hazardLook(h, sim.world) : 'rock';
+          if (look === 'rock') this.drawAsteroid(h, t, asteroids++, emitting, realDt);
+          else this.drawWorldProjectile(h, t, look, clock);
+        }
       }
     }
     for (let i = asteroids; i < this.asteroidPool.length; i++) {
@@ -398,12 +437,14 @@ export class ArenaRenderer {
 
     const alive = !sim || sim.state !== 'dead';
     this.updateTrail(angle, realDt);
+    // Univers : aspiration VISUELLE du vaisseau vers le centre pendant la transition (ses coordonnées de jeu ne changent pas), retour à l'émergence
+    this.aspire = this.worlds && transit > 0 ? Math.min(smoothstep01((transit - tl.open) / (tl.pull - tl.open)), 1 - smoothstep01((transit - tl.cross) / (1 - tl.cross))) : 0;
     if (alive) {
-      this.drawTrail(skin);
-      if (emitting && sim) this.drawSpeedLines(sim, angle, dir, clock);
+      if (this.aspire < 0.05) this.drawTrail(skin);
+      if (emitting && sim && this.aspire === 0) this.drawSpeedLines(sim, angle, dir, clock);
       this.drawShip(angle, dir, skin, clock, emitting);
       if (camp) this.drawShield(camp, angle, t, clock);
-      else if (sim) this.drawPowers(sim, angle, clock);
+      else if (sim && this.aspire === 0) this.drawPowers(sim, angle, clock);
     } else {
       this.shipSprite.setVisible(false);
       this.shipRim.setVisible(false);
@@ -418,6 +459,14 @@ export class ArenaRenderer {
     }
     this.flash.setFillStyle(0xffffff, this.flashAlpha);
     if (this.debug) this.drawDebug(sim, angle);
+    if (this.worlds && this.worldDebug && sim.field instanceof WorldsField) this.drawWorldDebug(sim, sim.field, angle, t);
+  }
+
+  /** Nombre de particules décoratives actives (diagnostic de la fenêtre DEV). */
+  get particleCount(): number {
+    let n = 0;
+    for (let k = 0; k < MAX_PARTICLES; k++) if (this.plife[k] > 0) n++;
+    return n;
   }
 
   /**
@@ -475,6 +524,7 @@ export class ArenaRenderer {
       parent.appendChild(el);
       this.flashEl = el;
     }
+    if (this.flashEl.style.background !== this.flashColor) this.flashEl.style.background = this.flashColor;
     this.flashEl.style.opacity = String(Math.max(0, Math.min(1, alpha)));
   }
 
@@ -483,7 +533,7 @@ export class ArenaRenderer {
    * image réutilisée, teinte et opacité mises à jour à chaque image), trait fin, et en phase 2 de petits arcs électriques le long du rail.
    * Le passage de phase est fondu (`orbitMix`) : rien n'est recréé.
    */
-  private drawOrbit(realDt: number): void {
+  private drawOrbit(realDt: number, fade = 1): void {
     const g = this.g;
     const x = this.sx(0);
     const y = this.sy(0);
@@ -493,20 +543,24 @@ export class ArenaRenderer {
     const target = phase >= 2 ? 1 : 0;
     const step = realDt / ORBIT.blendSeconds;
     this.orbitMix = target > this.orbitMix ? Math.min(target, this.orbitMix + step) : Math.max(target, this.orbitMix - step);
-    const a = orbitLook(1);
-    const b = orbitLook(2);
-    const m = this.orbitMix;
+    const amb = this.ambience;
+    const inWorlds = this.worlds && !!amb && amb.world > 0;
+    // Univers : apparence de l'univers affiché, fondue vers la destination pendant la traversée
+    const a = inWorlds ? worldOrbitLook(amb.world) : orbitLook(1);
+    const b = inWorlds ? worldOrbitLook(amb.worldTo) : orbitLook(2);
+    const m = inWorlds ? amb.worldMix : this.orbitMix;
     const mix = (p: number, q: number): number => p + (q - p) * m;
     const color = lerpColor(a.color, b.color, m);
     const breathe = this.reducedEffects ? 0 : mix(a.breathe, b.breathe);
     const hz = mix(a.breatheHz, b.breatheHz);
     const k = 1 + breathe * Math.sin(TAU * hz * this.clockNow);
     const glowPx = 2 * r * ORBIT_GLOW_SPAN;
-    this.orbitGlow.setVisible(true).setPosition(x, y).setDisplaySize(glowPx, glowPx).setTint(color).setAlpha(Math.min(1, mix(a.glowAlpha, b.glowAlpha) * k));
-    g.lineStyle(Math.max(1 * this.dpr, mix(a.lineWidth, b.lineWidth) * s), color, Math.min(1, mix(a.lineAlpha, b.lineAlpha) * k));
+    this.orbitGlow.setVisible(true).setPosition(x, y).setDisplaySize(glowPx, glowPx).setTint(color).setAlpha(Math.min(1, mix(a.glowAlpha, b.glowAlpha) * k * fade));
+    g.lineStyle(Math.max(1 * this.dpr, mix(a.lineWidth, b.lineWidth) * s), color, Math.min(1, mix(a.lineAlpha, b.lineAlpha) * k * fade));
     g.strokeCircle(x, y, r);
+    if (fade < 0.98) return;
     // Phase 2 : l'orbite reste un cercle parfait mais devient électrique (arcs fins qui crépitent le long du rail, plus vifs sur les battements)
-    const arcs = mix(a.arcs, b.arcs);
+    const arcs = inWorlds ? mix(a.arcs, b.arcs) : mix(a.arcs, b.arcs);
     if (arcs > 0.02 && !this.reducedEffects) {
       const beat = this.ambience?.beat ?? 0;
       const N = 48;
@@ -729,8 +783,12 @@ export class ArenaRenderer {
   private drawShip(angle: number, dir: 1 | -1, skin: Skin, clock: number, emitting: boolean): void {
     const c = Math.cos(angle);
     const si = Math.sin(angle);
-    const px = R * c;
-    const py = R * si;
+    // Aspiration (transition d'univers, rendu seulement) : le vaisseau glisse en spirale vers le centre puis revient à sa position de jeu
+    const k = this.aspire;
+    const swirl = k * 1.4;
+    const rad = R * (1 - 0.92 * k);
+    const px = rad * Math.cos(angle + swirl);
+    const py = rad * Math.sin(angle + swirl);
     // Direction du déplacement : le vaisseau pointe toujours vers l'avant, immédiatement après une inversion
     const { x: tx, y: ty } = heading(angle, dir);
     const sprite = this.shipSprite;
@@ -745,8 +803,14 @@ export class ArenaRenderer {
     sprite.setVisible(true).setAlpha(1);
     sprite.setPosition(this.sx(px), this.sy(py));
     // La texture pointe vers le haut : rotation instantanée, sans interpolation
-    sprite.setRotation(spriteRotation(tx, ty));
-    this.shipRim.setVisible(true).setPosition(sprite.x, sprite.y).setRotation(sprite.rotation);
+    sprite.setRotation(spriteRotation(tx, ty) + k * 6);
+    if (k > 0 || this.aspireScaled) {
+      this.aspireScaled = k > 0;
+      this.sizeShip();
+      if (k > 0) sprite.setDisplaySize(sprite.displayWidth * (1 - 0.6 * k), sprite.displayHeight * (1 - 0.6 * k));
+    }
+    this.shipRim.setVisible(k < 0.5).setPosition(sprite.x, sprite.y).setRotation(sprite.rotation);
+    if (k > 0.02) return; // réacteur et étincelles : seulement en vol normal
 
     // Réacteur : derrière le vaisseau, à l'opposé du déplacement. Purement décoratif.
     const L = shipRadius();
@@ -1100,8 +1164,27 @@ export class ArenaRenderer {
     if (t < h.warnStart) return;
     const g = this.g;
     const s = this.scale;
-    const a0 = h.center - h.half;
-    const a1 = h.center + h.half;
+    // Arc mouvant (univers) : centre qui dérive et largeur qui respire ; l'annonce montre aussi la largeur finale et le sens de dérive
+    const center = sectorCenterAt(h, t);
+    const half = sectorHalfAt(h, t);
+    const a0 = center - half;
+    const a1 = center + half;
+    if (h.morph && t < h.activeStart) {
+      const fin = sectorCenterAt(h, h.end);
+      g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), COLORS.sector, 0.45);
+      this.arcPath(R + 34, fin - h.morph.halfTo, fin + h.morph.halfTo);
+      const sign = h.morph.drift >= 0 ? 1 : -1;
+      for (let i = 0; i < 3; i++) {
+        const a = center + sign * (half + 0.08 + i * 0.09);
+        const tx = -Math.sin(a) * sign;
+        const ty = Math.cos(a) * sign;
+        const [px, py] = [this.sx(R * Math.cos(a)), this.sy(R * Math.sin(a))];
+        const c = 8 * s;
+        g.lineStyle(Math.max(2 * this.dpr, 3 * s), COLORS.sector, 0.9 - 0.25 * i);
+        g.lineBetween(px - tx * c + Math.cos(a) * c, py - ty * c + Math.sin(a) * c, px + tx * c * 0.4, py + ty * c * 0.4);
+        g.lineBetween(px - tx * c - Math.cos(a) * c, py - ty * c - Math.sin(a) * c, px + tx * c * 0.4, py + ty * c * 0.4);
+      }
+    }
     const color = COLORS.sector;
     if (t < h.activeStart) {
       // Annonce : contours pointillés de part et d'autre de l'orbite + jauge qui se remplit
@@ -1465,6 +1548,252 @@ export class ArenaRenderer {
         g.fillCircle(this.sx(this.flareX), this.sy(this.flareY), (14 + 20 * k) * s);
       }
     }
+  }
+
+  // ————————————————————————————————————————————— voyage des univers
+
+  /**
+   * Projectiles propres aux univers. Le contour CORAIL (couleur des dangers) est toujours à la taille de la hitbox : il porte l'information,
+   * les lueurs autour sont décoratives. Orbes de faille (violet), masses gazeuses (corps pâle, lobes), débris (cristaux), braises (roche incandescente).
+   */
+  private drawWorldProjectile(h: ProjectileHazard, t: number, look: WorldLook, clock: number): void {
+    const x = projectileX(h, t);
+    const y = projectileY(h, t);
+    const s = this.scale;
+    const sc = h.scale ?? 1;
+    const hr = projectileHitRadius() * sc;
+    const f = this.trailG;
+    const X = this.sx(x);
+    const Y = this.sy(y);
+    let ux = projectileX(h, t + 0.02) - x;
+    let uy = projectileY(h, t + 0.02) - y;
+    const n = Math.hypot(ux, uy) || 1;
+    ux /= n;
+    uy /= n;
+    const lw = Math.max(1.5 * this.dpr, 2.6 * s);
+    if (look === 'orb') {
+      const pulse = this.reducedEffects ? 1 : 1 + 0.12 * Math.sin(clock * 9 + h.id);
+      f.fillStyle(0x9a4dff, 0.12);
+      f.fillCircle(X, Y, hr * 2.6 * pulse * s);
+      f.fillStyle(0xc070ff, 0.28);
+      f.fillCircle(X, Y, hr * 1.5 * pulse * s);
+      for (let i = 1; i <= 3; i++) {
+        f.fillStyle(0xb05cff, 0.18 / i);
+        f.fillCircle(this.sx(x - ux * i * 9 * sc), this.sy(y - uy * i * 9 * sc), hr * (1.1 - i * 0.22) * s);
+      }
+      f.fillStyle(0xffffff, 0.95);
+      f.fillCircle(X, Y, hr * 0.5 * s);
+      this.g.lineStyle(lw, COLORS.projectile, 0.95);
+      this.g.strokeCircle(X, Y, hr * s);
+      return;
+    }
+    if (look === 'gas') {
+      const rot = clock * 0.6 + h.id;
+      f.fillStyle(0xbff8ff, 0.07);
+      f.fillCircle(X, Y, hr * 1.9 * s);
+      f.fillStyle(0xd8f6ff, 0.1);
+      f.fillCircle(X, Y, hr * 1.35 * s);
+      for (let i = 0; i < 5; i++) {
+        const a = rot + (i * TAU) / 5;
+        f.fillStyle(0xe8fffb, 0.09);
+        f.fillCircle(X + Math.cos(a) * hr * 0.55 * s, Y + Math.sin(a) * hr * 0.55 * s, hr * 0.55 * s);
+      }
+      this.g.fillStyle(0x0b2b33, 0.35);
+      this.g.fillCircle(X, Y, hr * 0.98 * s);
+      this.g.lineStyle(Math.max(2 * this.dpr, 3.2 * s), COLORS.projectile, 0.95);
+      this.g.strokeCircle(X, Y, hr * s);
+      return;
+    }
+    if (look === 'debris') {
+      const a = clock * 2 + h.id;
+      const rr = hr * 1.25 * s;
+      f.fillStyle(0xffd6e0, 0.12);
+      f.fillCircle(this.sx(x - ux * 10), this.sy(y - uy * 10), hr * 0.9 * s);
+      const pts = [0, 1, 2, 3].map((i) => [X + Math.cos(a + (i * TAU) / 4) * rr * (i % 2 ? 0.6 : 1), Y + Math.sin(a + (i * TAU) / 4) * rr * (i % 2 ? 0.6 : 1)] as const);
+      this.g.fillStyle(0xfff0f4, 0.55);
+      this.g.fillTriangle(pts[0][0], pts[0][1], pts[1][0], pts[1][1], pts[2][0], pts[2][1]);
+      this.g.fillTriangle(pts[0][0], pts[0][1], pts[2][0], pts[2][1], pts[3][0], pts[3][1]);
+      this.g.lineStyle(lw, COLORS.projectile, 0.95);
+      this.g.strokeCircle(X, Y, hr * s);
+      return;
+    }
+    // Braise emportée (Monde des vents) : roche incandescente, traînée ambrée courbe
+    f.fillStyle(0xff7a1a, 0.16);
+    f.fillCircle(X, Y, hr * 2 * s);
+    for (let i = 1; i <= 4; i++) {
+      const bx = projectileX(h, t - i * 0.035);
+      const by = projectileY(h, t - i * 0.035);
+      f.fillStyle(i % 2 ? 0xffb347 : 0xff7a1a, 0.3 / i);
+      f.fillCircle(this.sx(bx), this.sy(by), hr * (1 - i * 0.16) * s);
+    }
+    this.g.fillStyle(0x2a1206, 0.9);
+    this.g.fillCircle(X, Y, hr * 0.92 * s);
+    this.g.fillStyle(0xffd27a, 0.9);
+    this.g.fillCircle(X + ux * hr * 0.2 * s, Y + uy * hr * 0.2 * s, hr * 0.35 * s);
+    this.g.lineStyle(lw, COLORS.projectile, 0.95);
+    this.g.strokeCircle(X, Y, hr * s);
+  }
+
+  /**
+   * Mécaniques des univers sur l'orbite (lisibles, jamais confondues avec un danger : pas de corail ni de magenta).
+   * Mer nébulaire : nuages (bandes turquoise douces + bords pointillés) et ondes de pression (annonce pulsée puis front lumineux).
+   * Monde des vents : hémisphère rapide (traits ambrés qui défilent) / lent (pointillés cuivrés), frontières marquées, annonce d'inversion,
+   * tourbillons (spirale qui tourne dans leur sens, flèches le long de l'orbite).
+   */
+  private drawField(field: WorldsField, t: number, clock: number, fade: number): void {
+    const g = this.g;
+    const s = this.scale;
+    const kind = field.kindAt(t);
+    const calm = this.reducedEffects;
+    if (kind === 'clouds') {
+      for (const c of field.cloudsAt(t, this.cloudBuf)) {
+        const a = c.presence * fade;
+        g.lineStyle(48 * s, 0x2fd9d0, 0.1 * a);
+        this.arcPath(R, c.center - c.half, c.center + c.half);
+        g.lineStyle(24 * s, 0x6ff2e4, 0.13 * a);
+        this.arcPath(R, c.center - c.half + CLOUDS.edge * 0.5, c.center + c.half - CLOUDS.edge * 0.5);
+        g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), 0xb8fff0, 0.55 * a);
+        const span = 2 * c.half;
+        const nseg = Math.max(4, Math.round(span / 0.06));
+        for (let i = 0; i < nseg; i += 2) {
+          const b0 = c.center - c.half + (span * i) / nseg;
+          const b1 = c.center - c.half + (span * (i + 1)) / nseg;
+          this.arcPath(R + 26, b0, b1);
+          this.arcPath(R - 26, b0, b1);
+        }
+      }
+      for (const w of field.wavesAt(t, this.waveBuf)) {
+        if (!w.active) {
+          const pulse = calm ? 0.6 : 0.4 + 0.4 * Math.abs(Math.sin(clock * 6));
+          g.lineStyle(Math.max(1.5 * this.dpr, 3 * s), 0xe8fffb, pulse * fade * (0.4 + 0.6 * w.warn));
+          this.arcPath(R + 38, w.angle - CLOUDS.wave.half, w.angle + CLOUDS.wave.half);
+          this.arcPath(R - 38, w.angle - CLOUDS.wave.half, w.angle + CLOUDS.wave.half);
+          // Sens du front
+          const a = w.angle + w.sign * (CLOUDS.wave.half + 0.1);
+          const tx = -Math.sin(a) * w.sign;
+          const ty = Math.cos(a) * w.sign;
+          const px = this.sx(R * Math.cos(a));
+          const py = this.sy(R * Math.sin(a));
+          const c = 10 * s;
+          g.lineBetween(px - tx * c + Math.cos(a) * c, py - ty * c + Math.sin(a) * c, px + tx * c * 0.4, py + ty * c * 0.4);
+          g.lineBetween(px - tx * c - Math.cos(a) * c, py - ty * c - Math.sin(a) * c, px + tx * c * 0.4, py + ty * c * 0.4);
+        } else {
+          g.lineStyle(36 * s, 0xe8fffb, 0.16 * fade);
+          this.arcPath(R, w.angle - CLOUDS.wave.half, w.angle + CLOUDS.wave.half);
+          g.lineStyle(Math.max(2 * this.dpr, 3 * s), 0xffffff, 0.6 * fade);
+          this.radial(w.angle, 40);
+        }
+      }
+      return;
+    }
+    if (kind !== 'currents') return;
+    const cur = field.currentsAt(t);
+    const fc = cur.fastCenter;
+    // Hémisphère rapide : arcs ambrés en mouvement ; lent : pointillés cuivrés espacés
+    const N = 36;
+    const flow = calm ? 0 : (clock * 0.9) % 1;
+    for (let i = 0; i < N; i++) {
+      const a0 = (i / N) * TAU;
+      const mid = a0 + TAU / N / 2;
+      const fastness = smoothstep01((Math.cos(mid - fc) + Math.sin(CURRENTS.edge)) / (2 * Math.sin(CURRENTS.edge)));
+      const on = ((i + flow * 2) | 0) % 2 === 0;
+      if (fastness > 0.5) {
+        g.lineStyle(Math.max(1.5 * this.dpr, 3.2 * s), 0xffb347, (on ? 0.55 : 0.25) * fade * fastness);
+        this.arcPath(R + 14, a0, a0 + (TAU / N) * 0.7);
+      } else if (i % 2 === 0) {
+        g.lineStyle(Math.max(1 * this.dpr, 2 * s), 0xb8733a, 0.35 * fade * (1 - fastness));
+        this.arcPath(R + 14, a0, a0 + (TAU / N) * 0.35);
+      }
+    }
+    // Frontières : deux traits radiaux nets ; annonce d'inversion = clignotement + arcs fléchés
+    const warn = cur.warning;
+    const blink = warn > 0 && !calm ? 0.5 + 0.5 * Math.sin(clock * 14) : 1;
+    for (const side of [-1, 1]) {
+      const b = fc + (side * Math.PI) / 2;
+      g.lineStyle(Math.max(2 * this.dpr, 4 * s), warn > 0 ? 0xffffff : 0xffe2a8, 0.85 * fade * blink);
+      this.radial(b, 34);
+      if (warn > 0) {
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0xffffff, 0.7 * fade * warn);
+        this.arcPath(R + 46, b - 0.25 * warn, b + 0.25 * warn);
+      }
+    }
+    for (const v of field.vorticesAt(t, this.vortexBuf)) {
+      const px = this.sx(R * Math.cos(v.angle));
+      const py = this.sy(R * Math.sin(v.angle));
+      const half = CURRENTS.vortex.half;
+      if (v.presence <= 0) {
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0xffe2a8, 0.7 * fade);
+        const nseg = 10;
+        for (let i = 0; i < nseg; i += 2) this.arcPath(R + 30, v.angle - half + (2 * half * i) / nseg, v.angle - half + (2 * half * (i + 1)) / nseg);
+        g.strokeCircle(px, py, (26 + 14 * (1 - v.warn)) * s);
+        continue;
+      }
+      const spin = clock * 2.2 * v.spin;
+      g.lineStyle(Math.max(1.5 * this.dpr, 2.6 * s), 0xffd27a, 0.75 * v.presence * fade);
+      for (let arm = 0; arm < 3; arm++) {
+        g.beginPath();
+        for (let k = 0; k <= 10; k++) {
+          const rr = (6 + k * 3.2) * s;
+          const th = spin + (arm * TAU) / 3 + v.spin * k * 0.32;
+          if (k === 0) g.moveTo(px + Math.cos(th) * rr, py + Math.sin(th) * rr);
+          else g.lineTo(px + Math.cos(th) * rr, py + Math.sin(th) * rr);
+        }
+        g.strokePath();
+      }
+      // Flèches le long de l'orbite dans le sens du tourbillon (aller dans ce sens = plus vite)
+      for (const off of [-half * 0.6, 0, half * 0.6]) {
+        const a = v.angle + off;
+        const tx = -Math.sin(a) * v.spin;
+        const ty = Math.cos(a) * v.spin;
+        const ax = this.sx((R + 30) * Math.cos(a));
+        const ay = this.sy((R + 30) * Math.sin(a));
+        const c = 8 * s;
+        g.lineBetween(ax - tx * c + Math.cos(a) * c * 0.7, ay - ty * c + Math.sin(a) * c * 0.7, ax + tx * c * 0.4, ay + ty * c * 0.4);
+        g.lineBetween(ax - tx * c - Math.cos(a) * c * 0.7, ay - ty * c - Math.sin(a) * c * 0.7, ax + tx * c * 0.4, ay + ty * c * 0.4);
+      }
+    }
+  }
+
+  /** Affichage de contrôle des univers (fenêtre DEV) : facteur du champ autour de l'orbite, hitboxes de tous les dangers, temps et vitesse. */
+  private drawWorldDebug(sim: Simulation, field: WorldsField, angle: number, t: number): void {
+    const g = this.dbg;
+    const s = this.scale;
+    const lw = Math.max(1, this.dpr);
+    const N = 90;
+    for (let i = 0; i < N; i++) {
+      const a0 = (i / N) * TAU;
+      const fwd = field.factor(a0 + TAU / N / 2, t, 1);
+      const back = field.factor(a0 + TAU / N / 2, t, -1);
+      const col = (f: number): number => (f > 1.02 ? 0xffb347 : f < 0.98 ? 0x2fd9d0 : 0x666666);
+      g.lineStyle(4 * lw, col(fwd), 0.9);
+      this.dbgArc(R + 52, a0, a0 + TAU / N);
+      g.lineStyle(4 * lw, col(back), 0.9);
+      this.dbgArc(R + 60, a0, a0 + TAU / N);
+    }
+    const px = R * Math.cos(angle);
+    const py = R * Math.sin(angle);
+    g.lineStyle(lw * 1.5, 0x00ff88, 1);
+    g.strokeCircle(this.sx(px), this.sy(py), playerHitRadius() * s);
+    // Trajet prévu sur 2 s sans inversion (vitesse réelle : courbe × champ), un point toutes les 0,1 s
+    let a = angle;
+    g.fillStyle(0x00ff88, 0.8);
+    for (let k = 1; k <= 20; k++) {
+      const tm = t + (k - 0.5) * 0.1;
+      a += sim.dir * PLAYER.angularSpeed * sim.speedFn(tm) * field.factor(a, tm, sim.dir) * 0.1;
+      g.fillCircle(this.sx(R * Math.cos(a)), this.sy(R * Math.sin(a)), 2.2 * lw);
+    }
+    for (const h of sim.hazards) {
+      if (h.kind !== 'projectile' || t < h.launch || t > h.end) continue;
+      g.lineStyle(lw * 1.5, 0xff3355, 1);
+      g.strokeCircle(this.sx(projectileX(h, t)), this.sy(projectileY(h, t)), projectileHitRadius() * (h.scale ?? 1) * s);
+    }
+  }
+
+  private dbgArc(radius: number, a0: number, a1: number): void {
+    const g = this.dbg;
+    g.beginPath();
+    g.arc(this.sx(0), this.sy(0), radius * this.scale, a0, a1, false);
+    g.strokePath();
   }
 
   /** Affichage de contrôle (?debug) : silhouettes (pointillés) et hitboxes (traits pleins). */

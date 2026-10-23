@@ -108,6 +108,8 @@ export class MusicSync {
   private lastTime = 0;
   /** Dernier coup de basse détecté (position dans le morceau, s). */
   private lastHit = -10;
+  /** Instant (dans le morceau) du dernier battement cartographié franchi : filtre des doubles détections. */
+  private lastBeatT = -10;
 
   constructor(private readonly maps: Record<MusicTrack, TrackMap> = MUSIC_MAP.tracks, private readonly fps: number = MUSIC_MAP.envFps) {}
 
@@ -116,6 +118,7 @@ export class MusicSync {
     this.lastTrack = null;
     this.lastTime = 0;
     this.lastHit = -10;
+    this.lastBeatT = -10;
   }
 
   /**
@@ -173,6 +176,16 @@ export class MusicSync {
     } else if (pos.playing && this.lastTrack !== null && pos.time <= AMBIENCE.music.maxCatchUp) {
       // Changement de morceau (intro → boucle, → outro) : battements du tout début du nouveau morceau
       this.cross(m, -1, t);
+    }
+    // Doubles détections : un coup de basse qui coïncide avec un battement cartographié (± `hitGap`) n'est pas une seconde impulsion
+    if (f.beat > 0) {
+      this.lastBeatT = t;
+      if (f.hit) {
+        f.hit = 0;
+        this.lastHit = t;
+      }
+    } else if (f.hit && this.lastTrack === pos.track && Math.abs(t - this.lastBeatT) < mu.hitGap) {
+      f.hit = 0;
     }
     this.lastTrack = pos.track;
     this.lastTime = t;

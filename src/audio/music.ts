@@ -132,6 +132,16 @@ export class Music {
     return !!(this.buffers.intro && this.buffers.loop);
   }
 
+  /** Buffers décodés partagés (lecture seule) : le lecteur du voyage des univers réutilise les mêmes, jamais un second décodage. */
+  get decoded(): Readonly<MusicBuffers> {
+    return this.buffers;
+  }
+
+  /** Mixage de la musique choisi par le joueur (0–1). */
+  get mixLevel(): number {
+    return this.level;
+  }
+
   /** Fournit des buffers déjà décodés (tests). */
   setBuffers(b: MusicBuffers): void {
     this.buffers = { ...this.buffers, ...b };

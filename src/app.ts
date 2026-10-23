@@ -4,6 +4,10 @@ import { DevTools, type DevHost } from './dev/devTools';
 import { backupRecords, clearRecords, hasRecords, snapshotRecords, RECORDS_BACKUP_PREFIX } from './dev/records';
 import type { QualityTier } from './config/ambience';
 import { Music, type MusicPosition } from './audio/music';
+import { WorldMusic } from './audio/worldMusic';
+import { WORLD_LIST } from './config/worlds';
+import { WorldsField } from './sim/field';
+import { WORLDS_RHYTHM } from './config/worldMusic';
 import { AmbienceDirector, QualityGovernor } from './ambience/director';
 import { MusicSync } from './ambience/musicSync';
 import { ambienceApplies, STAGES } from './config/ambience';
@@ -30,7 +34,6 @@ import { utcDateString } from './modes/daily';
 import type { RunConfig } from './modes/run';
 import { applyRun, isLevelUnlocked, type RunReport, type RunSummary } from './progression/progress';
 import { claimPhaseBonus, refundRemovedSkins } from './economy/local';
-import { PHASES } from './config/phases';
 import { PHASE2_PRELOAD_AT } from './config/music';
 import { reconcileAchievements } from './progression/achievements';
 import { catalogItem, type CatalogItem, type Currency } from './config/catalog';
@@ -144,6 +147,8 @@ export class App {
   private readonly sfx = new Sfx();
   /** Musique de partie : partage le contexte audio, le volume et la sourdine de `sfx`. */
   readonly music = new Music({ context: () => this.sfx.context, output: () => this.sfx.output });
+  /** Musique du voyage des univers (mêmes buffers, même sortie que `music`). */
+  readonly worldMusic = new WorldMusic({ context: () => this.sfx.context, output: () => this.sfx.output }, () => this.music.decoded);
   private readonly hud = new Hud();
   /** Ambiance évolutive de la Survie : position musicale entendue → carte musicale → directeur → rendu. */
   private readonly musicPos: MusicPosition = { track: null, time: 0, playing: false };
@@ -276,7 +281,29 @@ export class App {
       },
       lb: this.lb,
       session: () => this.session,
-      restartTest: () => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: false }),
+      restartTest: () => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.session?.config.worlds ? this.session.config.bonus : false, worlds: this.session?.config.worlds }),
+      startWorlds: (bonus) => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus, worlds: true }),
+      worldOverlay: (on) => {
+        if (this.renderer) this.renderer.worldDebug = on;
+      },
+      diag: () => {
+        const f = this.musicSync.frame;
+        const a = this.ambience.state;
+        const s = this.session;
+        const t = s?.sim.time ?? 0;
+        return {
+          track: this.musicPos.track ?? (s?.worlds && s.sim.world >= 3 ? 'aucun morceau (fond atmosphérique)' : 'aucune'),
+          pos: this.musicPos.time,
+          beat: a.beat,
+          bass: a.bass,
+          intensity: a.intensity,
+          drop: a.drop,
+          build: a.build,
+          nextBeat: s?.worlds ? WORLDS_RHYTHM.nextBeat(t) - t : NaN,
+          reacting: f.active,
+          particles: this.renderer?.particleCount ?? 0,
+        };
+      },
       persist: () => this.persist(false),
       trigger: (kind) => this.ambience.trigger(kind),
       setQuality: (tier) => {
@@ -526,6 +553,7 @@ export class App {
     this.sfx.setSfxVolume(o.sfxVolume);
     this.sfx.setMuted(o.muted);
     this.music.setLevel(o.musicVolume);
+    this.worldMusic.setLevel(o.musicVolume);
   }
 
   /** La musique est-elle réellement entendue ? Sinon l'ambiance ne réagit pas (aucune fausse synchronisation). */
@@ -557,8 +585,9 @@ export class App {
       if (this.session === session) this.updateInGameUi(session);
       // Musique de phase 2 : décodée tardivement (budget mémoire) et boucle programmée sur l'horloge audio (aucun minuteur)
       if (session.config.mode === 'survival') {
-        if (session.sim.time >= PHASE2_PRELOAD_AT) void this.music.preloadPhase2();
-        this.music.maintain();
+        // Univers : le morceau de l'univers 2 est décodé tôt (il entre pendant la première transition, à 120 s)
+        if (session.sim.time >= (session.worlds ? 20 : PHASE2_PRELOAD_AT)) void this.music.preloadPhase2();
+        if (!session.worlds) this.music.maintain();
       }
     }
     // Le bandeau est un chronomètre comme les autres : la pause l'arrête
@@ -596,15 +625,23 @@ export class App {
     this.quality.update(realDt);
     const tier = this.qualityOverride ?? this.quality.tier;
     if (this.ambience.state.tier !== tier) this.ambience.setQuality(tier);
-    const frame = this.musicSync.update(this.music.position(this.musicPos), this.musicAudible());
+    const frame = this.musicSync.update((s.worlds ? this.worldMusic : this.music).position(this.musicPos), this.musicAudible());
     const dt = s.phase === 'paused' ? 0 : realDt;
-    const transit = s.transitLeft > 0 ? 1 - s.transitLeft / PHASES.transit : 0;
+    const transit = s.transitProgress;
+    if (s.worlds) {
+      return this.ambience.update(s.sim.time, dt, frame, this.reducedMotion, this.save.options.visualIntensity, {
+        phase: 1,
+        transit,
+        phased: true,
+        world: { index: s.sim.world, to: transit > 0 ? s.transitTo : s.sim.world, shadow: s.sim.field instanceof WorldsField ? s.sim.field.shadowAt(s.sim.time) : 0 },
+      });
+    }
     return this.ambience.update(s.sim.time + this.ambiencePreview, dt, frame, this.reducedMotion, this.save.options.visualIntensity, { phase: s.sim.phase, transit, phased: s.sim.director.phased });
   }
 
   private updateInGameUi(session: GameSession): void {
     const cfg = session.config;
-    let label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : cfg.mode === 'campaign' ? `Mission ${cfg.mission?.id}` : session.sim.phase === 2 ? 'Survie · phase 2' : 'Survie';
+    let label = cfg.mode === 'level' ? `Niveau ${cfg.level?.id}` : cfg.mode === 'daily' ? 'Défi' : cfg.mode === 'campaign' ? `Mission ${cfg.mission?.id}` : session.worlds ? `Univers ${session.sim.world} · ${WORLD_LIST[session.sim.world - 1]?.name ?? ''}` : session.sim.phase === 2 ? 'Survie · phase 2' : 'Survie';
     // Événements (Survie / défi) : annonce 2 s avant, libellé et compte à rebours pendant l'événement
     let eventActive = false;
     if (cfg.mode === 'survival' || cfg.mode === 'daily') {
@@ -656,9 +693,15 @@ export class App {
     // Le mode choisi à la préparation est figé pour toute la partie (rejouer garde le même mode) ; « Sans bonus » : aucune charge, aucun pouvoir
     // Mode développeur : une partie lancée alors qu'il est actif est une partie de TEST pour toute sa durée (le réglage est relu à chaque départ,
     // jamais repris d'une partie précédente). Test : aucun pouvoir ni charge, aucun ticket du classement.
+    // Voyage des univers : uniquement en mode développeur (sinon : Survie officielle)
+    if (cfg.worlds && !this.save.options.dev.enabled) cfg = { ...cfg, worlds: undefined };
     const test = cfg.mode === 'survival' && this.save.options.dev.enabled;
     cfg = { ...cfg, test: test || undefined };
-    if (cfg.mode === 'survival') {
+    if (cfg.mode === 'survival' && cfg.worlds) {
+      // Partie de test : pouvoirs facultatifs avec des charges de TEST (l'inventaire du joueur n'est jamais touché)
+      const bonus = cfg.bonus === true;
+      cfg = { ...cfg, bonus, stock: bonus ? { boost: 99, gel: 99 } : { boost: 0, gel: 0 } };
+    } else if (cfg.mode === 'survival') {
       const bonus = test ? false : (cfg.bonus ?? this.save.options.survivalMode === 'bonus');
       cfg = { ...cfg, bonus, stock: bonus ? { boost: this.save.inventory.boost, gel: this.save.inventory.gel } : { boost: 0, gel: 0 } };
     }
@@ -707,7 +750,14 @@ export class App {
       onOffer: (life, s) => this.showRevive(life === 3 ? 3 : 2, s),
     });
     this.session = session;
-    this.music.startGame();
+    if (session.worlds) {
+      this.music.stop();
+      this.worldMusic.startGame(1);
+      this.banner(`<strong>Univers 1 — ${escapeHtml(WORLD_LIST[0].name)}</strong><br>${escapeHtml(WORLD_LIST[0].tagline)} · partie de test`, 3);
+    } else {
+      this.worldMusic.stop();
+      this.music.startGame();
+    }
     this.demoBot = demo ? new Bot(session.sim) : null;
 
     this.tutorialActive = false;
@@ -749,9 +799,10 @@ export class App {
   /** Musique et phases de la partie : pause, reprise (après le compte à rebours), fin (outro). */
   private onSessionPhase(p: Phase, s: GameSession): void {
     if (s !== this.session) return;
-    if (p === 'paused') this.music.pause();
-    else if (p === 'running') this.music.resume();
-    else if (p === 'ending') this.music.endGame();
+    const m = s.worlds ? this.worldMusic : this.music;
+    if (p === 'paused') m.pause();
+    else if (p === 'running') m.resume();
+    else if (p === 'ending') m.endGame();
   }
 
   /**
@@ -760,6 +811,19 @@ export class App {
    */
   private onTransit(stage: 'start' | 'end', s: GameSession): void {
     if (s !== this.session) return;
+    if (s.worlds) {
+      // Voyage des univers : fondu musical de 4 s sur l'horloge audio, souffle d'aspiration, arrivée annoncée
+      if (stage === 'start') {
+        if (!s.skipping) this.sfx.play('rift');
+        this.worldMusic.transition(s.transitTo);
+        this.hideBanner();
+      } else {
+        const w = WORLD_LIST[s.transitTo - 1];
+        if (!s.skipping) this.sfx.play('arrive');
+        if (w) this.banner(`<strong>Univers ${w.index} — ${escapeHtml(w.name)}</strong><br>${escapeHtml(w.tagline)}`, 3);
+      }
+      return;
+    }
     if (stage === 'start') {
       this.music.enterPhase2();
       this.sfx.play('success');
@@ -768,7 +832,10 @@ export class App {
 
   private endSession(): void {
     // Partie quittée en cours de route (menu, recommencer) : la musique s'arrête ; après la fin de partie, l'outro continue
-    if (this.session && ['running', 'paused', 'countdown'].includes(this.session.phase)) this.music.stop();
+    if (this.session && ['running', 'paused', 'countdown'].includes(this.session.phase)) {
+      this.music.stop();
+      this.worldMusic.stop();
+    }
     if (this.session) this.session.abort();
     this.session = null;
     // Partie abandonnée avant sa première mort : ses charges consommées sont DÉCLARÉES au service (usage non classé)
@@ -1327,7 +1394,9 @@ export class App {
     this.screenEl.classList.remove('dim');
     this.screenEl.innerHTML = '';
     // La musique repart là où elle s'était arrêtée à la mort ; à défaut : boucle de la phase 2, ou démarrage habituel
-    if (!this.music.resumeAfterDeath() && !(s.sim.phase === 2 && this.music.startPhase2Loop())) this.music.startGame();
+    if (s.worlds) {
+      if (!this.worldMusic.resumeAfterDeath()) this.worldMusic.startGame(s.sim.world);
+    } else if (!this.music.resumeAfterDeath() && !(s.sim.phase === 2 && this.music.startPhase2Loop())) this.music.startGame();
     this.hud.show(true);
     this.setPowersVisible(this.lastConfig?.bonus !== false);
     this.lastCountdownShown = -1;

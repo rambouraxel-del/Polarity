@@ -3,7 +3,7 @@
  * Le contexte audio n'est créé qu'après une interaction utilisateur.
  * Les sons complètent l'image ; aucune information n'est transmise uniquement par le son.
  */
-export type SoundName = 'flip' | 'collect' | 'cycle' | 'warn' | 'activate' | 'hit' | 'success' | 'record' | 'ui' | 'tick' | 'shard' | 'shardSpawn' | 'shield' | 'objectSpawn';
+export type SoundName = 'flip' | 'collect' | 'cycle' | 'warn' | 'activate' | 'hit' | 'success' | 'record' | 'ui' | 'tick' | 'shard' | 'shardSpawn' | 'shield' | 'objectSpawn' | 'rift' | 'arrive';
 
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -142,6 +142,15 @@ export class Sfx {
       case 'tick':
         this.tone('sine', 740, 0, 0.08, 0.15);
         break;
+      case 'rift':
+        // Ouverture et aspiration de la faille (transition d'univers) : souffle filtré qui monte puis se referme, grondement grave
+        this.sweep(2.6, 260, 3200, 0.32);
+        this.tone('sawtooth', 110, 38, 2.2, 0.08);
+        break;
+      case 'arrive':
+        // Émergence dans le nouvel univers : accord clair et bref
+        [0, 0.06, 0.12].forEach((d, i) => this.tone('sine', 392 * Math.pow(1.26, i), 0, 0.7, 0.12, d));
+        break;
     }
   }
 
@@ -160,6 +169,31 @@ export class Sfx {
     g.connect(this.sfxBus!);
     osc.start(t);
     osc.stop(t + dur + 0.02);
+  }
+
+  /** Souffle de bruit filtré passe-bande dont la fréquence monte de `f0` à `f1` puis redescend (horloge audio). */
+  private sweep(dur: number, f0: number, f1: number, gain: number): void {
+    const ctx = this.ctx!;
+    if (!this.noise) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 1.4;
+    filter.frequency.setValueAtTime(f0, t);
+    filter.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
+    filter.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(this.sfxBus!);
+    src.start(t);
+    src.stop(t + dur + 0.02);
   }
 
   private noiseBurst(dur: number, cutoff: number, gain: number): void {

@@ -48,7 +48,8 @@ export class Tunnel {
   }
 
   /** @param amount visibilité du tunnel (0–1) : fondu pendant la traversée */
-  draw(s: AmbienceState, v: AmbienceView, dt: number, amount: number): void {
+  /** @param tint couleur de l'univers de destination (voyage des univers) ; @param tintMix part de cette teinte (0 = couleurs d'origine) */
+  draw(s: AmbienceState, v: AmbienceView, dt: number, amount: number, tint = 0, tintMix = 0): void {
     const n = Math.min(MAX, s.quality.tunnel);
     if (amount <= 0.004 || s.user <= 0) {
       for (const l of this.layers) l.setVisible(false);
@@ -93,7 +94,7 @@ export class Tunnel {
         .setDisplaySize(size, size)
         .setRotation(this.angle[i] + this.dir[i] * 0.4 * t)
         .setAlpha(Math.min(1, alpha))
-        .setTint(lerpColor(lerpColor(0x8fa6ff, 0xffffff, t), 0xd0c0ff, warm));
+        .setTint(lerpColor(lerpColor(lerpColor(0x8fa6ff, 0xffffff, t), 0xd0c0ff, warm), tint, tintMix * (1 - 0.5 * t)));
     }
     if (resort) this.sortDepths();
   }

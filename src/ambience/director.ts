@@ -1,5 +1,6 @@
 import { AMBIENCE, STAGES, STAGE_PARAMS, type QualitySpec, type QualityTier, type StageParam } from '../config/ambience';
 import { PHASES } from '../config/phases';
+import { WORLD_LIST, WORLDS, type TransitionVariant } from '../config/worlds';
 import type { MusicFrame } from './musicSync';
 
 /**
@@ -11,6 +12,8 @@ import type { MusicFrame } from './musicSync';
  */
 
 const PARAM_KEYS = Object.keys(STAGE_PARAMS) as StageParam[];
+const AMBIENCE_COLORS_AZURE = 0x3d8bff;
+const AMBIENCE_COLORS_VIOLET = 0x7a4dff;
 const LAST = STAGES.length - 1;
 /** Paramètres que le réglage « intensité visuelle » du joueur atténue (le ciel étoilé et le décor de base restent). */
 const USER_SCALED: StageParam[] = ['nebula', 'riftGlow', 'dust', 'debris', 'arcRate', 'ringChance', 'gridWarp', 'waveGain', 'beatGain', 'bassGain', 'boltChance', 'waveChance'];
@@ -74,6 +77,19 @@ export interface AmbienceState {
   spawnRing: number;
   spawnWave: number;
   spawnArcs: number;
+  /**
+   * Voyage des univers : univers affiché (1–4 ; 0 = Survie historique), destination pendant une transition, présence de chaque décor (0–1, fondus
+   * pendant la traversée), voile d'ombre du décor (Mer nébulaire), ouverture de la faille, variante et couleurs de la transition. Décoratif seulement.
+   */
+  world: number;
+  worldTo: number;
+  worldMix: number;
+  amt: [number, number, number, number];
+  shadow: number;
+  holeOpen: number;
+  variant: TransitionVariant | null;
+  riftFrom: number;
+  riftTo: number;
 }
 
 export class AmbienceDirector {
@@ -104,6 +120,15 @@ export class AmbienceDirector {
       spawnRing: 0,
       spawnWave: 0,
       spawnArcs: 0,
+      world: 0,
+      worldTo: 0,
+      worldMix: 0,
+      amt: [1, 0, 0, 0],
+      shadow: 0,
+      holeOpen: 1,
+      variant: null,
+      riftFrom: AMBIENCE_COLORS_AZURE,
+      riftTo: AMBIENCE_COLORS_VIOLET,
     };
   }
 
@@ -119,6 +144,13 @@ export class AmbienceDirector {
     s.core = 0;
     s.look = 0;
     s.calm = 0;
+    s.world = 0;
+    s.worldTo = 0;
+    s.worldMix = 0;
+    s.amt = [1, 0, 0, 0];
+    s.shadow = 0;
+    s.holeOpen = 1;
+    s.variant = null;
     this.scriptIdx = 0;
     this.lastSurvival = 0;
     this.prevCalm = 0;
@@ -137,7 +169,14 @@ export class AmbienceDirector {
    * @param music image musicale courante
    * @param intensity réglage du joueur (0–1) : 1 = ambiance complète ; 0 = ciel étoilé seul (ni faille, ni nébuleuses, ni réaction musicale)
    */
-  update(survival: number, dt: number, music: MusicFrame, reduced: boolean, intensity = 1, ph: { phase: 1 | 2; transit: number; phased?: boolean } = { phase: 1, transit: 0 }): AmbienceState {
+  update(
+    survival: number,
+    dt: number,
+    music: MusicFrame,
+    reduced: boolean,
+    intensity = 1,
+    ph: { phase: 1 | 2; transit: number; phased?: boolean; world?: { index: number; to: number; shadow?: number } } = { phase: 1, transit: 0 },
+  ): AmbienceState {
     const s = this.state;
     s.reduced = reduced;
     s.spawnRing = s.spawnWave = s.spawnArcs = s.spawnFissure = 0;
@@ -157,6 +196,8 @@ export class AmbienceDirector {
     const look = ph.phase === 2 ? 1 : ph.transit > 0 ? smoothstep((ph.transit - AMBIENCE.phase2.flash.from) / (AMBIENCE.phase2.flash.peak - AMBIENCE.phase2.flash.from)) : 0;
     s.look = look;
     s.stage = stageAt(survival);
+    if (ph.world) this.worldLook(survival, ph.transit, ph.world);
+    else s.world = 0;
     for (const k of PARAM_KEYS) s.p[k] = paramAt(k, s.stage);
     const user = clamp01(intensity);
     s.user = user;
@@ -188,8 +229,18 @@ export class AmbienceDirector {
     // Passages calmes de la musique : l'ambiance se calme aussi (jamais sans musique : elle ne réagit alors à rien)
     const cm = AMBIENCE.calm;
     s.calm = music.active ? 1 - smoothstep((s.intensity - cm.low) / (cm.high - cm.low)) : 0;
+    // Univers : les décors des mondes 3 et 4 éteignent les couches de l'espace d'origine (nébuleuses, poussières, arcs)
+    if (s.world > 0) {
+      const legacy = Math.min(1, s.amt[0] + s.amt[1]);
+      s.p.nebula *= legacy;
+      s.p.dust *= 0.35 + 0.65 * legacy;
+      s.p.debris *= legacy;
+      s.p.arcRate *= legacy;
+      s.p.stars *= 0.45 + 0.55 * legacy;
+      s.p.gridWarp *= legacy;
+    }
     // Moments forts préparés (instants de survie active) : ondes et fissures, en plus des réactions issues de l'analyse
-    if (dt > 0 && ph.transit === 0) {
+    if (dt > 0 && ph.transit === 0 && s.world === 0) {
       const prev = this.lastSurvival;
       this.lastSurvival = survival;
       const sc = AMBIENCE.script;
@@ -210,6 +261,36 @@ export class AmbienceDirector {
     // Montées et passages forts : couleurs plus intenses
     s.p.heat = clamp01(s.p.heat + 0.25 * s.build + 0.15 * s.drop + 0.1 * s.intensity);
     return s;
+  }
+
+  /**
+   * Univers : présence des décors (fondus pendant la TRAVERSÉE de la transition), faille qui se forme dans les 25 dernières secondes de chaque univers
+   * puis enveloppe l'écran pendant la transition, stade d'ambiance étalé sur les 8 minutes, couleurs de la faille selon la variante.
+   */
+  private worldLook(survival: number, transit: number, w: { index: number; to: number; shadow?: number }): void {
+    const s = this.state;
+    const tl = WORLDS.timeline;
+    s.world = w.index;
+    s.worldTo = w.to;
+    const k = transit > 0 ? smoothstep((transit - tl.pull) / (tl.cross - tl.pull)) : 0;
+    s.worldMix = k;
+    for (let i = 0; i < 4; i++) {
+      const id = i + 1;
+      s.amt[i] = (id === w.index ? 1 - k : 0) + (transit > 0 && id === w.to && w.to !== w.index ? k : 0);
+    }
+    s.look = s.amt[1];
+    s.stage = stageAt(survival * 0.5);
+    const local = survival - (w.index - 1) * WORLDS.span;
+    // Faille : se forme à la fin de chaque univers (sauf le dernier, prolongé), engloutit l'écran pendant la transition, se referme à l'arrivée
+    const last = w.index >= WORLD_LIST.length;
+    const forming = last ? 0 : smoothstep((local - (WORLDS.span - 25)) / 25);
+    s.core = transit > 0 ? 1 : forming;
+    s.holeOpen = transit > 0 ? 1 - smoothstep((transit - tl.cross) / (1 - tl.cross)) : forming;
+    const def = WORLD_LIST[w.index - 1];
+    s.variant = transit > 0 ? def.transition.variant : null;
+    s.riftFrom = def.transition.from;
+    s.riftTo = def.transition.to;
+    s.shadow = w.shadow ?? 0;
   }
 
   private react(dt: number, music: MusicFrame, reduced: boolean, reaction: number): void {
