@@ -1,4 +1,5 @@
 import type { PatternWeights } from '../sim/patterns';
+import { world2Weights } from './world2';
 
 /**
  * VOYAGE À TRAVERS LES UNIVERS (refonte de la Survie, en cours de validation) — SOURCE UNIQUE des réglages.
@@ -178,30 +179,18 @@ export const WORLD_LIST: readonly WorldDef[] = [
   {
     id: 'between',
     index: 2,
-    name: 'L’Entre-deux',
+    name: 'La Faille',
     tagline: 'L’énergie se déchire.',
     palette: { sky: 0x0b0420, primary: 0x8a3dff, secondary: 0xd04bff, accent: 0x3d6bff, core: 0x1a0638, orbit: 0x8a82ff },
     speed: { from: 0.8, to: 0.92 },
-    difficulty: [[0, 0.52], [30, 0.6], [70, 0.68], [110, 0.75]],
-    interval: 0.95,
+    difficulty: [[0, 0.5], [30, 0.58], [70, 0.66], [110, 0.72]],
+    interval: 1.3,
     field: 'none',
     events: false,
-    beatChance: 0.5,
+    beatChance: 0.65,
     transition: { variant: 'mist', from: 0x8a3dff, to: 0x3fe0d0 },
-    weights(t) {
-      const combos = ramp(t, 80, 25);
-      return {
-        riftOrb: 1.0 * ramp(t, 0, 8),
-        surgeArc: 0.9 * ramp(t, 6, 10),
-        spiral: 0.85 * ramp(t, 16, 12),
-        altBeams: 0.8 * ramp(t, 34, 12),
-        orbPair: 0.7 * ramp(t, 45, 15),
-        rotBeam: 0.7 * ramp(t, 58, 12),
-        spiralArc: 0.7 * combos,
-        beamShot: 0.6 * combos,
-        surgeOrb: 0.7 * combos,
-      };
-    },
+    // Cinq attaques calées sur la carte musicale du morceau (config/world2.ts) : le temps local suffit, aucune lecture de l'audio
+    weights: (t) => world2Weights(t),
   },
   {
     id: 'nebula',
@@ -289,10 +278,8 @@ export const worldStartStep = (i: number): number => Math.round(worldStart(i) * 
 // ————————————————————————————————————————————— dangers propres aux univers (toujours vérifiés par le validateur d'évitement)
 
 export const WORLD_HAZARDS = {
-  /** L'Entre-deux — arcs électriques mouvants : la largeur respire (×halfTo) et le centre dérive (rad/s) dès l'annonce. */
-  surgeArc: { halfFrom: { min: 0.7, max: 0.95 }, halfTo: { min: 0.5, max: 1.35 }, drift: { min: 0.16, max: 0.34 }, extraActive: 0.45, extraWarn: 0.15 },
-  /** Orbes de faille : grands arcs d'énergie, un peu plus lents que les astéroïdes, taille 0,9. */
-  riftOrb: { speedScale: 0.84, extraWarn: 0.3, scale: 0.9, pairStagger: { min: 0.55, max: 0.9 } },
+  /** La Faille — orbes : grands arcs d'énergie, un peu plus lents que les astéroïdes, taille 0,9 (les autres attaques : `W2_ATTACKS`, config/world2.ts). */
+  riftOrb: { speedScale: 0.84, extraWarn: 0.3, scale: 0.9 },
   /** Mer nébulaire — masses gazeuses : grandes, lentes, longuement annoncées. */
   gasMass: { speedScale: 0.42, scale: 2.1, extraWarn: 0.5, pairStagger: { min: 0.9, max: 1.4 } },
   /** Masses à la dérive : la même masse sur une grande courbe. */

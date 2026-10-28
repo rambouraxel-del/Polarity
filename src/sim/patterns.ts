@@ -2,6 +2,7 @@ import { ARENA } from '../config/balance';
 import { ALT_BEAMS, ARC_SHOT, CONVOY, FRAGMENT, LASER, ROT_BEAM, SPIRAL, SWEEP_BEAM } from '../config/hazards';
 import { beatPeriodAt, nextAccent, nextBeat } from '../config/phases';
 import { WORLD_HAZARDS as WH } from '../config/worlds';
+import { W2_ATTACKS as W2, WORLD2_SPAN, inBuild, inCalm } from '../config/world2';
 import { TAU } from '../core/math';
 import type { Rng } from '../core/rng';
 import type { DifficultyParams } from './difficulty';
@@ -35,11 +36,14 @@ export type PatternId =
   | 'arcSector'
   | 'spiralArc'
   | 'beamShot'
-  // Voyage des univers (config/worlds.ts) — L'Entre-deux
-  | 'riftOrb'
-  | 'orbPair'
+  // Voyage des univers (config/worlds.ts, config/world2.ts) — La Faille : cinq attaques et deux combinaisons modérées
+  | 'orbitCrack'
   | 'surgeArc'
-  | 'surgeOrb'
+  | 'riftOrb'
+  | 'riftWave'
+  | 'fractureSpiral'
+  | 'crackOrb'
+  | 'waveSpiral'
   // Mer nébulaire
   | 'gasMass'
   | 'gasDrift'
@@ -56,13 +60,16 @@ export type PatternId =
   | 'emberSpiral';
 
 export type Family = 'projectile' | 'sector' | 'combo' | 'fragment' | 'convoy' | 'laser' | 'rhythm' | 'bigarc' | 'spiral' | 'rotbeam' | 'sweepbeam' | 'altbeams'
-  | 'orb' | 'surge' | 'gas' | 'debris' | 'ember' | 'gust';
+  | 'crack' | 'rupture' | 'orb' | 'surge' | 'gas' | 'debris' | 'ember' | 'gust';
 
 /** Grille de rythme (instants de jeu actif) : battements, moments forts, période. Calculée hors ligne, jamais lue dans l'audio. */
 export interface Rhythm {
   nextBeat(t: number): number;
   nextAccent(t: number): number;
   beatPeriodAt(t: number): number;
+  /** Cartes détaillées (voyage des univers, univers 2) : prochaine percussion et prochain grand impact d'au moins `minStrength` (Infinity si aucun). */
+  nextHit?(t: number): number;
+  nextImpact?(t: number, minStrength: number): number;
 }
 
 const PHASED_RHYTHM: Rhythm = { nextBeat, nextAccent, beatPeriodAt };
@@ -83,6 +90,8 @@ export interface PatternDef {
   id: PatternId;
   family: Family;
   name: string;
+  /** Le motif cale lui-même son instant sur la carte musicale (la mise en rythme générique du directeur ne le déplace pas). */
+  timed?: boolean;
   /** Multiplicateur de l'intervalle avant la vague suivante (motifs lourds = plus de temps). */
   cost: number;
   build(ctx: PatternContext): Hazard[];
@@ -460,7 +469,19 @@ export const PATTERNS: Record<PatternId, PatternDef> = {
     },
   },
 
-  // ————————————————————————— Voyage des univers : L'Entre-deux (instabilité énergétique)
+  // ————————————————————————— Voyage des univers : La Faille (cinq attaques, calées sur la carte musicale de config/world2.ts)
+  orbitCrack: {
+    id: 'orbitCrack', timed: true, family: 'crack', name: 'Fissure d’orbite', cost: 2.1,
+    build(ctx) {
+      return [orbitCrack(ctx, 'orbitCrack', ctx.now)];
+    },
+  },
+  surgeArc: {
+    id: 'surgeArc', timed: true, family: 'surge', name: 'Arc rampant', cost: 1.4,
+    build(ctx) {
+      return [creepingArc(ctx, 'surgeArc', ctx.now)];
+    },
+  },
   riftOrb: {
     id: 'riftOrb', family: 'orb', name: 'Orbe de faille', cost: 1.3,
     build(ctx) {
@@ -468,26 +489,33 @@ export const PATTERNS: Record<PatternId, PatternDef> = {
       return [h ?? shotThrough(ctx, 'riftOrb', ctx.now, aimAngle(ctx, crossingTime(ctx, ctx.now)))];
     },
   },
-  orbPair: {
-    id: 'orbPair', family: 'orb', name: 'Orbes jumelles', cost: 1.8,
+  riftWave: {
+    id: 'riftWave', timed: true, family: 'rupture', name: 'Onde de rupture', cost: 2.3,
     build(ctx) {
-      const a = riftOrb(ctx, 'orbPair', ctx.now);
-      const b = riftOrb(ctx, 'orbPair', ctx.now + ctx.rng.range(WH.riftOrb.pairStagger.min, WH.riftOrb.pairStagger.max) * Math.max(1, ctx.p.comboStagger / 0.6));
-      return [a, b].filter((h): h is ProjectileHazard => h !== null);
+      // Sans grand impact musical proche : pas d'onde (repli sur un orbe, jamais d'onde hors de son impact)
+      return [riftWave(ctx, 'riftWave', ctx.now) ?? PATTERNS.riftOrb.build(ctx)[0]];
     },
   },
-  surgeArc: {
-    id: 'surgeArc', family: 'surge', name: 'Arc mouvant', cost: 1.3,
+  fractureSpiral: {
+    id: 'fractureSpiral', family: 'spiral', name: 'Spirale fracturée', cost: 2.1,
     build(ctx) {
-      return [surgeArc(ctx, 'surgeArc', ctx.now)];
+      return spiralArms(ctx, 'fractureSpiral', ctx.now, W2.spiral.maxArms);
     },
   },
-  surgeOrb: {
-    id: 'surgeOrb', family: 'combo', name: 'Arc mouvant + orbe', cost: 2,
+  crackOrb: {
+    id: 'crackOrb', timed: true, family: 'combo', name: 'Fissure + orbe', cost: 2.4,
     build(ctx) {
-      const arc = surgeArc(ctx, 'surgeOrb', ctx.now);
-      const orb = riftOrb(ctx, 'surgeOrb', ctx.now + ctx.p.comboStagger);
-      return orb ? [arc, orb] : [arc];
+      const crack = orbitCrack(ctx, 'crackOrb', ctx.now);
+      const orb = riftOrb(ctx, 'crackOrb', ctx.now + ctx.p.comboStagger * 3);
+      return orb ? [crack, orb] : [crack];
+    },
+  },
+  waveSpiral: {
+    id: 'waveSpiral', timed: true, family: 'combo', name: 'Onde + spirale', cost: 2.5,
+    build(ctx) {
+      const wave = riftWave(ctx, 'waveSpiral', ctx.now);
+      if (!wave) return spiralArms(ctx, 'waveSpiral', ctx.now, 1);
+      return [wave, ...spiralArms(ctx, 'waveSpiral', ctx.now + ctx.p.comboStagger, 1)];
     },
   },
 
@@ -616,6 +644,64 @@ function shortFlight<T extends ProjectileHazard | null>(h: T): T | null {
   return h && h.end - h.launch <= WH.maxCurveFlight ? h : null;
 }
 
+/** Temps local de l'univers 2 (s de jeu actif depuis son début) d'un instant de jeu absolu. */
+const localW2 = (t: number): number => t - WORLD2_SPAN;
+
+/**
+ * Fissure d'orbite : une portion de l'orbite s'ouvre progressivement pendant l'annonce (4 à 8 s dangereuse ensuite). L'ouverture se termine sur un battement de
+ * la grille quand il est proche ; pendant une montée du morceau, la fissure s'élargit pendant sa durée active (`morph`, centre immobile).
+ */
+function orbitCrack(ctx: PatternContext, pattern: string, warnStart: number): Hazard {
+  const { rng } = ctx;
+  const c = W2.crack;
+  let warn = rng.range(c.warn.min, c.warn.max);
+  const rh = ctx.rhythm;
+  if (rh) {
+    const b = rh.nextBeat(warnStart + warn);
+    if (b > warnStart + warn && b - (warnStart + warn) <= 0.6) warn = b - warnStart;
+  }
+  const half = rng.range(c.half.min, c.half.max);
+  const active = rng.range(c.active.min, c.active.max);
+  const center = predict(ctx, warnStart + warn) + rng.sign() * rng.range(c.offset.min, c.offset.max);
+  const h = makeSector(pattern, warnStart, warn, active, center, half);
+  if (inBuild(localW2(warnStart + warn))) h.morph = { halfTo: Math.min(0.62, half * c.buildGrow), drift: 0 };
+  return h;
+}
+
+/**
+ * Arc rampant : décharge électrique qui glisse lentement le long de l'orbite (secteur dont le centre dérive, `morph`). Son activation attend, au plus
+ * `maxHitWait` s (retard seulement : l'annonce n'est jamais raccourcie), la prochaine percussion de la carte musicale.
+ */
+function creepingArc(ctx: PatternContext, pattern: string, warnStart: number): Hazard {
+  const { rng } = ctx;
+  const c = W2.creep;
+  let warn = c.warn;
+  const hit = ctx.rhythm?.nextHit?.(warnStart + warn);
+  if (hit !== undefined && Number.isFinite(hit) && hit - (warnStart + warn) <= c.maxHitWait) warn = hit - warnStart;
+  const half = rng.range(c.half.min, c.half.max);
+  const drift = rng.sign() * rng.range(c.drift.min, c.drift.max);
+  const center = predict(ctx, warnStart + warn) - drift * warn + rng.range(-0.9, 0.9);
+  const h = makeSector(pattern, warnStart, warn, rng.range(c.active.min, c.active.max), center, half);
+  h.morph = { halfTo: Math.min(0.5, half * rng.range(0.85, 1.25)), drift };
+  return h;
+}
+
+/**
+ * Onde de rupture : la faille centrale se charge pendant l'annonce (le secteur final est tracé d'emblée), puis l'onde se déclenche EXACTEMENT sur un grand
+ * impact de la carte musicale et s'élargit pendant `active` s. Sans impact assez proche (`maxWait`) : aucune onde (null).
+ */
+function riftWave(ctx: PatternContext, pattern: string, warnStart: number): Hazard | null {
+  const { rng } = ctx;
+  const w = W2.wave;
+  const impact = ctx.rhythm?.nextImpact?.(warnStart + w.warn.min, w.minImpact);
+  if (impact === undefined || !Number.isFinite(impact) || impact - warnStart > w.maxWait || inCalm(localW2(impact))) return null;
+  const warn = impact - warnStart;
+  const center = predict(ctx, impact) + rng.sign() * rng.range(0.7, 1.9);
+  const h = makeSector(pattern, warnStart, warn, w.active, center, w.halfFrom);
+  h.morph = { halfTo: w.halfTo, drift: 0 };
+  return h;
+}
+
 /** Orbe de faille : grand arc d'énergie (même géométrie que le grand arc, vitesse et taille propres). */
 function riftOrb(ctx: PatternContext, pattern: string, warnStart: number): ProjectileHazard | null {
   const { rng, p } = ctx;
@@ -631,21 +717,6 @@ function riftOrb(ctx: PatternContext, pattern: string, warnStart: number): Proje
     [S * Math.cos(aimA + side * spread * rng.range(0.8, 1.2)), S * Math.sin(aimA + side * spread * rng.range(0.8, 1.2))]);
   if (h) h.scale = WH.riftOrb.scale;
   return shortFlight(h);
-}
-
-/** Arc électrique mouvant : secteur dont la largeur respire et dont le centre dérive (fonction pure du temps). */
-function surgeArc(ctx: PatternContext, pattern: string, warnStart: number): Hazard {
-  const { rng, p } = ctx;
-  const sa = WH.surgeArc;
-  const warn = p.sectorWarn + sa.extraWarn;
-  const half = p.sectorHalfWidth * rng.range(sa.halfFrom.min, sa.halfFrom.max);
-  const halfTo = Math.min(0.62, half * rng.range(sa.halfTo.min, sa.halfTo.max));
-  const drift = rng.sign() * rng.range(sa.drift.min, sa.drift.max);
-  const r = rng.next();
-  const center = r < 0.45 ? predict(ctx, warnStart + warn) - drift * warn : predict(ctx, warnStart + warn) + rng.range(-0.9, 0.9);
-  const h = makeSector(pattern, warnStart, warn, p.sectorActive + sa.extraActive, center, half);
-  h.morph = { halfTo, drift };
-  return h;
 }
 
 /** Masse gazeuse : grand projectile lent sur une corde de l'orbite. */
@@ -837,8 +908,10 @@ export const FAMILY_INTRO: Record<Family, string> = {
   rotbeam: 'Faisceau rotatif : un rayon tourne lentement, bien moins vite que votre vaisseau. Gardez vos distances.',
   sweepbeam: 'Faisceau balayeur : un rayon balaie une large zone annoncée ; la zone de refuge est de l’autre côté.',
   altbeams: 'Faisceaux alternés : les directions annoncées s’allument l’une après l’autre, sur le rythme.',
+  crack: 'Fissure d’orbite : une portion de l’orbite s’ouvre peu à peu puis reste dangereuse plusieurs secondes. Quittez la zone avant son ouverture.',
+  rupture: 'Onde de rupture : la faille centrale se charge, puis libère une onde sur le secteur annoncé, sur un grand impact de la musique.',
   orb: 'Orbe de faille : une sphère d’énergie suit une courbe ; tout son tracé est annoncé.',
-  surge: 'Arc mouvant : la zone électrique glisse et respire ; anticipez sa position.',
+  surge: 'Arc rampant : une décharge glisse lentement le long de l’orbite ; anticipez sa position.',
   gas: 'Masse gazeuse : grande et lente ; son contour est sa zone dangereuse.',
   debris: 'Débris nébulaires : petits fragments ondulants ; suivez leur tracé.',
   ember: 'Fragments emportés : ils tournent avec le courant avant de couper l’orbite.',

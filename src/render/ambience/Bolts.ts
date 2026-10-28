@@ -175,7 +175,7 @@ export class Bolts {
     g.clear();
     const limit = s.quality.bolts;
     if (!s.reduced && s.user > 0 && dt > 0) {
-      if (s.spawnFissure > 0 && s.look < 0.5 && s.transit === 0) {
+      if (s.spawnFissure > 0 && (s.look < 0.5 || s.world === 2) && s.transit === 0) {
         this.spawnFromRim(clamp01(s.spawnFissure), hole, limit);
         if (s.spawnFissure > 0.85) this.spawnFromRim(clamp01(s.spawnFissure * 0.8), hole, limit);
       }

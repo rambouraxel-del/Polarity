@@ -4,7 +4,8 @@ import { ARENA, SAFETY, SIM } from '../src/config/balance';
 import { playerHitRadius } from '../src/config/hitbox';
 import { MUSIC } from '../src/config/music';
 import { BALANCE_VERSION } from '../src/config/version';
-import { WORLD_MUSIC, WORLD_RHYTHM_DATA, WORLD_TRANSITION_AUDIO, WORLD2_ENTRY, WORLDS_RHYTHM } from '../src/config/worldMusic';
+import { WORLD_MUSIC, WORLD_RHYTHM_DATA, WORLD_TRANSITION_AUDIO, WORLD2_START, WORLDS_RHYTHM } from '../src/config/worldMusic';
+import { WORLD2_AT } from '../src/config/world2';
 import { CLOUDS, CURRENTS, WORLD_COUNT, WORLD_LIST, WORLDS, localTime, nextBoundary, worldIndexAt, worldStart, worldStartStep } from '../src/config/worlds';
 import { WorldMusic } from '../src/audio/worldMusic';
 import type { AudioHost, MusicPosition } from '../src/audio/music';
@@ -22,6 +23,7 @@ import { Simulation } from '../src/sim/simulation';
 import { omegaAt } from '../src/sim/speed';
 import { wrapAngle } from '../src/core/math';
 import { emptyProfile } from './helpers';
+import { FakeCtx, FakeGain, FakeNode, FakeParam, FakeScheduled, buf, nameOf } from './fakeAudio';
 
 const STEP = (t: number): number => Math.round(t / SIM.dt);
 const hazardCount = (sim: Simulation): number => (sim as unknown as { hazardCount: number }).hazardCount;
@@ -479,115 +481,12 @@ describe('univers : au-delà du dernier univers', () => {
 
 // ————————————————————————————————————————————— 14 à 16. Musique des univers (faux contexte Web Audio)
 
-class FakeParam {
-  value = 1;
-  events: { type: string; value: number; time: number }[] = [];
-  setValueAtTime(v: number, t: number): void {
-    this.events.push({ type: 'set', value: v, time: t });
-  }
-  linearRampToValueAtTime(v: number, t: number): void {
-    this.events.push({ type: 'ramp', value: v, time: t });
-  }
-  exponentialRampToValueAtTime(v: number, t: number): void {
-    this.events.push({ type: 'exp', value: v, time: t });
-  }
-  setTargetAtTime(v: number): void {
-    this.value = v;
-  }
-  cancelScheduledValues(t: number): void {
-    this.events = this.events.filter((e) => e.time < t);
-  }
-  cancelAndHoldAtTime(t: number): void {
-    this.cancelScheduledValues(t);
-  }
-}
-
-class FakeNode {
-  connections: unknown[] = [];
-  connect(n: unknown): void {
-    this.connections.push(n);
-  }
-  disconnect(): void {
-    this.connections = [];
-  }
-}
-
-class FakeGain extends FakeNode {
-  gain = new FakeParam();
-}
-
-class FakeFilter extends FakeNode {
-  type = 'lowpass';
-  frequency = new FakeParam();
-  Q = new FakeParam();
-}
-
-class FakeScheduled extends FakeNode {
-  starts: { when: number; offset: number }[] = [];
-  stopAt: number | null = null;
-  onended: (() => void) | null = null;
-  start(when = 0, offset = 0): void {
-    this.starts.push({ when, offset });
-  }
-  stop(when = 0): void {
-    this.stopAt = when;
-  }
-}
-
-class FakeSource extends FakeScheduled {
-  buffer: unknown = null;
-  loop = false;
-  loopStart = 0;
-  loopEnd = 0;
-}
-
-class FakeOsc extends FakeScheduled {
-  type = 'sine';
-  frequency = new FakeParam();
-}
-
-class FakeCtx {
-  currentTime = 0;
-  sampleRate = 8000;
-  state = 'running';
-  sources: FakeSource[] = [];
-  oscs: FakeOsc[] = [];
-  gains: FakeGain[] = [];
-  filters: FakeFilter[] = [];
-  createGain(): FakeGain {
-    const g = new FakeGain();
-    this.gains.push(g);
-    return g;
-  }
-  createBiquadFilter(): FakeFilter {
-    const f = new FakeFilter();
-    this.filters.push(f);
-    return f;
-  }
-  createBufferSource(): FakeSource {
-    const s = new FakeSource();
-    this.sources.push(s);
-    return s;
-  }
-  createOscillator(): FakeOsc {
-    const o = new FakeOsc();
-    this.oscs.push(o);
-    return o;
-  }
-  createBuffer(_c: number, len: number): { getChannelData: () => Float32Array; name: string } {
-    const d = new Float32Array(len);
-    return { getChannelData: () => d, name: 'noise' };
-  }
-}
-
-const buf = (name: string): AudioBuffer => ({ name }) as unknown as AudioBuffer;
-const nameOf = (s: FakeSource): string => (s.buffer as { name: string }).name;
 
 function musicSetup() {
   const ctx = new FakeCtx();
   const out = new FakeNode();
   const host: AudioHost = { context: () => ctx as unknown as BaseAudioContext, output: () => out as unknown as AudioNode };
-  const buffers = { intro: buf('intro'), loop: buf('loop'), outro: buf('outro'), phase2: buf('phase2') };
+  const buffers = { intro: buf('intro'), loop: buf('loop'), outro: buf('outro'), world2: buf('world2') };
   const wm = new WorldMusic(host, () => buffers);
   const pos = (): MusicPosition => wm.position({ track: null, time: 0, playing: false } as MusicPosition);
   return { ctx, wm, pos };
@@ -612,7 +511,7 @@ describe('univers : musique (plans, transitions de 4 s, pause, univers sans morc
     expect(p.playing).toBe(true);
   });
 
-  it('transition 1 → 2 : fondu croisé sur l’horloge audio (aucune coupure sèche), entrée filtrée, position du morceau 2 = 4 s à l’arrivée', () => {
+  it('transition 1 → 2 : fondu croisé sur l’horloge audio (aucune coupure sèche), entrée filtrée, montage de La Faille calé sur la transition', () => {
     const { ctx, wm, pos } = musicSetup();
     wm.startGame(1);
     ctx.currentTime = 118;
@@ -625,20 +524,26 @@ describe('univers : musique (plans, transitions de 4 s, pause, univers sans morc
       const ramp = g.events.find((e) => e.type === 'ramp' && e.value === 0)!;
       expect(ramp.time).toBeCloseTo(now + WORLD_TRANSITION_AUDIO.fadeOut, 9);
     }
-    const p2 = ctx.sources.find((s) => nameOf(s) === 'phase2')!;
-    expect(p2.starts[0].when).toBeCloseTo(now + WORLD_TRANSITION_AUDIO.fadeInFrom, 9);
-    expect(p2.starts[0].offset).toBeCloseTo(WORLD_TRANSITION_AUDIO.fadeInFrom, 9);
-    // Chevauchement : le nouveau morceau entre avant que l'ancien ne se taise
-    expect(WORLD_TRANSITION_AUDIO.fadeInFrom).toBeLessThan(WORLD_TRANSITION_AUDIO.fadeOut);
-    const g = deckGain(p2).events;
-    expect(g.find((e) => e.type === 'ramp')!.time).toBeCloseTo(now + WORLDS.transition, 9);
+    // Montage de l'univers 2 : deux voix (avant et après le raccord) sur le même buffer
+    const w2 = ctx.sources.filter((s) => nameOf(s) === 'world2');
+    expect(w2).toHaveLength(2);
+    // Première note : à la position de montage 0, soit WORLD2_START s après le début de la transition, fichier depuis 0
+    expect(w2[0].starts[0].when).toBeCloseTo(now + WORLD2_START, 9);
+    expect(w2[0].starts[0].offset).toBeCloseTo(0, 9);
+    // Chevauchement : la nouvelle musique entre avant que l'ancienne ne se taise
+    expect(now + WORLD2_START).toBeLessThan(now + WORLD_TRANSITION_AUDIO.fadeOut + 0.05 + 1);
+    const g = deckGain(w2[0]).events;
+    expect(g.length).toBeGreaterThan(0);
+    const deck = ctx.gains.find((gn) => gn.gain.events.some((e) => e.type === 'ramp' && Math.abs(e.time - (now + WORLDS.transition)) < 1e-9))!;
+    expect(deck).toBeTruthy();
     const filt = ctx.filters.at(-1)!.frequency.events;
     expect(filt[0]).toMatchObject({ type: 'set', value: WORLD_TRANSITION_AUDIO.filterFrom });
     expect(filt.find((e) => e.type === 'exp')!.time).toBeCloseTo(now + WORLDS.transition, 9);
+    // À l'arrivée (fin de la transition, temps local 0) la position musicale est celle du montage au temps -WORLD2_AT
     ctx.currentTime = now + WORLDS.transition;
     const p = pos();
-    expect(p.track).toBe('p2');
-    expect(p.time).toBeCloseTo(WORLD2_ENTRY, 6);
+    expect(p.track).toBe('w2');
+    expect(p.time).toBeCloseTo(-WORLD2_AT, 6);
     expect(wm.activeDecks).toBe(1);
   });
 

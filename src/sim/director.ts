@@ -262,7 +262,7 @@ export class Director {
       const id = this.idBuf[this.rng.weighted(this.weightBuf)];
       const def = PATTERNS[id];
       const added = def.build(ctx);
-      if (def.family !== 'rhythm' && def.family !== 'altbeams') this.snapToRhythm(now, added);
+      if (def.family !== 'rhythm' && def.family !== 'altbeams' && !def.timed) this.snapToRhythm(now, added);
       if (!this.fitsCaps(now, world.hazards, added, p)) continue;
       const all = this.scratch;
       all.length = 0;

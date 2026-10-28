@@ -140,7 +140,9 @@ export class AmbienceRenderer {
       tunnelAmount = Math.max(s.amt[1], bell);
       ribbonAmount *= Math.min(1, s.amt[0] + s.amt[1]);
       tunnelTint = worldColor(s, 'primary');
-      tunnelMix = s.variant === 'rift' || s.world === 2 ? 0 : 0.75;
+      // La Faille : facettes tirées vers le violet profond (la couleur d'origine, bleu lumineux, reste dans les arêtes) ; les autres univers : teinte de destination
+      // Sortie : l'énergie violette cède la place à la brume turquoise (la teinte de destination prend le relais pendant la traversée)
+      tunnelMix = s.world === 2 ? Math.max(AMBIENCE.world2.tunnelTint * s.amt[1], 0.75 * s.worldMix) : s.variant === 'rift' ? 0 : 0.75;
     }
 
     this.rift.draw(s, v);

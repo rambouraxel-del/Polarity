@@ -51,7 +51,9 @@ export class Shards {
 
   draw(s: AmbienceState, v: AmbienceView, dt: number, holeRadius: number): void {
     const cfg = AMBIENCE.shards;
-    const motion = (s.reduced ? AMBIENCE.reduced.motion : 1) * dt;
+    // La Faille : le passage calme du morceau ralentit tout ; une montée instable accélère (voir AMBIENCE.world2)
+    const w2 = s.world === 2 ? s.amt[1] : 0;
+    const motion = (s.reduced ? AMBIENCE.reduced.motion : 1) * dt * (1 - 0.55 * s.calm * w2);
     const far = v.halfDiag / v.scale;
     const mode: 1 | 2 = s.look > 0.5 ? 2 : 1;
     if (mode !== this.mode) {
@@ -90,7 +92,7 @@ export class Shards {
         scale = 0.45 + 0.55 * k;
       } else {
         // Phase 2 : naissent près du point de fuite et passent vers l'avant (croissance exponentielle du rayon)
-        const rate = (0.3 + 0.45 * s.bass + 0.8 * s.drop + 0.25 * s.build) * this.sp[i];
+        const rate = (0.3 + 0.45 * s.bass + 0.8 * s.drop + 0.25 * s.build + 0.45 * s.instab * w2) * this.sp[i];
         this.r[i] += (24 + this.r[i] * rate) * motion;
         this.a[i] += 0.05 * (1 + s.bass) * this.sp[i] * motion;
         if (this.r[i] > far * 1.05) {
@@ -116,7 +118,7 @@ export class Shards {
         .setPosition(x, y)
         .setRotation(this.rot[i])
         .setDisplaySize(px, px)
-        .setAlpha(alpha * (1 + 0.4 * s.beat))
+        .setAlpha(Math.min(1, alpha * (1 + 0.4 * s.beat + AMBIENCE.world2.perc.shardKick * s.perc * w2)))
         .setTint(lerpColor(0x6f8cff, lerpColor(AMBIENCE_COLORS.violet, AMBIENCE_COLORS.ice, 0.35), this.warm[i] * (0.3 + 0.5 * s.p.heat)));
     }
   }

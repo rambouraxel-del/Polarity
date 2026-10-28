@@ -202,6 +202,47 @@ export const AMBIENCE = {
     flow: 0.42,
   },
 
+  /**
+   * L'univers 2 « La Faille » : décor violet profond / magenta électrique / bleu lumineux, fortement réactif à la carte musicale du morceau
+   * (`config/world2.ts`) — basses, percussions, montées, impacts, passages calmes. Les valeurs ci-dessous REMPLACENT, en fondu (présence du décor), les
+   * paramètres de stade interpolés par le temps : l'ambiance suit la musique, pas la durée de survie. Décoratif seulement.
+   */
+  world2: {
+    params: {
+      stars: 0.6,
+      starSpeed: 0.8,
+      dust: 0.8,
+      nebula: 0.1,
+      riftOpen: 0.85,
+      riftGlow: 0.75,
+      beatGain: 1,
+      bassGain: 1,
+      ringChance: 0.8,
+      arcRate: 0.75,
+      debris: 0.7,
+      gridWarp: 0.8,
+      waveGain: 1,
+      heat: 0.85,
+      fissure: 0.6,
+      boltChance: 0.5,
+      waveChance: 0.45,
+    } as Readonly<Record<keyof typeof STAGE_PARAMS, number>>,
+    /** Faille centrale : ouverture et rayon de base (0–1 : même échelle que le noyau de la phase 1), vibration du noyau (unités monde, × basses), gain des pulsations. */
+    hole: { open: 0.85, core: 0.72, vibrate: 3.2, pulse: 2.6, instability: 0.9, /* part du cœur sombre qui reste visible malgré le tunnel */ darkness: 0.5 },
+    /** Part de teinte violette des facettes du tunnel (0 = couleurs d'origine, bleu lumineux). */
+    tunnelTint: 0.42,
+    /** Percussions : constante de décroissance de l'impulsion (s), force minimale et probabilité d'un éclair ramifié, secousse des fragments. */
+    perc: { decay: 0.09, boltFrom: 0.6, boltChance: 0.4, shardKick: 1.2 },
+    /** Impact (grand coup de la carte) : arcs maximum déclenchés ; le reste suit les réglages des passages forts. */
+    impact: { arcs: 4 },
+    /** Passage calme : lissage de l'apaisement (s). */
+    calmSmooth: 0.45,
+    /** Montée : part de l'instabilité (fissures qui s'étendent, particules plus vives). */
+    instability: { build: 0.85, intensity: 0.5, drop: 0.35, smooth: 0.3 },
+    /** Sortie : après le dernier coup, la faille se stabilise (éclairs et pulsations s'éteignent) en cette durée (fraction de la transition). */
+    stabilize: 0.3,
+  },
+
   /** Moments forts PRÉPARÉS (instants de survie active, indépendants de l'audio) : s'ajoutent aux réactions issues de l'analyse musicale. */
   script: [
     { at: 60, wave: 0.55, fissure: 0.4 },

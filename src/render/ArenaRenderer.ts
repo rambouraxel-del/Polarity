@@ -9,7 +9,7 @@ import type { GameSession } from '../game/session';
 import { SHARDS } from '../config/economy';
 import { trailById } from '../config/trails';
 import { laserAngle, pathX, pathY, projectileX, projectileY, sectorCenterAt, sectorHalfAt, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
-import { CLOUDS, CURRENTS, WORLDS } from '../config/worlds';
+import { CLOUDS, CURRENTS, WORLDS, WORLD_LIST } from '../config/worlds';
 import { WorldsField } from '../sim/field';
 import { AMBIENCE } from '../config/ambience';
 import { ORBIT, orbitLook, worldOrbitLook } from '../config/orbit';
@@ -99,11 +99,12 @@ function smoothstep01(x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-type WorldLook = 'rock' | 'orb' | 'gas' | 'debris' | 'ember';
+type WorldLook = 'rock' | 'orb' | 'shard' | 'gas' | 'debris' | 'ember';
 
 /** Apparence d'un projectile dans le voyage des univers (décoratif : la hitbox ne dépend que de `scale`). */
 function hazardLook(h: ProjectileHazard, world: number): WorldLook {
-  if (world === 2) return 'orb';
+  // La Faille : orbes d'énergie, et fragments dimensionnels pour les spirales fracturées
+  if (world === 2) return h.pattern === 'fractureSpiral' || h.pattern === 'waveSpiral' ? 'shard' : 'orb';
   if (world === 3) return (h.scale ?? 1) >= 1.5 ? 'gas' : 'debris';
   if (world >= 4) return 'ember';
   return 'rock';
@@ -559,6 +560,8 @@ export class ArenaRenderer {
     g.lineStyle(Math.max(1 * this.dpr, mix(a.lineWidth, b.lineWidth) * s), color, Math.min(1, mix(a.lineAlpha, b.lineAlpha) * k * fade));
     g.strokeCircle(x, y, r);
     if (fade < 0.98) return;
+    // La Faille : l'orbite est partiellement corrompue (tronçons qui se dédoublent et crépitent, plus marqués avec les basses et les montées)
+    if (inWorlds && amb && amb.world === 2 && amb.amt[1] > 0.5 && !this.reducedEffects) this.drawCorruption(amb, x, y, r);
     // Phase 2 : l'orbite reste un cercle parfait mais devient électrique (arcs fins qui crépitent le long du rail, plus vifs sur les battements)
     const arcs = inWorlds ? mix(a.arcs, b.arcs) : mix(a.arcs, b.arcs);
     if (arcs > 0.02 && !this.reducedEffects) {
@@ -577,6 +580,51 @@ export class ArenaRenderer {
         g.lineTo(x + Math.cos((a0 + a1) / 2) * (r - off * 0.6), y + Math.sin((a0 + a1) / 2) * (r - off * 0.6));
         g.lineTo(x + Math.cos(a1) * (r + off * 0.3), y + Math.sin(a1) * (r + off * 0.3));
         g.strokePath();
+      }
+    }
+  }
+
+  /**
+   * Orbite corrompue (La Faille) : quelques tronçons dérivent lentement le long du rail ; chacun se dédouble en deux traits décalés, bordés d'un liseré
+   * violet et magenta, et crépite sur les basses, les percussions et les montées. Décoratif : le rail reste un cercle parfait, la hitbox et la lisibilité
+   * du vaisseau ne dépendent pas de ces tronçons (opacité plafonnée). S'éteint pendant la stabilisation de la sortie.
+   */
+  private drawCorruption(amb: AmbienceState, x: number, y: number, r: number): void {
+    const g = this.g;
+    const s = this.scale;
+    const pal = WORLD_LIST[1].palette;
+    const calm = 1 - 0.6 * amb.calm;
+    const live = (1 - amb.stab) * calm;
+    if (live < 0.02) return;
+    const energy = Math.min(1, 0.35 + 0.5 * amb.bass + 0.4 * amb.instab + 0.5 * amb.perc);
+    const tick = Math.floor(this.clockNow * 12);
+    const count = 4 + (amb.instab > 0.5 ? 1 : 0);
+    for (let i = 0; i < count; i++) {
+      const dir = i % 2 ? 1 : -1;
+      const mid = i * (TAU / count) + this.clockNow * 0.035 * dir + 0.9 * Math.sin(this.clockNow * 0.11 + i * 2.3);
+      const halfLen = 0.16 + 0.16 * hash01(i, 4) + 0.08 * amb.instab;
+      const n = 14;
+      const off = (3 + 5 * energy) * s;
+      for (let side = -1; side <= 1; side += 2) {
+        g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), side < 0 ? pal.secondary : pal.accent, Math.min(0.8, (0.35 + 0.35 * energy) * live));
+        g.beginPath();
+        for (let j = 0; j <= n; j++) {
+          const a = mid - halfLen + (2 * halfLen * j) / n;
+          const edge = Math.sin((Math.PI * j) / n); // le tronçon se fond dans le rail à ses extrémités
+          const jit = (hash01(j + tick * 7 + i * 31, 13 + side) - 0.5) * 4 * s * energy;
+          const rr = r + side * off * edge + jit;
+          const px = x + Math.cos(a) * rr;
+          const py = y + Math.sin(a) * rr;
+          if (j === 0) g.moveTo(px, py);
+          else g.lineTo(px, py);
+        }
+        g.strokePath();
+      }
+      // Crépitement : un éclat blanc bref à une position qui change à 12 Hz
+      if (hash01(i + tick * 5, 29) < 0.45 + 0.4 * amb.perc) {
+        const a = mid + (hash01(i + tick * 3, 31) - 0.5) * 2 * halfLen;
+        g.lineStyle(Math.max(1.2 * this.dpr, 2 * s), 0xffffff, Math.min(0.85, (0.5 + 0.4 * amb.perc) * live));
+        g.lineBetween(x + Math.cos(a) * (r - 7 * s), y + Math.sin(a) * (r - 7 * s), x + Math.cos(a) * (r + 7 * s), y + Math.sin(a) * (r + 7 * s));
       }
     }
   }
@@ -1162,8 +1210,14 @@ export class ArenaRenderer {
 
   private drawSector(h: SectorHazard, t: number, clock: number): void {
     if (t < h.warnStart) return;
+    // La Faille : la fissure d'orbite et l'onde de rupture ont leur propre mise en scène (le secteur dangereux reste, lui, celui de la simulation)
+    if (h.pattern === 'orbitCrack' || h.pattern === 'crackOrb') {
+      this.drawCrack(h, t, clock);
+      return;
+    }
     const g = this.g;
     const s = this.scale;
+    const perc = this.reducedEffects ? 0 : this.ambience?.perc ?? 0;
     // Arc mouvant (univers) : centre qui dérive et largeur qui respire ; l'annonce montre aussi la largeur finale et le sens de dérive
     const center = sectorCenterAt(h, t);
     const half = sectorHalfAt(h, t);
@@ -1204,10 +1258,12 @@ export class ArenaRenderer {
       this.radial(a1, 22);
       g.lineStyle(Math.max(2 * this.dpr, 4 * s), color, 0.9);
       this.arcPath(R + 26, a0, a0 + span * k);
+      if (h.pattern === 'riftWave' || h.pattern === 'waveSpiral') this.drawWaveCharge(h, t, k, clock);
       return;
     }
-    // Actif : bande pleine épaisse + éclair en zigzag + bords épais
-    g.lineStyle(30 * s, color, 0.28);
+    if (h.pattern === 'riftWave' || h.pattern === 'waveSpiral') this.drawWaveBurst(h, t, clock);
+    // Actif : bande pleine épaisse + éclair en zigzag + bords épais (les impulsions de percussion renforcent la bande de l'arc rampant)
+    g.lineStyle(30 * s * (1 + 0.3 * perc), color, 0.28 + 0.22 * perc);
     this.arcPath(R, a0, a1);
     g.lineStyle(Math.max(2 * this.dpr, 3.5 * s), 0xffffff, 0.95);
     const span = a1 - a0;
@@ -1229,6 +1285,158 @@ export class ArenaRenderer {
     this.arcPath(R - 17, a0, a1);
     this.radial(a0, 24);
     this.radial(a1, 24);
+  }
+
+  /**
+   * Fissure d'orbite (La Faille) : l'annonce montre l'emprise finale (contours pointillés) et la fissure qui s'ouvre peu à peu depuis son centre ;
+   * pendant la phase active, vide sombre bordé d'arêtes lumineuses et d'étincelles. La zone dangereuse est exactement l'emprise (secteur de la simulation).
+   * Pendant une montée du morceau, la fissure s'élargit (`morph`) : le contour final est tracé d'emblée.
+   */
+  private drawCrack(h: SectorHazard, t: number, clock: number): void {
+    const g = this.g;
+    const s = this.scale;
+    const color = COLORS.sector;
+    const center = sectorCenterAt(h, t);
+    const half = sectorHalfAt(h, t);
+    const finalHalf = h.morph ? Math.max(half, h.morph.halfTo) : half;
+    const warning = t < h.activeStart;
+    const k = warning ? smoothstep01((t - h.warnStart) / Math.max(0.001, h.activeStart - h.warnStart)) : 1;
+    const perc = this.reducedEffects ? 0 : this.ambience?.perc ?? 0;
+    if (warning) {
+      // Emprise finale : contours pointillés de part et d'autre de l'orbite, bords radiaux, jauge
+      const pulse = this.reducedEffects ? 0.7 : 0.55 + 0.25 * Math.sin(clock * 10);
+      g.lineStyle(Math.max(1.5 * this.dpr, 2.5 * s), color, pulse);
+      const span = 2 * finalHalf;
+      const n = Math.max(3, Math.round(span / 0.07));
+      for (let i = 0; i < n; i += 2) {
+        const b0 = center - finalHalf + (span * i) / n;
+        const b1 = center - finalHalf + (span * (i + 1)) / n;
+        this.arcPath(R + 16, b0, b1);
+        this.arcPath(R - 16, b0, b1);
+      }
+      this.radial(center - finalHalf, 22);
+      this.radial(center + finalHalf, 22);
+      g.lineStyle(Math.max(2 * this.dpr, 4 * s), color, 0.9);
+      this.arcPath(R + 26, center - finalHalf, center - finalHalf + span * k);
+    }
+    // Fissure : ligne brisée le long de l'orbite, ouverte du centre vers les bords pendant l'annonce (k), pleinement ouverte ensuite
+    const reach = warning ? half * k : half;
+    const N = Math.max(8, Math.round((2 * reach) / 0.045));
+    if (reach < 0.02) return;
+    const gap = (3 + 9 * k) * s;
+    const xs0: number[] = [];
+    const ys0: number[] = [];
+    const xs1: number[] = [];
+    const ys1: number[] = [];
+    const seed = h.id * 13;
+    for (let i = 0; i <= N; i++) {
+      const a = center - reach + (2 * reach * i) / N;
+      const edge = 1 - Math.pow(Math.abs(i / N - 0.5) * 2, 2) * 0.55; // se resserre vers les bouts
+      const j0 = (hash01(i + seed, 5) - 0.5) * 8 * s;
+      const j1 = (hash01(i + seed, 9) - 0.5) * 8 * s;
+      const r0 = R * s + gap * edge + j0;
+      const r1 = R * s - gap * edge + j1;
+      xs0.push(this.sx(0) + Math.cos(a) * r0);
+      ys0.push(this.sy(0) + Math.sin(a) * r0);
+      xs1.push(this.sx(0) + Math.cos(a) * r1);
+      ys1.push(this.sy(0) + Math.sin(a) * r1);
+    }
+    // Vide sombre entre les deux lèvres (en actif : franchement ouvert)
+    g.fillStyle(0x07020f, warning ? 0.55 * k : 0.82);
+    for (let i = 0; i < N; i++) {
+      g.fillTriangle(xs0[i], ys0[i], xs0[i + 1], ys0[i + 1], xs1[i], ys1[i]);
+      g.fillTriangle(xs1[i], ys1[i], xs0[i + 1], ys0[i + 1], xs1[i + 1], ys1[i + 1]);
+    }
+    // Lueur de la fissure puis arêtes vives
+    g.lineStyle(Math.max(2 * this.dpr, (warning ? 10 : 18) * s * (1 + 0.3 * perc)), color, (warning ? 0.16 * k : 0.3) + 0.2 * perc);
+    g.beginPath();
+    g.moveTo(xs0[0], ys0[0]);
+    for (let i = 1; i <= N; i++) g.lineTo(xs0[i], ys0[i]);
+    g.strokePath();
+    g.beginPath();
+    g.moveTo(xs1[0], ys1[0]);
+    for (let i = 1; i <= N; i++) g.lineTo(xs1[i], ys1[i]);
+    g.strokePath();
+    g.lineStyle(Math.max(1.5 * this.dpr, 3 * s), warning ? color : 0xffffff, warning ? 0.85 : 0.95);
+    for (const [xs, ys] of [[xs0, ys0], [xs1, ys1]] as const) {
+      g.beginPath();
+      g.moveTo(xs[0], ys[0]);
+      for (let i = 1; i <= N; i++) g.lineTo(xs[i], ys[i]);
+      g.strokePath();
+    }
+    if (!warning) {
+      // Étincelles qui jaillissent des lèvres (6 Hz, plus nombreuses sur les percussions)
+      if (!this.reducedEffects) {
+        const tick = Math.floor(clock * 6);
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0xffffff, 0.9);
+        for (let i = 1; i < N; i += 2) {
+          if (hash01(i + tick * 31 + seed, 11) > 0.35 + 0.4 * perc) continue;
+          const dir = hash01(i + tick, 17) > 0.5 ? 1 : -1;
+          const a = center - reach + (2 * reach * i) / N;
+          const len = (8 + 14 * hash01(i + tick, 23)) * s;
+          const bx = dir > 0 ? xs0[i] : xs1[i];
+          const by = dir > 0 ? ys0[i] : ys1[i];
+          g.lineBetween(bx, by, bx + Math.cos(a) * len * dir, by + Math.sin(a) * len * dir);
+        }
+      }
+      this.radial(center - reach, 24);
+      this.radial(center + reach, 24);
+    }
+  }
+
+  /** Onde de rupture, charge : la faille centrale accumule de l'énergie (anneaux qui se contractent, noyau qui grossit) et un filet tendu vise le secteur annoncé. */
+  private drawWaveCharge(h: SectorHazard, t: number, k: number, clock: number): void {
+    const g = this.g;
+    const s = this.scale;
+    const x0 = this.sx(0);
+    const y0 = this.sy(0);
+    const center = sectorCenterAt(h, t);
+    const left = h.activeStart - t;
+    const burst = smoothstep01(1 - left / 0.5); // dernière demi-seconde : l'énergie se concentre
+    if (!this.reducedEffects) {
+      for (let i = 0; i < 3; i++) {
+        const ph = (clock * 0.9 + i / 3) % 1;
+        const rr = (R * 0.78 * (1 - ph) + 14) * s;
+        g.lineStyle(Math.max(1 * this.dpr, 2 * s), COLORS.sector, 0.5 * k * ph);
+        g.strokeCircle(x0, y0, rr);
+      }
+    }
+    // Noyau de charge
+    g.fillStyle(COLORS.sector, 0.2 + 0.3 * k);
+    g.fillCircle(x0, y0, (18 + 40 * k + 20 * burst) * s);
+    g.fillStyle(0xffffff, 0.35 + 0.55 * burst);
+    g.fillCircle(x0, y0, (7 + 20 * k + 16 * burst) * s);
+    // Filet pointillé vers le secteur : s'allonge avec la charge
+    g.lineStyle(Math.max(2 * this.dpr, 3.2 * s), COLORS.sector, 0.45 + 0.45 * k);
+    const len = (R - 30) * k;
+    const n = 10;
+    for (let i = 0; i < n; i += 2) {
+      const r0 = (len * i) / n + 24;
+      const r1 = (len * (i + 1)) / n + 24;
+      g.lineBetween(x0 + Math.cos(center) * r0 * s, y0 + Math.sin(center) * r0 * s, x0 + Math.cos(center) * r1 * s, y0 + Math.sin(center) * r1 * s);
+    }
+  }
+
+  /** Onde de rupture, déclenchement : rayon du noyau vers le secteur, anneau de choc ; le secteur dangereux (qui s'élargit) est tracé ensuite. */
+  private drawWaveBurst(h: SectorHazard, t: number, clock: number): void {
+    const g = this.g;
+    const s = this.scale;
+    const x0 = this.sx(0);
+    const y0 = this.sy(0);
+    const center = sectorCenterAt(h, t);
+    const age = t - h.activeStart;
+    const life = Math.max(0.001, h.end - h.activeStart);
+    const fade = 1 - smoothstep01(age / life);
+    g.lineStyle(Math.max(3 * this.dpr, 9 * s), 0xffffff, 0.85 * fade);
+    g.lineBetween(x0, y0, x0 + Math.cos(center) * (R - 18) * s, y0 + Math.sin(center) * (R - 18) * s);
+    g.lineStyle(Math.max(2 * this.dpr, 22 * s), COLORS.sector, 0.3 * fade);
+    g.lineBetween(x0, y0, x0 + Math.cos(center) * (R - 18) * s, y0 + Math.sin(center) * (R - 18) * s);
+    if (!this.reducedEffects) {
+      const ring = smoothstep01(age / 0.6);
+      g.lineStyle(Math.max(2 * this.dpr, 5 * s), 0xffffff, 0.6 * (1 - ring));
+      g.strokeCircle(x0, y0, (20 + (R - 20) * ring) * s);
+    }
+    void clock;
   }
 
   /**
@@ -1583,6 +1791,32 @@ export class ArenaRenderer {
       }
       f.fillStyle(0xffffff, 0.95);
       f.fillCircle(X, Y, hr * 0.5 * s);
+      this.g.lineStyle(lw, COLORS.projectile, 0.95);
+      this.g.strokeCircle(X, Y, hr * s);
+      return;
+    }
+    if (look === 'shard') {
+      // Fragment dimensionnel : cristal facetté (violet profond, arêtes bleu lumineux) qui tourne, traînée en spirale ; contour corail = hitbox
+      const rot = clock * 3 + h.id * 1.7;
+      for (let i = 1; i <= 4; i++) {
+        const bx = projectileX(h, t - i * 0.045);
+        const by = projectileY(h, t - i * 0.045);
+        f.fillStyle(i % 2 ? 0x8a3dff : 0x3d6bff, 0.26 / i);
+        f.fillCircle(this.sx(bx), this.sy(by), hr * (1.05 - i * 0.17) * s);
+      }
+      f.fillStyle(0x9a4dff, 0.16);
+      f.fillCircle(X, Y, hr * 2.2 * s);
+      const rr = hr * 1.2 * s;
+      const px = (k: number, q: number): number => X + Math.cos(rot + k) * rr * q;
+      const py = (k: number, q: number): number => Y + Math.sin(rot + k) * rr * q;
+      this.g.fillStyle(0x2a0f55, 0.92);
+      this.g.fillTriangle(px(0, 1), py(0, 1), px(2.1, 0.8), py(2.1, 0.8), px(4.2, 0.9), py(4.2, 0.9));
+      this.g.fillStyle(0x5a2dd0, 0.9);
+      this.g.fillTriangle(px(0, 1), py(0, 1), px(2.1, 0.8), py(2.1, 0.8), X, Y);
+      this.g.lineStyle(Math.max(1.2 * this.dpr, 1.8 * s), 0x8fb0ff, 0.95);
+      this.g.lineBetween(px(0, 1), py(0, 1), X, Y);
+      this.g.lineBetween(px(2.1, 0.8), py(2.1, 0.8), X, Y);
+      this.g.lineBetween(px(4.2, 0.9), py(4.2, 0.9), X, Y);
       this.g.lineStyle(lw, COLORS.projectile, 0.95);
       this.g.strokeCircle(X, Y, hr * s);
       return;

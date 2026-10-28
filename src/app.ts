@@ -5,7 +5,9 @@ import { backupRecords, clearRecords, hasRecords, snapshotRecords, RECORDS_BACKU
 import type { QualityTier } from './config/ambience';
 import { Music, type MusicPosition } from './audio/music';
 import { WorldMusic } from './audio/worldMusic';
-import { WORLD_LIST } from './config/worlds';
+import { MusicSyncGuard } from './audio/syncGuard';
+import { WORLD_LIST, localTime } from './config/worlds';
+import { WORLD2_AT } from './config/world2';
 import { WorldsField } from './sim/field';
 import { WORLDS_RHYTHM } from './config/worldMusic';
 import { AmbienceDirector, QualityGovernor } from './ambience/director';
@@ -148,6 +150,7 @@ export class App {
   /** Musique de partie : partage le contexte audio, le volume et la sourdine de `sfx`. */
   readonly music = new Music({ context: () => this.sfx.context, output: () => this.sfx.output });
   /** Musique du voyage des univers (mêmes buffers, même sortie que `music`). */
+  private readonly syncGuard = new MusicSyncGuard();
   readonly worldMusic = new WorldMusic({ context: () => this.sfx.context, output: () => this.sfx.output }, () => this.music.decoded);
   private readonly hud = new Hud();
   /** Ambiance évolutive de la Survie : position musicale entendue → carte musicale → directeur → rendu. */
@@ -302,7 +305,22 @@ export class App {
           nextBeat: s?.worlds ? WORLDS_RHYTHM.nextBeat(t) - t : NaN,
           reacting: f.active,
           particles: this.renderer?.particleCount ?? 0,
+          perc: f.perc ?? 0,
+          calm: f.calm ?? 0,
+          // Univers 2 : temps de jeu local − temps local entendu (montage + calage) ; positif = le jeu est en avance sur le son
+          drift: s?.worlds && s.sim.world === 2 && s.transitLeft === 0 && this.musicPos.track === 'w2' ? (localTime(t) - (this.musicPos.time + WORLD2_AT)) * 1000 : NaN,
         };
+      },
+      resyncMusic: () => {
+        const s = this.session;
+        if (!s?.worlds || s.phase !== 'running') return;
+        const go = (): void => {
+          const c = this.session;
+          if (c === s && c.phase === 'running') this.worldMusic.startGame(c.sim.world, localTime(c.sim.time));
+        };
+        // Saut direct dans l'univers 2 : le morceau n'est pas encore décodé, on l'attend (rien ne bloque le jeu)
+        if (s.sim.world === 2 && !this.music.decoded.world2) void this.music.preloadWorld2().then(go);
+        else go();
       },
       persist: () => this.persist(false),
       trigger: (kind) => this.ambience.trigger(kind),
@@ -586,7 +604,9 @@ export class App {
       // Musique de phase 2 : décodée tardivement (budget mémoire) et boucle programmée sur l'horloge audio (aucun minuteur)
       if (session.config.mode === 'survival') {
         // Univers : le morceau de l'univers 2 est décodé tôt (il entre pendant la première transition, à 120 s)
-        if (session.sim.time >= (session.worlds ? 20 : PHASE2_PRELOAD_AT)) void this.music.preloadPhase2();
+        if (session.worlds) {
+          if (session.sim.time >= 20) void this.music.preloadWorld2();
+        } else if (session.sim.time >= PHASE2_PRELOAD_AT) void this.music.preloadPhase2();
         if (!session.worlds) this.music.maintain();
       }
     }
@@ -615,7 +635,20 @@ export class App {
       this.renderer.trailId = this.isCampaignRun() ? DEFAULT_TRAIL_ID : activeTrailId(this.save.trail);
       this.renderer.ambience = this.updateAmbience(realDt);
     }
+    if (session) this.guardMusicSync(session, realDt);
     this.renderer?.draw(this.session, this.activeSkin(), realDt, this.clock);
+  }
+
+  /**
+   * La Faille : si le jeu prend durablement du retard sur la musique (appareil très lent), la musique est recalée sur le temps de jeu (voir `MusicSyncGuard`).
+   * Jamais pendant une pause, une transition, un saut de test ou sans musique entendue.
+   */
+  private guardMusicSync(s: GameSession, realDt: number): void {
+    let drift = NaN;
+    if (s.worlds && s.sim.world === 2 && s.phase === 'running' && s.transitLeft === 0 && s.testRate === 1 && !s.testFrozen && this.musicPos.track === 'w2' && this.musicPos.playing) {
+      drift = localTime(s.sim.time) - (this.musicPos.time + WORLD2_AT);
+    }
+    if (this.syncGuard.update(drift, realDt)) this.worldMusic.startGame(2, localTime(s.sim.time));
   }
 
   /** Ambiance de la Survie et du défi quotidien (décorative) : jamais en campagne ni en défi classique. */
@@ -725,6 +758,7 @@ export class App {
     this.renderer?.clearEffects();
     this.ambience.reset();
     this.musicSync.reset();
+    this.syncGuard.reset();
     this.hud.reset();
     this.eventKey = '';
     this.creditedShards.clear();

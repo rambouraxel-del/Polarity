@@ -60,7 +60,9 @@ export class Particles {
 
   draw(s: AmbienceState, v: AmbienceView, dt: number): void {
     this.farR = v.halfDiag / v.scale;
-    const motion = (s.reduced ? AMBIENCE.reduced.motion : 1) * dt;
+    // La Faille : passage calme = particules qui ralentissent ; montée instable = particules plus vives
+    const w2 = s.world === 2 ? s.amt[1] : 0;
+    const motion = (s.reduced ? AMBIENCE.reduced.motion : 1) * dt * (1 - 0.55 * s.calm * w2) * (1 + 0.6 * s.instab * w2);
     const m = AMBIENCE.motion;
     const g = this.g;
     g.clear();
@@ -71,7 +73,7 @@ export class Particles {
     const n = Math.min(MAX_DUST, Math.ceil(count));
     const gp = s.transit > 0 ? Math.min(1, s.transit / AMBIENCE.transit.engulfBy) : 0;
     const infall = m.dustInfall * (1 + s.intensity + s.build + s.drop * 3 + 2.2 * s.core + AMBIENCE.transit.pull * 14 * gp * gp);
-    const bright = 0.35 * (0.6 + 0.9 * s.beat + 0.4 * s.build + 0.5 * s.drop) * (1 + 2.2 * gp);
+    const bright = 0.35 * (0.6 + 0.9 * s.beat + 0.4 * s.build + 0.5 * s.drop + 0.5 * s.perc * w2) * (1 + 2.2 * gp);
     const flow = s.look > 0.5;
     if (flow !== this.flow) {
       this.flow = flow;

@@ -33,8 +33,10 @@ export interface DevHost {
   startWorlds(bonus: boolean): void;
   /** Affichage de contrôle des univers : secteurs de vitesse, hitboxes, trajectoires prévues. */
   worldOverlay(on: boolean): void;
-  /** Diagnostic audio et ambiance (lecture seule). */
-  diag(): { track: string; pos: number; beat: number; bass: number; intensity: number; drop: number; build: number; nextBeat: number; reacting: boolean; particles: number };
+  /** Diagnostic audio et ambiance (lecture seule). `drift` : écart (ms) entre le temps de jeu et la position musicale ENTENDUE de l'univers 2 (NaN ailleurs). */
+  diag(): { track: string; pos: number; beat: number; bass: number; intensity: number; drop: number; build: number; nextBeat: number; reacting: boolean; particles: number; drift: number; perc: number; calm: number };
+  /** Recale la musique de l'univers en cours sur le temps de jeu (après un saut de test). */
+  resyncMusic(): void;
   persist(): void;
   /** Effet décoratif de l'ambiance. */
   trigger(kind: 'bolt' | 'wave' | 'ring' | 'fissure'): void;
@@ -149,7 +151,7 @@ export class DevTools {
     const s = this.s();
     const speed = s ? `×${s.sim.speedFactorNow.toFixed(2)}` : '—';
     return `${escapeHtml(d.track)} ${d.pos.toFixed(2)} s · prochain battement ${Number.isFinite(d.nextBeat) ? `${d.nextBeat.toFixed(2)} s` : '—'} · ${d.reacting ? 'réaction réelle' : 'aucune réaction (musique absente ou muette)'}<br>
-      battement ${d.beat.toFixed(2)} · basses ${d.bass.toFixed(2)} · intensité ${d.intensity.toFixed(2)} · montée ${d.build.toFixed(2)} · passage fort ${d.drop.toFixed(2)}<br>vitesse réelle du vaisseau ${speed} · particules ${d.particles}`;
+      battement ${d.beat.toFixed(2)} · basses ${d.bass.toFixed(2)} · intensité ${d.intensity.toFixed(2)} · montée ${d.build.toFixed(2)} · passage fort ${d.drop.toFixed(2)} · percussion ${d.perc.toFixed(2)} · calme ${d.calm.toFixed(0)}<br>vitesse réelle du vaisseau ${speed} · particules ${d.particles} · écart jeu/son ${Number.isFinite(d.drift) ? `${d.drift >= 0 ? '+' : ''}${d.drift.toFixed(0)} ms` : '—'}`;
   }
 
   private live(): string {
@@ -334,6 +336,7 @@ export class DevTools {
     }
     if (!s) return;
     if (w > 1) this.skipWorld(s, worldStart(w - 1) + 0.05);
+    this.host.resyncMusic();
     this.message = `Univers ${w} — ${WORLD_LIST[w - 1]?.name ?? ''} (partie de test).`;
   }
 
@@ -344,7 +347,8 @@ export class DevTools {
     }
     s.markTest();
     s.skipTo(target);
-    this.message = `Saut à ${formatTime(s.sim.time)} (transition de ${WORLDS.transition} s traversée sans rendu ni son).`;
+    this.host.resyncMusic();
+    this.message = `Saut à ${formatTime(s.sim.time)} (transition de ${WORLDS.transition} s traversée sans rendu ni son ; musique recalée).`;
   }
 
   /** Saut dans le temps : repart d'une nouvelle partie de test quand la cible est dans le passé. */

@@ -18,6 +18,7 @@
     "e2e": "node scripts/e2e.mjs",
     "check": "npm run typecheck && npm run test && npm run build",
     "perf": "node scripts/perf.mjs",
+    "perf:worlds": "node scripts/perf-worlds.mjs",
     "sprites": "python3 scripts/process-sprites.py",
     "music-map": "python3 -I scripts/analyze-music.py",
     "cost": "vite-node scripts/cost.ts",

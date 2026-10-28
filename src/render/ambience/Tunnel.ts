@@ -58,7 +58,8 @@ export class Tunnel {
     const cfg = AMBIENCE.tunnel;
     const motion = s.reduced ? AMBIENCE.reduced.motion : 1;
     const m = cfg.music;
-    const boost = 1 + m.bass * s.bass + m.build * s.build + m.drop * s.drop + m.intensity * s.intensity;
+    const w2 = s.world === 2 ? s.amt[1] : 0;
+    const boost = (1 + m.bass * s.bass + m.build * s.build + m.drop * s.drop + m.intensity * s.intensity + 0.5 * s.instab * w2) * (1 - 0.6 * s.calm * w2);
     this.base = (this.base + cfg.speed * boost * motion * dt) % 1;
     let resort = n !== this.count;
     this.count = n;

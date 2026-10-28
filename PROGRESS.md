@@ -1,5 +1,14 @@
 # Suivi d'avancement
 
+## La Faille (univers 2) — musique « Portal Surge », cinq attaques, décor réactif (branche `feat/survie-univers`, NON fusionnée, rien publié ni déployé)
+- [x] Analyse hors ligne du morceau fourni (`scripts/analyze-world2.py` → `polar-rift-world2.json`) : 277 battements, 495 percussions, 16 impacts, 5 montées, 6 calmes, basses/intensité ; contrôle de synchro : 96 % des battements forts à ± 25 ms
+- [x] Montage sur 120 s (phrase de 3 mesures répétée, raccord sur deux battements réels, fondu 80 ms) ; dernier coup sec calé sur l'ouverture de la faille de sortie ; contrôle indépendant du montage rendu (`scripts/check-world2.py`) : OK
+- [x] Lecteur (`WorldMusic.playMontage`), carte lue à la position entendue (`MusicSync` : percussions, force des impacts, calmes), garde de synchronisation jeu/musique, saut de test recalé
+- [x] Cinq attaques (fissure d'orbite, arc rampant, orbe de faille, onde de rupture sur grand impact, spirale fracturée) + deux combinaisons ; anciennes attaques de l'univers retirées ; calendrier guidé par la structure du morceau
+- [x] Décor : déchirure centrale pulsante au cœur sombre, orbite corrompue, fissures qui s'étendent, éclairs sur percussions, calme apaisé, sortie stabilisée vers la brume turquoise ; mises en scène des attaques (fissure, onde, fragments)
+- [x] 982 tests, build, e2e navigateur (`scripts/e2e-world2.mjs` : entrée, pause/reprise, silencieux, saut, sortie), perf mobile émulée (`npm run perf:worlds`)
+- [ ] Validation par le propriétaire sur téléphone (ressenti, lisibilité, calage perçu)
+
 ## Voyage à travers les univers — refonte de la Survie (branche `feat/survie-univers`, NON fusionnée, rien publié ni déployé)
 - [x] Architecture : `config/worlds.ts` (4 univers × 120 s, transition 4 s hors temps), session (gel, une transition par frontière, pause/arrière-plan/reprise), mode isolé `RunConfig.worlds` = partie de test
 - [x] Univers 1 et 2 (motifs, décor, orbite, faille violette) ; univers 3 Mer nébulaire (nuages lents, ondes, bulles d'ombre, gaz/débris) ; univers 4 Monde des vents (hémisphères 120 %/50 %, inversions, tourbillons, rafales, braises) ; prolongement plafonné après 480 s

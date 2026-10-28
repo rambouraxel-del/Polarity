@@ -3,6 +3,7 @@ import introUrl from '../assets/audio/polar-rift-intro.mp3';
 import loopUrl from '../assets/audio/polar-rift-loop.mp3';
 import outroUrl from '../assets/audio/polar-rift-outro.mp3';
 import phase2Url from '../assets/audio/polar-rift-phase2.mp3';
+import world2Url from '../assets/audio/polar-rift-world2.mp3';
 
 /**
  * Musique de partie : intro (une fois) → boucle (aussi longtemps que la partie dure) → outro (à la fin de la partie).
@@ -12,7 +13,7 @@ import phase2Url from '../assets/audio/polar-rift-phase2.mp3';
  * Voir docs/MUSIQUE.md.
  */
 export const MUSIC = {
-  urls: { intro: introUrl, loop: loopUrl, outro: outroUrl, phase2: phase2Url },
+  urls: { intro: introUrl, loop: loopUrl, outro: outroUrl, phase2: phase2Url, world2: world2Url },
   /** Durée de lecture de l'intro (s). */
   introDuration: timing.files.intro.decodedDurationSeconds,
   /** Région en boucle du fichier de boucle (s dans le fichier décodé). */

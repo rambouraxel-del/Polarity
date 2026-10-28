@@ -71,6 +71,14 @@ export interface AmbienceState {
   user: number;
   /** Passage calme de la musique (0 = énergique, 1 = très calme). */
   calm: number;
+  /**
+   * La Faille (univers 2), lu par le rendu : impulsion de percussion (0–1, décroît en ~0,1 s), instabilité (montées et passages intenses : fissures qui
+   * s'étendent), stabilisation à la sortie (0 → 1 après le dernier coup : éclairs et pulsations s'éteignent), gain de pulsation de la faille centrale.
+   */
+  perc: number;
+  instab: number;
+  stab: number;
+  pulse: number;
   /** Demandes de l'image : force d'une fissure (0 = aucune). */
   spawnFissure: number;
   /** Demandes de l'image : force d'un nouvel anneau (0 = aucun), d'une onde (passage fort), nombre d'arcs. */
@@ -116,6 +124,10 @@ export class AmbienceDirector {
       look: 0,
       user: 1,
       calm: 0,
+      perc: 0,
+      instab: 0,
+      stab: 0,
+      pulse: 1,
       spawnFissure: 0,
       spawnRing: 0,
       spawnWave: 0,
@@ -144,6 +156,9 @@ export class AmbienceDirector {
     s.core = 0;
     s.look = 0;
     s.calm = 0;
+    s.perc = s.instab = s.stab = 0;
+    s.pulse = 1;
+    this.w2Open = 0;
     s.world = 0;
     s.worldTo = 0;
     s.worldMix = 0;
@@ -162,6 +177,8 @@ export class AmbienceDirector {
   private manual: ('bolt' | 'wave' | 'ring' | 'fissure')[] = [];
   /** Passage calme de l'image précédente (détection de la reprise). */
   private prevCalm = 0;
+  /** La Faille : ouverture de la faille centrale, lissée (elle se rouvre doucement à l'émergence). */
+  private w2Open = 0;
 
   /**
    * @param survival temps de survie actif (s) — la pause l'arrête
@@ -169,6 +186,8 @@ export class AmbienceDirector {
    * @param music image musicale courante
    * @param intensity réglage du joueur (0–1) : 1 = ambiance complète ; 0 = ciel étoilé seul (ni faille, ni nébuleuses, ni réaction musicale)
    */
+  private lastDt = 0;
+
   update(
     survival: number,
     dt: number,
@@ -179,6 +198,7 @@ export class AmbienceDirector {
   ): AmbienceState {
     const s = this.state;
     s.reduced = reduced;
+    this.lastDt = dt;
     s.spawnRing = s.spawnWave = s.spawnArcs = s.spawnFissure = 0;
     for (const k of this.manual.splice(0)) {
       if (k === 'bolt') s.spawnArcs += 2;
@@ -199,6 +219,11 @@ export class AmbienceDirector {
     if (ph.world) this.worldLook(survival, ph.transit, ph.world);
     else s.world = 0;
     for (const k of PARAM_KEYS) s.p[k] = paramAt(k, s.stage);
+    // La Faille : les paramètres du stade sont remplacés, en fondu avec la présence du décor, par ceux du morceau
+    if (s.world > 0 && s.amt[1] > 0) {
+      const w2 = AMBIENCE.world2.params;
+      for (const k of PARAM_KEYS) s.p[k] += (w2[k] - s.p[k]) * s.amt[1];
+    }
     const user = clamp01(intensity);
     s.user = user;
     if (user < 1) for (const k of USER_SCALED) s.p[k] *= user;
@@ -228,7 +253,10 @@ export class AmbienceDirector {
 
     // Passages calmes de la musique : l'ambiance se calme aussi (jamais sans musique : elle ne réagit alors à rien)
     const cm = AMBIENCE.calm;
-    s.calm = music.active ? 1 - smoothstep((s.intensity - cm.low) / (cm.high - cm.low)) : 0;
+    if (music.active && music.track === 'w2') {
+      // Carte détaillée : le calme est celui du morceau (pas une estimation par seuil d'intensité), apaisé en douceur (figé en pause)
+      if (dt > 0) s.calm += ((music.calm ?? 0) - s.calm) * (1 - Math.exp(-dt / AMBIENCE.world2.calmSmooth));
+    } else s.calm = music.active ? 1 - smoothstep((s.intensity - cm.low) / (cm.high - cm.low)) : 0;
     // Univers : les décors des mondes 3 et 4 éteignent les couches de l'espace d'origine (nébuleuses, poussières, arcs)
     if (s.world > 0) {
       const legacy = Math.min(1, s.amt[0] + s.amt[1]);
@@ -286,6 +314,16 @@ export class AmbienceDirector {
     const forming = last ? 0 : smoothstep((local - (WORLDS.span - 25)) / 25);
     s.core = transit > 0 ? 1 : forming;
     s.holeOpen = transit > 0 ? 1 - smoothstep((transit - tl.cross) / (1 - tl.cross)) : forming;
+    // La Faille : la déchirure centrale est là pendant tout l'univers (elle se rouvre doucement à l'émergence) et ne fait que grandir vers la sortie
+    const w2 = AMBIENCE.world2;
+    const inW2 = w.index === 2 && transit === 0;
+    this.w2Open += ((inW2 ? 1 : 0) - this.w2Open) * (1 - Math.exp(-this.lastDt / 1.1));
+    if (w.index === 2 && transit === 0) {
+      s.holeOpen = Math.max(s.holeOpen, w2.hole.open * this.w2Open);
+      s.core = Math.max(s.core, w2.hole.core * this.w2Open);
+    }
+    // Sortie : la faille se stabilise après le dernier coup (les éclairs et les pulsations s'éteignent avant l'engloutissement)
+    s.stab = w.index === 2 && transit > 0 ? smoothstep(transit / w2.stabilize) : 0;
     const def = WORLD_LIST[w.index - 1];
     s.variant = transit > 0 ? def.transition.variant : null;
     s.riftFrom = def.transition.from;
@@ -308,6 +346,19 @@ export class AmbienceDirector {
 
     // Battements significatifs : impulsion qui décroît vite
     s.beat *= Math.exp(-dt / cfg.beatDecay);
+    // La Faille : percussions cartographiées (éclairs), instabilité (montées, passages intenses), gain de pulsation de la faille, stabilisation à la sortie
+    const w2 = AMBIENCE.world2;
+    const inW2 = s.world === 2 && s.amt[1] > 0.5;
+    s.pulse = inW2 ? 1 + (w2.hole.pulse - 1) * s.amt[1] * (1 - s.stab) : 1;
+    s.perc *= Math.exp(-dt / w2.perc.decay);
+    const perc = music.perc ?? 0;
+    if (perc > 0 && s.amt[1] > 0.5) {
+      s.perc = Math.max(s.perc, perc * (1 - s.stab));
+      if ((!reduced || AMBIENCE.reduced.arcs) && perc >= w2.perc.boltFrom && this.rand() < w2.perc.boltChance * perc * (1 - 0.9 * s.calm) * (1 - s.stab)) s.spawnArcs += 1;
+    }
+    const ins = w2.instability;
+    const instTarget = inW2 && music.active ? clamp01(ins.build * s.build + ins.intensity * Math.max(0, s.intensity - 0.35) + ins.drop * s.drop) * (1 - s.stab) : 0;
+    s.instab += (instTarget - s.instab) * (1 - Math.exp(-dt / ins.smooth));
     // Passage calme : impulsions réduites, anneaux et fissures rares
     const quiet = 1 - AMBIENCE.calm.reaction * s.calm;
     const waves = !reduced || AMBIENCE.reduced.waves;
@@ -339,14 +390,17 @@ export class AmbienceDirector {
     // Passage fort : impulsion longue, onde, arcs
     s.drop *= Math.exp(-dt / cfg.dropDecay);
     if (music.drop) {
-      s.drop = Math.max(s.drop, s.p.waveGain * reaction);
-      if (waves) s.spawnWave = s.p.waveGain;
-      if (arcs && s.p.arcRate > 0) s.spawnArcs += 3;
+      // Carte détaillée : l'ampleur de la décharge est proportionnelle à la force de l'impact (jamais la même gifle pour un petit coup et pour le grand)
+      const k = music.impact !== undefined && music.impact > 0 ? 0.45 + 0.55 * music.impact : 1;
+      s.drop = Math.max(s.drop, s.p.waveGain * reaction * k);
+      if (waves) s.spawnWave = s.p.waveGain * k;
+      if (arcs && s.p.arcRate > 0) s.spawnArcs += music.impact !== undefined && music.impact > 0 ? Math.round(1 + (w2.impact.arcs - 1) * music.impact) : 3;
+      if (s.world === 2 && s.stab === 0) s.spawnFissure = Math.max(s.spawnFissure, 0.8 + 0.2 * (music.impact ?? 1));
     }
 
     // Arcs occasionnels : plus fréquents avec l'intensité, les montées et les passages forts
     if (music.active && (!reduced || AMBIENCE.reduced.arcs)) {
-      const rate = s.p.arcRate * (1 + s.intensity * 0.6 + s.build + s.drop * 2) * (1 - 0.85 * s.calm) * (1 + 0.8 * s.look);
+      const rate = s.p.arcRate * (1 + s.intensity * 0.6 + s.build + s.drop * 2) * (1 - 0.85 * s.calm) * (1 + 0.8 * s.look) * (1 - s.stab);
       if (this.rand() < rate * dt) s.spawnArcs += 1;
     }
   }

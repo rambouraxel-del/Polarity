@@ -28,12 +28,14 @@ export interface MusicBuffers {
   outro?: AudioBuffer;
   /** Musique de la phase 2 (décodée tardivement, une seule fois). */
   phase2?: AudioBuffer;
+  /** Musique de l'univers 2 « La Faille » du voyage des univers (décodée tôt dans une partie du voyage, une seule fois). */
+  world2?: AudioBuffer;
 }
 
 type State = 'idle' | 'playing' | 'paused' | 'outro';
 
 /** Morceau en cours de lecture (pour la synchronisation de l'ambiance visuelle). */
-export type MusicTrack = 'intro' | 'loop' | 'outro' | 'p2';
+export type MusicTrack = 'intro' | 'loop' | 'outro' | 'p2' | 'w2';
 
 /**
  * Position de lecture ENTENDUE (latence de sortie déduite), réutilisable sans allocation.
@@ -100,12 +102,13 @@ export class Music {
   /** Second tour de la phase 1 : raccord à programmer (voir `planSecondPass`). */
   private pendingSecond: { at: number; first: Voice; loop: AudioBuffer } | null = null;
   private phase2Loading: Promise<void> | null = null;
+  private world2Loading: Promise<void> | null = null;
   /** Position de la musique au moment de la fin de partie (mort) : une reprise payée repart de là, jamais du début. */
   private stoppedAt: { pos: number; mode2: boolean } | null = null;
 
   constructor(
     private readonly host: AudioHost,
-    private readonly urls: { intro: string; loop: string; outro: string; phase2?: string } = MUSIC.urls,
+    private readonly urls: { intro: string; loop: string; outro: string; phase2?: string; world2?: string } = MUSIC.urls,
   ) {}
 
   /** La musique de phase 2 est-elle décodée ? */
@@ -165,22 +168,35 @@ export class Music {
     if (this.buffers.phase2 || !this.urls.phase2) return Promise.resolve();
     if (!this.phase2Loading) {
       if (!this.host.context()) return Promise.resolve();
-      const url = this.urls.phase2;
-      this.phase2Loading = (async () => {
-        const ctx = this.host.context();
-        if (!ctx) throw new Error('contexte audio indisponible');
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`phase2: HTTP ${res.status}`);
-        const data = await res.arrayBuffer();
-        this.buffers.phase2 = await new Promise<AudioBuffer>((resolve, reject) => {
-          const p = ctx.decodeAudioData(data, resolve, reject) as Promise<AudioBuffer> | undefined;
-          p?.catch?.(() => undefined);
-        });
-      })().catch(() => {
+      this.phase2Loading = this.decodeExtra('phase2', this.urls.phase2).catch(() => {
         this.phase2Loading = null; // nouvel essai plus tard
       });
     }
     return this.phase2Loading;
+  }
+
+  /** Voyage des univers : charge et décode la musique de l'univers 2, une seule fois, tôt dans la partie (elle entre pendant la première transition). */
+  preloadWorld2(): Promise<void> {
+    if (this.buffers.world2 || !this.urls.world2) return Promise.resolve();
+    if (!this.world2Loading) {
+      if (!this.host.context()) return Promise.resolve();
+      this.world2Loading = this.decodeExtra('world2', this.urls.world2).catch(() => {
+        this.world2Loading = null;
+      });
+    }
+    return this.world2Loading;
+  }
+
+  private async decodeExtra(key: 'phase2' | 'world2', url: string): Promise<void> {
+    const ctx = this.host.context();
+    if (!ctx) throw new Error('contexte audio indisponible');
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${key}: HTTP ${res.status}`);
+    const data = await res.arrayBuffer();
+    this.buffers[key] = await new Promise<AudioBuffer>((resolve, reject) => {
+      const p = ctx.decodeAudioData(data, resolve, reject) as Promise<AudioBuffer> | undefined;
+      p?.catch?.(() => undefined);
+    });
   }
 
   private async loadAll(): Promise<void> {

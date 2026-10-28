@@ -69,7 +69,8 @@ export class Ribbons {
     if (amount <= 0.01 || s.user <= 0) return;
     const cfg = AMBIENCE.ribbons;
     const motion = s.reduced ? AMBIENCE.reduced.motion : 1;
-    this.time += dt * motion * (1 + 0.5 * s.bass + 0.8 * s.drop + 0.3 * s.build);
+    const w2 = s.world === 2 ? s.amt[1] : 0;
+    this.time += dt * motion * (1 + 0.5 * s.bass + 0.8 * s.drop + 0.3 * s.build + 0.4 * s.instab * w2) * (1 - 0.55 * s.calm * w2);
     const t = this.time;
     // Nombre de rubans : deux en phase 1, tout le jeu (selon la qualité) en phase 2
     const n = Math.min(MAX, s.quality.ribbons, Math.max(4, Math.round(4 + (MAX - 4) * s.look)));

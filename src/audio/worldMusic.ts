@@ -1,6 +1,7 @@
 import { MUSIC } from '../config/music';
 import { PHASE2_MUSIC } from '../config/phases';
 import { WORLD1_PLAN, WORLD_MUSIC, WORLD_TRANSITION_AUDIO as TA, type PadId } from '../config/worldMusic';
+import { WORLD2_PLAN, WORLD2_START } from '../config/world2';
 import { WORLDS } from '../config/worlds';
 import type { AudioHost, MusicBuffers, MusicPosition } from './music';
 
@@ -8,7 +9,8 @@ import type { AudioHost, MusicBuffers, MusicPosition } from './music';
  * Musique du VOYAGE DES UNIVERS (Web Audio). Même contexte, même sortie (volume général, sourdine) et mêmes buffers décodés que `Music` :
  * aucun second moteur, aucun second décodage. Chaque univers joue sur sa « platine » (gain → filtre passe-bas → bus de la musique) :
  *   - univers 1 : intro, puis la région en boucle reprise à `WORLD1_PLAN.loopEntry` (montage de 120 s, raccord en fondu court) ;
- *   - univers 2 : morceau de la phase 2, dont la transition consomme les 4 premières secondes ;
+ *   - univers 2 « La Faille » : morceau « Portal Surge » monté sur 120 s (une phrase de trois mesures répétée, raccord sur deux battements réels, fondu de quelques
+ *     dizaines de ms) ; il démarre pendant la transition d'entrée et son dernier coup sec tombe sur l'ouverture de la faille de sortie (`config/world2.ts`) ;
  *   - univers 3 et 4 : pas encore de morceau → fond atmosphérique procédural discret (ou silence), jamais de battement inventé.
  * Transition (4 s) : l'ancienne platine se ferme (filtre + gain) pendant que la nouvelle entre filtrée puis s'ouvre ; tout est programmé sur l'horloge
  * audio (aucun minuteur). Pause : position mémorisée et tout s'arrête ; reprise au même endroit.
@@ -66,14 +68,18 @@ export class WorldMusic {
 
   // ————————————————————————— cycle de la partie
 
-  startGame(world = 1): void {
+  /**
+   * Démarre la musique de l'univers `world` au temps de jeu LOCAL `local` (0 = début de l'univers). Pour les univers suivants, la position de la platine
+   * compte aussi la transition d'entrée (qui précède le temps local 0). Sert au départ de partie et à la resynchronisation des sauts de test (fenêtre DEV).
+   */
+  startGame(world = 1, local = 0): void {
     const ctx = this.host.context();
     if (!ctx) return;
     this.stoppedAt = null;
     this.fadeAll(ctx, MUSIC.restartFade);
     this.world = world;
     this.state = 'playing';
-    this.current = this.play(ctx, world, 0, ctx.currentTime + MUSIC.restartFade + 0.02, 0.05);
+    this.current = this.play(ctx, world, local + (world > 1 ? WORLDS.transition : 0), ctx.currentTime + MUSIC.restartFade + 0.02, 0.05);
   }
 
   /** Début de la transition vers l'univers `to` : l'ancienne platine se ferme, la nouvelle entre filtrée et s'ouvre à l'arrivée. */
@@ -142,7 +148,7 @@ export class WorldMusic {
     return true;
   }
 
-  /** Position ENTENDUE (pour l'ambiance) : univers 1 = intro/boucle, univers 2 = morceau de phase 2 ; fonds procéduraux = aucune position. */
+  /** Position ENTENDUE (pour l'ambiance) : univers 1 = intro/boucle, univers 2 = temps du montage de « Portal Surge » ; fonds procéduraux = aucune position. */
   position(out: MusicPosition): MusicPosition {
     out.track = null;
     out.time = 0;
@@ -168,9 +174,13 @@ export class WorldMusic {
         out.track = 'loop';
         out.time = mod(WORLD1_PLAN.loopEntry + (pos - MUSIC.introDuration), MUSIC.loopDuration);
       }
-    } else if (track === 'phase2') {
-      out.track = 'p2';
-      out.time = pos < PHASE2_MUSIC.loopEnd ? pos : PHASE2_MUSIC.loopStart + mod(pos - PHASE2_MUSIC.loopEnd, PHASE2_MUSIC.loopDuration);
+    } else if (track === 'world2') {
+      // Temps du montage (monotone : la phrase répétée est déjà dépliée dans la carte musicale) ; avant la première note et après la queue : aucune musique
+      const m = pos - WORLD2_START;
+      if (m >= 0 && m <= WORLD2_PLAN.duration) {
+        out.track = 'w2';
+        out.time = m;
+      } else out.playing = false;
     }
     return out;
   }
@@ -207,7 +217,7 @@ export class WorldMusic {
     gain.gain.setValueAtTime(fade > 0 ? 0 : target, at);
     if (fade > 0) gain.gain.linearRampToValueAtTime(target, at + fade);
     if (def.track === 'phase1' && b.intro && b.loop) this.playWorld1(ctx, deck, b.intro, b.loop, pos, at);
-    else if (def.track === 'phase2' && b.phase2) this.playBuffer(ctx, deck, b.phase2, pos, at, PHASE2_MUSIC.loopStart, PHASE2_MUSIC.loopEnd);
+    else if (def.track === 'world2' && b.world2) this.playMontage(ctx, deck, b.world2, pos, at);
     else if (def.track === null && def.pad) this.playPad(ctx, deck, def.pad, at);
     else {
       // Morceau pas encore décodé : silence (jamais de faux battement), la platine reste disponible pour la suite
@@ -255,14 +265,36 @@ export class WorldMusic {
     }
   }
 
-  /** Morceau joué depuis la position de fichier `pos`, puis en boucle sur sa région (au-delà de l'univers, jamais de silence). */
-  private playBuffer(ctx: BaseAudioContext, deck: Deck, buf: AudioBuffer, pos: number, at: number, loopStart: number, loopEnd: number): void {
-    const v = this.source(ctx, deck, buf, 1);
-    v.src.loop = true;
-    v.src.loopStart = loopStart;
-    v.src.loopEnd = loopEnd;
-    const offset = pos < loopEnd ? pos : loopStart + mod(pos - loopEnd, loopEnd - loopStart);
-    v.src.start(at, offset);
+  /**
+   * Univers 2 : lecture du montage (`WORLD2_PLAN`) à partir de la position de platine `pos` (s depuis le début de la transition d'entrée), à l'instant audio `at`.
+   * Chaque segment est une voix ; au raccord, la voix suivante entre pendant `crossfade` s pendant que la précédente sort (même phase de battement, fondu terminé
+   * AVANT l'attaque du battement de raccord). Tout est programmé d'un coup sur l'horloge audio : aucun minuteur, aucun événement `ended`.
+   */
+  private playMontage(ctx: BaseAudioContext, deck: Deck, buf: AudioBuffer, pos: number, at: number): void {
+    const { segments, crossfade: xf } = WORLD2_PLAN;
+    const m = pos - WORLD2_START; // instant du montage entendu à `at` (négatif : la musique n'a pas encore commencé)
+    // Segment courant : le dernier dont le fondu d'entrée a déjà commencé (une reprise au milieu d'un raccord entre directement dans la voix suivante)
+    let first = 0;
+    for (let k = 1; k < segments.length; k++) if (m >= segments[k].at - xf) first = k;
+    for (let k = first; k < segments.length; k++) {
+      const seg = segments[k];
+      const last = k === segments.length - 1;
+      const startM = k === first ? Math.max(m, seg.at) : seg.at - xf;
+      const offset = seg.from + (startM - seg.at);
+      const when = at + (startM - m);
+      const v = this.source(ctx, deck, buf, k === first ? 1 : 0);
+      v.src.start(when, Math.max(0, offset));
+      if (k !== first) {
+        v.g.gain.setValueAtTime(0, when);
+        v.g.gain.linearRampToValueAtTime(1, when + xf);
+      }
+      if (!last) {
+        const endAt = at + (segments[k + 1].at - m);
+        v.g.gain.setValueAtTime(1, endAt - xf);
+        v.g.gain.linearRampToValueAtTime(0, endAt);
+        v.src.stop(endAt + 0.02);
+      }
+    }
   }
 
   /** Fond atmosphérique procédural (aucun battement) : nappe tenue + souffle filtré, modulés très lentement. */
