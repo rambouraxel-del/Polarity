@@ -83,19 +83,50 @@ function makeCanvas(w: number, h: number): { c: HTMLCanvasElement; ctx: CanvasRe
   return { c, ctx: c.getContext('2d')! };
 }
 
+/**
+ * Texture « blanc + alpha » calculée pixel par pixel, découpée en travaux courts (`rows` lignes chacun) : sur téléphone, un seul gros calcul ferait saccader le jeu.
+ * `setup` prépare l'état (bruits) au premier travail et renvoie la fonction d'alpha (0–1) d'un pixel.
+ */
+function pixelJobs(scene: Phaser.Scene, key: string, w: number, h: number, rows: number, setup: () => (x: number, y: number) => number): (() => void)[] {
+  const jobs: (() => void)[] = [];
+  let st: { c: HTMLCanvasElement; ctx: CanvasRenderingContext2D; img: ImageData; fn: (x: number, y: number) => number } | null = null;
+  jobs.push(() => {
+    if (scene.textures.exists(key)) return;
+    const { c, ctx } = makeCanvas(w, h);
+    st = { c, ctx, img: ctx.createImageData(w, h), fn: setup() };
+  });
+  for (let y0 = 0; y0 < h; y0 += rows) {
+    jobs.push(() => {
+      if (!st) return;
+      const d = st.img.data;
+      for (let y = y0; y < Math.min(h, y0 + rows); y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          d[i] = d[i + 1] = d[i + 2] = 255;
+          d[i + 3] = Math.round(st.fn(x, y) * 255);
+        }
+      }
+    });
+  }
+  jobs.push(() => {
+    if (!st) return;
+    st.ctx.putImageData(st.img, 0, 0);
+    scene.textures.addCanvas(key, st.c);
+    st = null;
+  });
+  return jobs;
+}
+
 // ————————————————————————————————————————————— nuages volumétriques
 
 /** Nuage : densité fractale déformée, bords fondus, veines plus claires ; blanc + alpha (teinté au rendu). */
-function cloudTexture(scene: Phaser.Scene, key: string, seed: number, stretch: number): void {
-  if (scene.textures.exists(key)) return;
+function cloudJobs(scene: Phaser.Scene, key: string, seed: number, stretch: number): (() => void)[] {
   const size = 256;
-  const { c, ctx } = makeCanvas(size, size);
-  const img = ctx.createImageData(size, size);
-  const L = new Lattice(32, seed);
-  const L2 = new Lattice(32, seed ^ 0x9e3779b9);
-  const k = 3.1;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  return pixelJobs(scene, key, size, size, 16, () => {
+    const L = new Lattice(32, seed);
+    const L2 = new Lattice(32, seed ^ 0x9e3779b9);
+    const k = 3.1;
+    return (x, y) => {
       const u = x / size;
       const v = y / size;
       // Déformation de domaine : les volutes s'enroulent
@@ -109,28 +140,18 @@ function cloudTexture(scene: Phaser.Scene, key: string, seed: number, stretch: n
       // Veines : crêtes plus lumineuses dans le nuage
       const ridge = 1 - Math.abs(2 * fbm(L2, u * 5 + wx * 2, v * 5 * stretch + wy * 2, 4) - 1);
       a *= 0.4 + 1.0 * ridge * ridge;
-      a = Math.min(1, a);
-      const i = (y * size + x) * 4;
-      img.data[i] = 255;
-      img.data[i + 1] = 255;
-      img.data[i + 2] = 255;
-      img.data[i + 3] = Math.round(a * 255);
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  scene.textures.addCanvas(key, c);
+      return Math.min(1, a);
+    };
+  });
 }
 
 /** Filaments de gaz (courants lumineux) : bruit étiré le long d'un axe, crêtes fines ; blanc + alpha (teinté au rendu). */
-function wispTexture(scene: Phaser.Scene, key: string, seed: number): void {
-  if (scene.textures.exists(key)) return;
+function wispJobs(scene: Phaser.Scene, key: string, seed: number): (() => void)[] {
   const W = 384;
   const H = 192;
-  const { c, ctx } = makeCanvas(W, H);
-  const img = ctx.createImageData(W, H);
-  const L = new Lattice(32, seed);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
+  return pixelJobs(scene, key, W, H, 16, () => {
+    const L = new Lattice(32, seed);
+    return (x, y) => {
       const u = x / W;
       const v = y / H;
       const wy = (fbm(L, u * 1.6 + 2, v * 3.2, 3) - 0.5) * 0.9;
@@ -141,27 +162,19 @@ function wispTexture(scene: Phaser.Scene, key: string, seed: number): void {
       const dx = (u - 0.5) * 2;
       const dy = (v - 0.5) * 2;
       const fall = (1 - smooth(Math.abs(dx) * 1.0)) * (1 - smooth(Math.abs(dy) * 1.05));
-      const a = Math.min(1, ridge * smooth((env - 0.3) * 3) * fall * 1.5);
-      const i = (y * W + x) * 4;
-      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
-      img.data[i + 3] = Math.round(a * 255);
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  scene.textures.addCanvas(key, c);
+      return Math.min(1, ridge * smooth((env - 0.3) * 3) * fall * 1.5);
+    };
+  });
 }
 
 // ————————————————————————————————————————————— tourbillon de la nébuleuse
 
 /** Spirale de gaz (bras fractals enroulés autour d'un foyer lumineux) : référence 1 (tourbillon turquoise aspirant vers un point brillant). */
-function swirlTexture(scene: Phaser.Scene): void {
-  if (scene.textures.exists(NEB_TEX.swirl)) return;
+function swirlJobs(scene: Phaser.Scene): (() => void)[] {
   const size = 384;
-  const { c, ctx } = makeCanvas(size, size);
-  const img = ctx.createImageData(size, size);
-  const L = new Lattice(32, 4242);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  return pixelJobs(scene, NEB_TEX.swirl, size, size, 12, () => {
+    const L = new Lattice(32, 4242);
+    return (x, y) => {
       const dx = (x / size - 0.5) * 2;
       const dy = (y / size - 0.5) * 2;
       const r = Math.sqrt(dx * dx + dy * dy);
@@ -174,16 +187,9 @@ function swirlTexture(scene: Phaser.Scene): void {
       a *= 1 - smooth((r - 0.82) / 0.18);
       // Foyer : cœur très lumineux au centre
       a += 0.9 * Math.exp(-r * r * 85);
-      a = Math.min(1, a);
-      const i = (y * size + x) * 4;
-      img.data[i] = 255;
-      img.data[i + 1] = 255;
-      img.data[i + 2] = 255;
-      img.data[i + 3] = Math.round(a * 255);
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  scene.textures.addCanvas(NEB_TEX.swirl, c);
+      return Math.min(1, a);
+    };
+  });
 }
 
 // ————————————————————————————————————————————— monolithes et îlots rocheux
@@ -213,110 +219,140 @@ function rockOutline(kind: number, r: () => number): Pt[] {
  * orientation donc son propre éclairage), strates fractales, arêtes sombres entre les cellules, liseré lumineux là où la silhouette regarde la lumière, usure
  * plus claire en haut, brume lumineuse au pied (la roche émerge du gaz).
  */
-function rockTexture(scene: Phaser.Scene, key: string, seed: number, kind: number): void {
-  if (scene.textures.exists(key)) return;
+function rockJobs(scene: Phaser.Scene, key: string, seed: number, kind: number): (() => void)[] {
   const W = 256;
   const H = 320;
-  const { c, ctx } = makeCanvas(W, H);
-  const r = rng(seed);
-  const pts = rockOutline(kind, r).map(([x, y]) => [x * W, y * H] as Pt);
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
-  ctx.fill();
-  const img = ctx.getImageData(0, 0, W, H);
-  const mask = new Uint8Array(W * H);
-  for (let i = 0; i < mask.length; i++) mask[i] = img.data[i * 4 + 3];
-  // Masque adouci (deux passes de flou) : bords sans escalier ni liseré crénelé une fois la texture agrandie
-  const soft = new Float32Array(W * H);
-  const tmp = new Float32Array(W * H);
-  for (let i = 0; i < soft.length; i++) soft[i] = mask[i] / 255;
-  for (let pass = 0; pass < 2; pass++) {
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      let sum = 0;
-      for (let k = -2; k <= 2; k++) sum += soft[y * W + Math.min(W - 1, Math.max(0, x + k))];
-      tmp[y * W + x] = sum / 5;
-    }
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      let sum = 0;
-      for (let k = -2; k <= 2; k++) sum += tmp[Math.min(H - 1, Math.max(0, y + k)) * W + x];
-      soft[y * W + x] = sum / 5;
-    }
-  }
-  const at = (x: number, y: number): number => (x < 0 || y < 0 || x >= W || y >= H ? 0 : soft[y * W + x]);
-  // Cellules : points tirés dans la boîte de la silhouette, chacun avec une normale (angle) et une teinte propres
+  const lightX = 0.9;
+  const lightY = -0.42;
   const N = 26;
+  const jobs: (() => void)[] = [];
+  // État partagé par les travaux (créé au premier)
+  let c: HTMLCanvasElement;
+  let ctx: CanvasRenderingContext2D;
+  let img: ImageData;
+  let soft: Float32Array;
+  let tmp: Float32Array;
+  let L: Lattice;
+  let ready = false;
   const sx = new Float32Array(N);
   const sy = new Float32Array(N);
   const nrm = new Float32Array(N);
   const tone = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    sx[i] = r() * W;
-    sy[i] = r() * H;
-    nrm[i] = r() * Math.PI * 2;
-    tone[i] = 0.75 + r() * 0.5;
-  }
-  const L = new Lattice(32, seed ^ 0x51ed270b);
-  const lightX = 0.9;
-  const lightY = -0.42;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const sm = soft[y * W + x];
-      const m = Math.round(255 * smooth((sm - 0.3) / 0.4));
-      const i = (y * W + x) * 4;
-      if (m === 0) {
-        img.data[i + 3] = 0;
-        continue;
-      }
-      let d1 = 1e9;
-      let d2 = 1e9;
-      let k = 0;
-      for (let q = 0; q < N; q++) {
-        const dx = x - sx[q];
-        const dy = (y - sy[q]) * 0.8;
-        const d = dx * dx + dy * dy;
-        if (d < d1) {
-          d2 = d1;
-          d1 = d;
-          k = q;
-        } else if (d < d2) d2 = d;
-      }
-      const edge = Math.sqrt(d2) - Math.sqrt(d1); // petit près des arêtes entre cellules
-      // Éclairage de la cellule : sa normale contre la lumière, plus un peu de relief fractal
-      const lit = 0.5 + 0.5 * (Math.cos(nrm[k]) * lightX + Math.sin(nrm[k]) * lightY);
-      const strata = fbm(L, x / 30, y / 9, 3) - 0.5;
-      const grain = fbm(L, x / 3 + 11, y / 3 + 5, 2) - 0.5;
-      let t = (0.1 + 0.34 * lit * lit) * tone[k] * (1 + 0.5 * strata + 0.3 * grain);
-      // Arêtes entre les cellules : fine ligne sombre puis léger liseré clair du côté éclairé
-      t *= 0.72 + 0.28 * smooth(edge / 4);
-      if (edge < 1.2 && lit > 0.6) t += 0.08;
-      // Dégradé vertical : plus clair en haut (usure), plus sombre vers le bas
-      t *= 1.18 - 0.55 * (y / H);
-      // Liseré de silhouette doux : fort là où le vide est du côté de la lumière (différence de masque adouci)
-      const rim = Math.max(0, Math.min(1, (sm - at(Math.round(x + lightX * 7), Math.round(y + lightY * 7))) * 2.6)) * smooth((sm - 0.2) / 0.5);
-      let R = 4 + 54 * t;
-      let G = 15 + 112 * t;
-      let B = 22 + 128 * t;
-      if (rim > 0) {
-        R += 40 * rim;
-        G += 150 * rim;
-        B += 140 * rim;
-      }
-      // Brume lumineuse au pied
-      const mist = smooth((y / H - 0.64) / 0.36);
-      R += (60 - R) * mist * 0.6;
-      G += (205 - G) * mist * 0.6;
-      B += (210 - B) * mist * 0.6;
-      img.data[i] = Math.max(0, Math.min(255, R));
-      img.data[i + 1] = Math.max(0, Math.min(255, G));
-      img.data[i + 2] = Math.max(0, Math.min(255, B));
-      img.data[i + 3] = m;
+  const at = (x: number, y: number): number => (x < 0 || y < 0 || x >= W || y >= H ? 0 : soft[y * W + x]);
+  // 1. silhouette remplie, masque, cellules
+  jobs.push(() => {
+    if (scene.textures.exists(key)) return;
+    ({ c, ctx } = makeCanvas(W, H));
+    const r = rng(seed);
+    const pts = rockOutline(kind, r).map(([x, y]) => [x * W, y * H] as Pt);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    img = ctx.getImageData(0, 0, W, H);
+    soft = new Float32Array(W * H);
+    tmp = new Float32Array(W * H);
+    for (let i = 0; i < soft.length; i++) soft[i] = img.data[i * 4 + 3] / 255;
+    // Cellules : points tirés dans la boîte de la silhouette, chacun avec une normale (angle) et une teinte propres
+    for (let i = 0; i < N; i++) {
+      sx[i] = r() * W;
+      sy[i] = r() * H;
+      nrm[i] = r() * Math.PI * 2;
+      tone[i] = 0.75 + r() * 0.5;
     }
+    L = new Lattice(32, seed ^ 0x51ed270b);
+    ready = true;
+  });
+  // 2. masque adouci (deux passes de flou, horizontales puis verticales) : bords sans escalier ni liseré crénelé une fois la texture agrandie
+  for (let pass = 0; pass < 2; pass++) {
+    jobs.push(() => {
+      if (!ready) return;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let sum = 0;
+        for (let k = -2; k <= 2; k++) sum += soft[y * W + Math.min(W - 1, Math.max(0, x + k))];
+        tmp[y * W + x] = sum / 5;
+      }
+    });
+    jobs.push(() => {
+      if (!ready) return;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let sum = 0;
+        for (let k = -2; k <= 2; k++) sum += tmp[Math.min(H - 1, Math.max(0, y + k)) * W + x];
+        soft[y * W + x] = sum / 5;
+      }
+    });
   }
-  ctx.putImageData(img, 0, 0);
-  scene.textures.addCanvas(key, c);
+  // 3. surface, par tranches de lignes
+  const rows = 8;
+  for (let y0 = 0; y0 < H; y0 += rows) {
+    jobs.push(() => {
+      if (!ready) return;
+      for (let y = y0; y < Math.min(H, y0 + rows); y++) {
+        for (let x = 0; x < W; x++) {
+          const sm = soft[y * W + x];
+          const m = Math.round(255 * smooth((sm - 0.3) / 0.4));
+          const i = (y * W + x) * 4;
+          if (m === 0) {
+            img.data[i + 3] = 0;
+            continue;
+          }
+          let d1 = 1e9;
+          let d2 = 1e9;
+          let k = 0;
+          for (let q = 0; q < N; q++) {
+            const dx = x - sx[q];
+            const dy = (y - sy[q]) * 0.8;
+            const d = dx * dx + dy * dy;
+            if (d < d1) {
+              d2 = d1;
+              d1 = d;
+              k = q;
+            } else if (d < d2) d2 = d;
+          }
+          const edge = Math.sqrt(d2) - Math.sqrt(d1); // petit près des arêtes entre cellules
+          // Éclairage de la cellule : sa normale contre la lumière, plus un peu de relief fractal
+          const lit = 0.5 + 0.5 * (Math.cos(nrm[k]) * lightX + Math.sin(nrm[k]) * lightY);
+          const strata = fbm(L, x / 30, y / 9, 3) - 0.5;
+          const grain = fbm(L, x / 3 + 11, y / 3 + 5, 2) - 0.5;
+          let t = (0.1 + 0.34 * lit * lit) * tone[k] * (1 + 0.5 * strata + 0.3 * grain);
+          // Arêtes entre les cellules : fine ligne sombre puis léger liseré clair du côté éclairé
+          t *= 0.72 + 0.28 * smooth(edge / 4);
+          if (edge < 1.2 && lit > 0.6) t += 0.08;
+          // Dégradé vertical : plus clair en haut (usure), plus sombre vers le bas
+          t *= 1.18 - 0.55 * (y / H);
+          // Liseré de silhouette doux : fort là où le vide est du côté de la lumière (différence de masque adouci)
+          const rim = Math.max(0, Math.min(1, (sm - at(Math.round(x + lightX * 7), Math.round(y + lightY * 7))) * 2.6)) * smooth((sm - 0.2) / 0.5);
+          let R = 4 + 54 * t;
+          let G = 15 + 112 * t;
+          let B = 22 + 128 * t;
+          if (rim > 0) {
+            R += 40 * rim;
+            G += 150 * rim;
+            B += 140 * rim;
+          }
+          // Brume lumineuse au pied
+          const mist = smooth((y / H - 0.64) / 0.36);
+          R += (60 - R) * mist * 0.6;
+          G += (205 - G) * mist * 0.6;
+          B += (210 - B) * mist * 0.6;
+          img.data[i] = Math.max(0, Math.min(255, R));
+          img.data[i + 1] = Math.max(0, Math.min(255, G));
+          img.data[i + 2] = Math.max(0, Math.min(255, B));
+          img.data[i + 3] = m;
+        }
+      }
+    });
+  }
+  // 4. dépôt dans la scène
+  jobs.push(() => {
+    if (!ready) return;
+    ctx.putImageData(img, 0, 0);
+    scene.textures.addCanvas(key, c);
+    ready = false;
+  });
+  return jobs;
 }
 
 // ————————————————————————————————————————————— planète à anneau
@@ -443,13 +479,13 @@ function streakTextures(scene: Phaser.Scene): void {
   }
 }
 
-/** Travaux de génération, dans l'ordre : chacun est court (quelques dizaines de ms). */
+/** Travaux de génération, dans l'ordre : chacun est court (quelques millisecondes sur ordinateur). */
 export function nebulaJobs(scene: Phaser.Scene): (() => void)[] {
   const jobs: (() => void)[] = [];
-  NEB_TEX.cloud.forEach((k, i) => jobs.push(() => cloudTexture(scene, k, 1301 + i * 977, i % 2 ? 0.7 : 1.15)));
-  NEB_TEX.wisp.forEach((k, i) => jobs.push(() => wispTexture(scene, k, 8801 + i * 421)));
-  jobs.push(() => swirlTexture(scene));
-  NEB_TEX.rock.forEach((k, i) => jobs.push(() => rockTexture(scene, k, 5501 + i * 313, i)));
+  NEB_TEX.cloud.forEach((k, i) => jobs.push(...cloudJobs(scene, k, 1301 + i * 977, i % 2 ? 0.7 : 1.15)));
+  NEB_TEX.wisp.forEach((k, i) => jobs.push(...wispJobs(scene, k, 8801 + i * 421)));
+  jobs.push(...swirlJobs(scene));
+  NEB_TEX.rock.forEach((k, i) => jobs.push(...rockJobs(scene, k, 5501 + i * 313, i)));
   jobs.push(() => planetTexture(scene));
   jobs.push(() => ringTextures(scene));
   jobs.push(() => streakTextures(scene));

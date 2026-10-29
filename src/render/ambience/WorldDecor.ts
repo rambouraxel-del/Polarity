@@ -58,6 +58,8 @@ export function worldColor(s: AmbienceState, key: keyof WorldPalette): number {
 }
 
 const STREAMS = 72;
+/** Intervalle (s d'animation) entre deux travaux de génération des textures de la Mer nébulaire. */
+const PREPARE_EVERY = 0.08;
 
 export class WorldDecor {
   private readonly nebula: NebulaDecor;
@@ -70,6 +72,7 @@ export class WorldDecor {
   private readonly sK = new Float32Array(STREAMS);
   private spiralRot = [0, 0];
   private visible = false;
+  private prep = 0;
 
   /** @param depth décor (nébuleuse, spirales, courants) ; @param coreDepth noyaux (foyer de la nébuleuse, œil), au-dessus du voile de la zone de jeu */
   constructor(scene: Phaser.Scene, depth: number, coreDepth: number) {
@@ -108,7 +111,17 @@ export class WorldDecor {
       return;
     }
     // Les textures de la Mer nébulaire sont générées une par image pendant l'univers 2 (jamais d'à-coup à l'entrée) ; en entrant directement (saut de test) : d'un coup
-    if (!this.nebula.ready && s.world >= 2) this.nebula.prepare(s.amt[2] > 0);
+    if (!this.nebula.ready && s.world >= 2) {
+      if (s.amt[2] > 0) this.nebula.prepare(true);
+      else {
+        // Un court travail toutes les 0,08 s d'animation (≈ 30 s en tout pendant La Faille) : aucun à-coup, rien pendant une pause
+        this.prep += dt;
+        if (this.prep >= PREPARE_EVERY) {
+          this.prep = 0;
+          this.nebula.prepare();
+        }
+      }
+    }
     this.nebula.setVisible(true);
     this.nebula.draw(s, v, dt, s.amt[2]);
     this.drawWinds(s, v, dt, s.amt[3]);

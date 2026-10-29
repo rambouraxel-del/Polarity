@@ -274,7 +274,7 @@ scintillent ; **montées** → nuages et tourbillon accélèrent, rayons plus vi
 Côté jeu : brumes (bandes voilées + filets de courant), ondes (annonce pulsée, front lumineux), puits (bloc flottant, spirale dans le sens du puits, flèches le long de l'orbite),
 monolithes (pierre facettée éclairée vers le centre, **halo et contour corail = zone dangereuse**, fissures lumineuses qui se creusent avant l'effondrement, éclat de pierre à la rupture).
 
-Génération : textures créées une par image pendant l'univers 2 (jamais d'à-coup à l'entrée) ; d'un coup si l'on saute directement dans l'univers 3 (fenêtre DEV). Mesure
+Génération : textures calculées en ≈ 370 petits travaux (chacun ≤ 7 ms sur ordinateur, ≤ 21 ms avec le processeur ralenti ×4), un toutes les 0,08 s pendant La Faille (≈ 30 s en tout, rien pendant une pause) : jamais d'à-coup à l'entrée ; d'un coup (≈ 0,44 s sur ordinateur) si l'on saute directement dans l'univers 3 (fenêtre DEV). Mesure
 indicative (navigateur de bureau) : 52 objets d'image au plus, remplissage équivalent à ≈ 17 écrans en qualité haute, ≈ 14 en moyenne, ≈ 12 en basse (la qualité adaptative descend
 si les images sont lentes). Le coût GPU d'un téléphone n'est pas mesurable sans appareil.
 
