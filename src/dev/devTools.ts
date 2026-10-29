@@ -8,6 +8,7 @@ import { escapeHtml } from '../ui/format';
 import type { SaveData } from '../save/save';
 import { hasRecords } from './records';
 import { WORLD_LIST, WORLDS, nextBoundary, worldStart } from '../config/worlds';
+import { W3_ECLIPSE, W3_WAVE_AT, W3_WELL_AT, WORLD3_AT } from '../config/world3';
 
 /** Phrase exigée avant toute remise à zéro (interface et service). */
 export const RESET_PHRASE = 'REMETTRE À ZÉRO';
@@ -55,7 +56,22 @@ export interface DevHost {
 
 type Tab = 'game' | 'board' | 'reset';
 
-const PATTERN_LABEL: Partial<Record<PatternId, string>> = {};
+const PATTERN_LABEL: Partial<Record<PatternId, string>> = {
+  monolith: 'Monolithe voyageur',
+  procession: 'Procession minérale',
+  collapse: 'Effondrement minéral',
+  processionCollapse: 'Procession + effondrement',
+};
+
+/** Raccourcis de la Mer nébulaire : instants (temps local de l'univers) juste avant chaque moment fort. */
+const W3_SHORTCUTS: readonly { label: string; at: number; title: string }[] = [
+  { label: 'Brumes', at: 10, title: 'Découverte : brumes et premiers monolithes' },
+  { label: 'Onde', at: +(W3_WAVE_AT[1] - 3).toFixed(2), title: 'Onde de pression, 3 s avant le grand impact' },
+  { label: 'Puits', at: +(W3_WELL_AT[0] - 3).toFixed(2), title: 'Premier puits gravitationnel (annonce)' },
+  { label: 'Éclipse', at: +(W3_ECLIPSE.start + WORLD3_AT - 1).toFixed(2), title: 'Éclipse des géants (la masse entre en scène)' },
+  { label: 'Révélation', at: +(W3_ECLIPSE.reveal + WORLD3_AT - 6).toFixed(2), title: 'Pénombre profonde, 6 s avant la révélation' },
+  { label: 'Finale', at: 102, title: 'Montée finale et procession minérale' },
+];
 const MAX_FPS_SAMPLES = 30;
 
 /**
@@ -224,6 +240,7 @@ export class DevTools {
       <div class="dev-row"><span class="dev-lab">Univers</span>${WORLD_LIST.map((w) => `<button type="button" class="dev-btn-x" data-dev="world" data-w="${w.index}" title="${escapeHtml(w.name)}">${w.index}</button>`).join('')}
         <button type="button" class="dev-btn-x" data-dev="before-transit"${s?.worlds ? '' : ' disabled'}>Avant la transition</button>
         <button type="button" class="dev-btn-x" data-dev="transit-now"${s?.worlds ? '' : ' disabled'}>Transition maintenant</button></div>
+      <div class="dev-row"><span class="dev-lab">Mer nébulaire</span>${W3_SHORTCUTS.map((x) => `<button type="button" class="dev-btn-x" data-dev="w3" data-at="${x.at}" title="${escapeHtml(x.title)}">${x.label}</button>`).join('')}</div>
       <h4>Temps</h4>
       <div class="dev-row"><button type="button" class="dev-btn-x" data-dev="freeze"${dis}>${s?.testFrozen ? 'Reprendre' : 'Pause'}</button>
         <button type="button" class="dev-btn-x" data-dev="advance" data-s="0.1"${dis}>+0,1 s</button><button type="button" class="dev-btn-x" data-dev="advance" data-s="1"${dis}>+1 s</button>
@@ -302,6 +319,7 @@ export class DevTools {
       case 'worlds-bonus': this.worldsBonus = !this.worldsBonus; this.render(); return;
       case 'overlay': this.overlay = !this.overlay; this.host.worldOverlay(this.overlay); this.render(); return;
       case 'world': this.gotoWorld(Number(el.dataset.w)); break;
+      case 'w3': this.gotoWorld3(Number(el.dataset.at)); break;
       case 'before-transit': if (s?.worlds) this.skipWorld(s, nextBoundary(s.sim.time) - 2.5); break;
       case 'transit-now': if (s?.worlds) this.skipWorld(s, nextBoundary(s.sim.time)); break;
       case 'invincible': if (s) s.setTestInvincible(!s.sim.invincible); break;
@@ -338,6 +356,21 @@ export class DevTools {
     if (w > 1) this.skipWorld(s, worldStart(w - 1) + 0.05);
     this.host.resyncMusic();
     this.message = `Univers ${w} — ${WORLD_LIST[w - 1]?.name ?? ''} (partie de test).`;
+  }
+
+  /** Mer nébulaire : saut à un moment précis de l'univers 3 (temps local `at`), nouvelle partie du voyage si le moment est dans le passé ; la musique est recalée. */
+  private gotoWorld3(at: number): void {
+    let s = this.s();
+    const target = worldStart(2) + at;
+    if (!s || !s.worlds || s.sim.time > target) {
+      this.host.startWorlds(this.worldsBonus);
+      s = this.s();
+    }
+    if (!s) return;
+    s.markTest();
+    s.skipTo(target);
+    this.host.resyncMusic();
+    this.message = `Mer nébulaire — saut à ${at.toFixed(1)} s de l’univers (partie de test ; musique recalée).`;
   }
 
   private skipWorld(s: GameSession, target: number): void {

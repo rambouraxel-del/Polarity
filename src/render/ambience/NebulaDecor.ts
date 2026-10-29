@@ -174,10 +174,10 @@ export class NebulaDecor {
         });
       }
     };
-    clouds(this.far, D.counts.far, 0, base + 0.01, [0.9, 1.5], [C.deep, C.teal, C.violet, C.deep, C.teal, C.violet], D.alpha.far, false, 0.15);
-    clouds(this.smoke, 5, 1, base + 0.02, [0.8, 1.3], [C.smoke], D.alpha.smoke, true, 0.4);
-    clouds(this.mid, D.counts.mid, 1, base + 0.03, [0.7, 1.2], [C.turquoise, C.teal, C.aqua, C.deep], D.alpha.mid, false, 0.5);
-    clouds(this.near, D.counts.near, 2, base + 0.05, [0.9, 1.6], [C.aqua, C.turquoise, C.ice], D.alpha.near, false, 0.9);
+    clouds(this.far, D.counts.far, 0, base + 0.01, D.cloudSize.far as [number, number], [C.deep, C.violet, C.teal, C.violet], D.alpha.far, false, 0.15);
+    clouds(this.smoke, D.counts.smoke, 1, base + 0.02, D.cloudSize.smoke as [number, number], [C.smoke], D.alpha.smoke, true, 0.4);
+    clouds(this.mid, D.counts.mid, 1, base + 0.03, D.cloudSize.mid as [number, number], [C.turquoise, C.teal, C.aqua, C.deep], D.alpha.mid, false, 0.5);
+    clouds(this.near, D.counts.near, 2, base + 0.05, D.cloudSize.near as [number, number], [C.aqua, C.turquoise, C.ice], D.alpha.near, false, 0.9);
     // Filaments lumineux (courants de gaz) : longs, fins, étirés, dérivant en travers de l'écran
     for (let i = 0; i < D.counts.wisps; i++) {
       const img = scene.add.image(0, 0, NEB_TEX.wisp[i % NEB_TEX.wisp.length]).setDepth(base + 0.037 + i * 0.0003).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
@@ -187,7 +187,7 @@ export class NebulaDecor {
         by: (rnd() - 0.5) * 1.2,
         ax: 0.1 + rnd() * 0.15,
         ay: 0.03 + rnd() * 0.06,
-        size: 0.8 + rnd() * 0.8,
+        size: D.cloudSize.wisp[0] + rnd() * (D.cloudSize.wisp[1] - D.cloudSize.wisp[0]),
         phase: rnd() * 6.28,
         rate: (0.7 + rnd() * 0.6) * (rnd() < 0.5 ? -1 : 1),
         spin: 0,
@@ -374,8 +374,8 @@ export class NebulaDecor {
       }
     }
     // Bords sombres : profondeur et lisibilité (les coins plongent dans le noir bleu, comme dans les références)
-    const ed = v.halfDiag * 2.04;
-    this.edge.setVisible(true).setPosition(v.cx, v.cy).setDisplaySize(ed, ed).setAlpha(0.7 * amount);
+    const ed = v.halfDiag * D.edge.size;
+    this.edge.setVisible(true).setPosition(v.cx, v.cy).setDisplaySize(ed, ed).setAlpha(D.edge.alpha * amount * (1 + 0.5 * ecl.dark));
 
     // Tourbillon : rotation lente (plus vive dans les montées), éclat sur les basses et les impacts
     this.swirlRot += dt * (D.swirl.spin * (reduced ? 0.4 : 1) * (1 + React.build * 1.2 * s.build + 0.6 * s.intensity) * (1 - 0.5 * calm) + spinUp * 0.6);

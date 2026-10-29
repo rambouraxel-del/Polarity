@@ -11,7 +11,7 @@ le défi quotidien, les défis classiques et la campagne ne changent pas.
 |---|---------|-------------|-----------|-----------------|---------|
 | 1 | Orbite originelle | 0 – 120 s | aucune | motifs historiques, événements (pluie, tempête) | morceau de la phase 1 monté sur 120 s |
 | 2 | La Faille | 120 – 240 s | aucune | **cinq attaques** : fissure d'orbite, arc rampant, orbe de faille, onde de rupture, spirale fracturée | « Portal Surge » monté sur 120 s (voir ci-dessous) |
-| 3 | Mer nébulaire | 240 – 360 s | nuages lents, ondes de pression, bulles d'ombre (décor) | masses gazeuses, débris nébulaires | aucun morceau : fond procédural |
+| 3 | La Mer nébulaire | 240 – 360 s | **cinq familles** : brumes et courants, ondes de pression (sur impacts), puits gravitationnels (sur battements) + dangers : monolithes voyageurs (seuls ou en procession), effondrement minéral ; éclipse des géants (visuelle) | monolithes, fragments | « Cosmic Impact » joué tel quel (voir ci-dessous) |
 | 4 | Monde des vents | 360 s → ∞ | hémisphères 120 % / 50 %, inversions de courant, tourbillons | éclats portés par le vent, rafales (arcs mouvants), traînées de braises | aucun morceau : fond procédural |
 
 Au-delà de 480 s, le dernier univers continue. La difficulté est plafonnée (`extension.dMax`) et oscille lentement. La vitesse est fixe
@@ -43,6 +43,8 @@ il y a une seule transition par frontière.
 - `src/config/worldMusic.ts` : musique par univers, montage de l'univers 1, transition audio, grille de rythme `WORLDS_RHYTHM` (déterministe), garde de synchronisation.
 - `src/config/world2.ts` : **La Faille** — feuille de route musicale (repères en temps local), poids des attaques selon la structure du morceau, réglages des cinq attaques.
 - `src/data/polar-rift-world2.json` : carte musicale de « Portal Surge » (générée par `scripts/analyze-world2.py`).
+- `src/config/world3.ts` : **La Mer nébulaire** — feuille de route musicale (temps local), instants des ondes de pression et des puits, éclipse, poids et réglages des dangers.
+- `src/data/polar-rift-world3.json` : carte musicale de « Cosmic Impact » (générée par `scripts/analyze-world3.py`).
 - `src/modes/worlds.ts` : profil de difficulté isolé (`worldsProfile`) ; `src/modes/run.ts` : `RunConfig.worlds` (Survie seulement).
 - `src/sim/field.ts` : champs de vitesse (`WorldsField`), fonctions pures de la graine et du temps.
 - `src/sim/simulation.ts` : `world`, `field` et `enterWorld`. Sans champ, le calcul est strictement l'ancien.
@@ -56,12 +58,14 @@ il y a une seule transition par frontière.
 - `src/dev/devTools.ts` : section « Voyage des univers ».
 - `scripts/worlds-sim.ts` : outil d'équilibrage (`npx tsx scripts/worlds-sim.ts [minutes] [parties]`).
 - `scripts/analyze-world2.py` (analyse), `scripts/check-world2.py` (contrôle indépendant du montage rendu), `scripts/world2-timeline.ts` (chronologie des attaques et calage), `scripts/perf-worlds.mjs` (`npm run perf:worlds`), `scripts/e2e-world2.mjs` (contrôle navigateur avec la vraie musique).
-- `tests/worlds.test.ts` (35 tests), `tests/world2.test.ts` (40 tests : carte, montage, grille, attaques, synchro, décor, garde).
+- `scripts/analyze-world3.py` (analyse de « Cosmic Impact »), `scripts/world3-timeline.ts` (chronologie des dangers et des événements), `scripts/e2e-world3.mjs` (contrôle navigateur avec la vraie musique) ; `src/render/ambience/NebulaDecor.ts` + `nebulaTextures.ts` (décor procédural).
+- `tests/worlds.test.ts` (35 tests), `tests/world2.test.ts` (40 tests : carte, montage, grille, attaques, synchro, décor, garde), `tests/world3.test.ts` (40 tests : carte, grille, champ de vitesse, dangers, éclipse, synchro, décor, lecture audio).
 
 ## Outils DEV (fenêtre « DEV », mode développeur actif)
 
 - **Lancer le voyage** : interrupteur Pouvoirs, vaisseau mortel par défaut. L'immortalité reste disponible dans la fenêtre.
 - **Aller à un univers** (1 à 4), **Avant la transition** (saut à 3 s de la faille), **Transition maintenant**.
+- **Mer nébulaire** (saut dans l'univers 3, musique recalée) : Brumes (10 s), Onde (avant la première onde de la découverte), Puits, Éclipse, Révélation, Finale.
 - **Contrôle** : calques de diagnostic (anneau des facteurs de vitesse, hitboxes, trajectoire prévue sur 2 s).
 - **Diagnostic** : univers en cours, phase de transition, platines audio actives, particules et FPS.
 
@@ -75,7 +79,7 @@ il y a une seule transition par frontière.
 5. Musique : entrée `WORLD_MUSIC` (voir ci-dessous).
 6. Tests : frontières, transition, champ, validateur, bot sur l'univers.
 
-## Intégrer une musique pour l'univers 3 ou 4
+## Intégrer une musique pour l'univers 4 (modèle : univers 2 et 3)
 
 1. Déposer le MP3 dans `src/assets/audio/`.
 2. L'analyser (`scripts/analyze-phase2.py` comme modèle) pour obtenir un JSON de battements et de moments forts.
@@ -115,7 +119,7 @@ il y a une seule transition par frontière.
 
 - L'équilibrage est provisoire et validé par bot seulement : à tester par des joueurs humains (ressenti des nuages, des hémisphères et des
   inversions).
-- Univers 3 et 4 sans musique : fond procédural seulement, aucune réaction rythmique (voulu).
+- Univers 4 sans musique : fond procédural seulement, aucune réaction rythmique (voulu).
 - Les captures sont générées en navigateur sans GPU (fps réduits). Le rendu final est à vérifier sur un vrai téléphone.
 
 ## Prévisualisation sur téléphone (hors site officiel)
@@ -204,3 +208,91 @@ impacts (dont le premier drop à 36,8 s de jeu) ; spirales dès 48 s quand l'int
   téléphone n'est pas mesurable sans appareil.
 - Mémoire : le morceau décodé pèse ≈ 46 Mo ; la musique de la phase 2 (295 s) n'est plus chargée dans le voyage.
 - **À valider sur un vrai téléphone** : ressenti des attaques, lisibilité du décor, calage perçu (latence de sortie variable selon l'appareil).
+
+
+## La Mer nébulaire (univers 3) : musique, décor et dangers liés
+
+Même principe que La Faille : **la musique influence le calendrier et la mise en scène, jamais la validité d'une partie**. Le gameplay ne lit que
+`polar-rift-world3.json` via `config/world3.ts` ; musique coupée, en sourdine, en pause ou non décodée, les collisions ne changent pas.
+
+### Le morceau (joué tel quel)
+
+« Cosmic Impact » (MP3 fourni, 119,2 s, ≈ 129 pulsations/min, jamais réencodé) tient presque dans l'univers : **aucun montage, aucune répétition**. Il démarre
+0,3 s avant l'émergence (pendant la transition d'entrée, fondu d'entrée de 0,4 s) et son fondu final (116,5 → 117,8 s de jeu) s'achève juste avant l'ouverture de la
+faille de sortie. L'analyse hors ligne (`python3 -I scripts/analyze-world3.py`) produit : 256 battements (écart-type 9 ms : morceau très régulier, un seul décalage de
+110 ms sur l'attaque réelle du grand impact), 797 percussions, 15 impacts avec leur force, 8 montées, 4 passages calmes, enveloppes de basses et d'intensité.
+
+Structure réelle (temps de jeu local) : introduction douce, sans basses (0–30 s) ; **basses dès 30 s** ; plateau intense 33–67 s ponctué d'impacts (33, 35, 38, 41, 43, 48,
+51, 55 s) ; **creux profond 67,7–69,9 s** puis reprise nette à 70,5 s ; plateau plus dense jusqu'à 98 s ; second creux 98–100 s ; **grand impact de révélation à 100,1 s** ;
+**montée finale 103–106 s avec l'impact maximal à 104,0 s** ; **rupture 108,3–110,3 s** ; dernier élan 110,9–116 s ; fondu final.
+
+### Contrôles de synchronisation
+
+- Carte vs attaques réelles du fichier : écart médian −0,2 ms ; 95 % des battements forts à ± 25 ms, 98 % à ± 50 ms (`analyze-world3.py`). Le morceau étant joué tel quel, le temps
+  de la carte est le temps du fichier : aucun montage à vérifier.
+- Lecture à 60 images/s de toute la carte (`tests/world3.test.ts`) : chaque battement, percussion et impact est franchi **une seule fois**, **jamais en avance**, au plus **une
+  image après** l'instant entendu ; pause, reprise et saut ne rattrapent aucun repère. Platines (faux contexte audio) : voix programmée sur l'horloge audio, position entendue =
+  temps du fichier, reprise au même endroit. Navigateur (`scripts/e2e-world3.mjs`, vraie musique) : entrée par la vraie transition, une seule platine, pause/reprise, sourdine,
+  saut de test, éclipse, sortie vers l'univers 4.
+- `MusicSyncGuard` : même garde que pour La Faille (recale la musique, jamais le jeu, si l'appareil est très lent).
+
+### Cinq familles, pas une de plus (+ un événement visuel)
+
+| Famille | Mécanique | Calage musical |
+|---------|-----------|----------------|
+| 1. Brumes et courants nébulaires | nappes de gaz qui dérivent le long de l'orbite : vitesse × 0,58 en leur cœur, voile léger sur l'orbite | plus nombreuses pendant la découverte (0–30 s), plus rares ensuite |
+| 2. Ondes de pression | front gazeux qui fait le tour de l'orbite en 5,5 s (vitesse × 0,64), annoncé 2,4 s avant | **part exactement sur un grand impact** de la carte (6 ondes : 23, 33, 41, 48, 55 et 104 s) |
+| 3. Monolithes voyageurs | bloc de pierre lent (échelle 3,3) sur une corde de l'orbite, ou **procession** de 2–3 blocs sur la même trajectoire | contact calé sur un battement (70 % des monolithes seuls, toutes les processions : un bloc tous les deux battements) |
+| 4. Effondrement minéral | le monolithe se fissure en avançant (fissures lumineuses), se brise près du centre et libère 2–3 fragments annoncés | **rupture sur un grand impact** quand il y en a un dans l'attente permise (3 s), sinon sur un battement |
+| 5. Puits gravitationnels | anomalie autour d'un bloc flottant : vitesse × 1,28 dans le sens du puits, × 0,72 à contre-sens, 6–7,5 s, annoncé 2,3 s avant | départ sur un battement fort (72, 83, 92 et 110,7 s) |
+
+**Éclipse des géants** (événement visuel unique, jamais lu par la simulation) : de 83,7 s à 100,1 s une masse rocheuse colossale glisse devant la lumière, le décor plonge
+dans la pénombre (la plus profonde pendant le creux de 98–100 s), puis la masse **se brise sur l'impact de 100,1 s** et révèle une nébuleuse illuminée (éclat, lumière
+supplémentaire qui retombe en 14 s). Elle ne cache ni l'orbite, ni les dangers, ni leurs annonces.
+
+- Anciennes attaques (masses gazeuses, dérives, débris, nuées) **retirées**. Aucune sixième mécanique : ni geyser, ni marée nébulaire.
+- **Ralentissements cumulés bornés** : le facteur total du champ reste dans [0,5 ; 1,35] quels que soient les nuages, ondes et puits superposés (`CLOUDS.clamp`).
+- **Aucun danger ne touche l'orbite pendant un passage calme** : poids nuls quand le contact prévu tomberait dans un calme, et retard automatique d'un groupe dont le contact
+  y tomberait (l'annonce, elle, reste visible). Chaque danger est annoncé au moins 1,4 s à l'avance et validé par le validateur d'évitement à vitesse variable.
+- Progression (`world3Weights`) : 0–30 s brumes et premiers monolithes ; procession dès 14 s ; effondrements dès 24 s ; puits et éclipse de 70 à 100 s ; 98–120 s procession
+  minérale puis combinaison procession + effondrement (`processionCollapse`, seule combinaison, uniquement des familles 3 et 4) ; plus aucune vague dans les 3,5 dernières s.
+- Densité mesurée (robot, 6 graines) : 23 à 26 vagues dans l'univers (dont 4 à 9 effondrements), jamais plus de 8 menaces actives, le robot franchit l'univers sans mourir.
+
+### Décor (entièrement dessiné par code)
+
+Aucune image importée ni générée : les deux références (nébuleuse turquoise en tourbillon ; îlots rocheux et cascades de brume, planète à anneau) servent seulement de direction
+artistique. `nebulaTextures.ts` dessine par canvas 2D, de façon déterministe, des **nuages volumétriques** (bruit fractal déformé), des **filaments de gaz**, un **tourbillon**
+autour d'un foyer, des **roches fracturées** (cellules de Voronoï, strates, liseré lumineux, brume au pied), une **planète à anneau**, des traînées et des rayons ; `NebulaDecor.ts`
+les assemble : ciel profond, nuages en trois plans de parallaxe (lueurs additives + fumée sombre qui creuse la profondeur), filaments, tourbillon contrarotatif et foyer au-dessus du voile,
+planète, rayons de lumière, **monolithes et îlots flottants en trois plans** (brume atmosphérique sur les lointains, cascades de brume sous les îlots), poussières lumineuses, bords sombres.
+Tout est derrière l'orbite, les menaces et le vaisseau.
+
+Réactions (carte lue à la position entendue ; rien sans musique audible) : **basses** → foyer, tourbillon, nuages plus lumineux ; **percussions** → les arêtes des monolithes et les poussières
+scintillent ; **montées** → nuages et tourbillon accélèrent, rayons plus vifs ; **impacts** → décharge proportionnelle à leur force, monolithes poussés vers l'extérieur ;
+**passages calmes** → tout ralentit et s'apaise. Sortie : le tourbillon accélère, la brume vire à l'ambre vers le Monde des vents.
+
+Côté jeu : brumes (bandes voilées + filets de courant), ondes (annonce pulsée, front lumineux), puits (bloc flottant, spirale dans le sens du puits, flèches le long de l'orbite),
+monolithes (pierre facettée éclairée vers le centre, **halo et contour corail = zone dangereuse**, fissures lumineuses qui se creusent avant l'effondrement, éclat de pierre à la rupture).
+
+Génération : textures créées une par image pendant l'univers 2 (jamais d'à-coup à l'entrée) ; d'un coup si l'on saute directement dans l'univers 3 (fenêtre DEV). Mesure
+indicative (navigateur de bureau) : 52 objets d'image au plus, remplissage équivalent à ≈ 17 écrans en qualité haute, ≈ 14 en moyenne, ≈ 12 en basse (la qualité adaptative descend
+si les images sont lentes). Le coût GPU d'un téléphone n'est pas mesurable sans appareil.
+
+### Remplacer ou régler la musique de l'univers 3
+
+1. Remplacer `src/assets/audio/polar-rift-world3.mp3`.
+2. `python3 -I scripts/analyze-world3.py` (régénère la carte), puis ajuster si besoin `WORLD3_AT` (calage du morceau), `W3_PRESSURE`, `W3_WELLS`, `W3_ECLIPSE`, `W3_ATTACKS` et `world3Weights`
+   dans `config/world3.ts`, et `AMBIENCE.world3` pour le décor.
+3. `npx tsx scripts/world3-timeline.ts <graine>` contrôle le calage des dangers sur les battements, impacts et calmes.
+
+### Mesures et limites (La Mer nébulaire)
+
+- Coût de simulation (pas de 1/120 s, 3 graines) : moyenne 17–21 µs (40 µs avant la refonte), p99,9 7–8 ms (14,5 ms avant), maximum 17–31 ms (38 ms avant) : l'univers 3 reste le plus coûteux
+  (validateur d'évitement à vitesse variable aux décisions de vague) mais nettement moins qu'avant. À mesurer sur téléphone.
+- Coût JS d'une image en émulation mobile (processeur ×4, `npm run perf:worlds -- --world 3`) : 6 à 11 ms en moyenne, p95 17–30 ms ; le coût GPU n'est pas mesurable sans appareil.
+- Mémoire : chaque morceau décodé pèse ≈ 46 Mo ; celui de La Faille est libéré une fois l'univers 2 traversé (jamais plus de deux gros buffers à la fois) et redécodé à la demande après un saut de test en arrière.
+- **Constat sur le Monde des vents (non modifié, demande d'accord)** : `zoneMembership` (fonction partagée des champs de vitesse) ne couvre que le côté « angle > centre » d'une zone,
+  alors que le dessin est symétrique. La Mer nébulaire utilise sa propre fonction symétrique (`zoneMembershipSym`) ; les tourbillons du Monde des vents gardent l'ancien calcul tant que
+  vous n'avez pas demandé de les corriger.
+- **À valider sur un vrai téléphone** : beauté et fluidité du décor, lisibilité des monolithes sur le fond lumineux, ressenti des ondes et des puits, calage perçu.
+

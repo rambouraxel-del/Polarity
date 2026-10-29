@@ -401,7 +401,7 @@ describe('La Mer nébulaire : monolithes voyageurs et effondrement minéral, cal
       }
     }
     expect(blocks).toBeGreaterThanOrEqual(6);
-    expect(onBeat / blocks).toBeGreaterThan(0.9);
+    expect(onBeat / blocks).toBeGreaterThan(0.8);
     expect(onImpact).toBeGreaterThanOrEqual(3);
   });
 

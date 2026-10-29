@@ -1869,7 +1869,10 @@ export class ArenaRenderer {
     f.fillCircle(cx, cy, R0 * 1.55);
     const vx = (i: number): number => cx + Math.cos(spin + (i * TAU) / n) * R0 * (0.78 + 0.22 * hash01(h.id * 13 + i, 5));
     const vy = (i: number): number => cy + Math.sin(spin + (i * TAU) / n) * R0 * (0.78 + 0.22 * hash01(h.id * 13 + i, 5));
-    g.fillStyle(0x0a1f29, 0.97);
+    // Corps en pierre claire-sombre : se détache des blocs sombres du décor ; halo de danger corail autour du contour (la hitbox)
+    f.fillStyle(0xff6a5a, 0.1);
+    f.fillCircle(X, Y, hr * s * 1.18);
+    g.fillStyle(0x17394a, 0.98);
     g.beginPath();
     g.moveTo(vx(0), vy(0));
     for (let i = 1; i < n; i++) g.lineTo(vx(i), vy(i));
@@ -1880,7 +1883,7 @@ export class ArenaRenderer {
       const j = (i + 1) % n;
       const mid = Math.atan2((vy(i) + vy(j)) / 2 - cy, (vx(i) + vx(j)) / 2 - cx);
       const lit = Math.max(0, Math.cos(mid - light));
-      g.fillStyle(lit > 0.2 ? 0x1f5566 : 0x0f2b36, 0.35 + 0.5 * lit);
+      g.fillStyle(lit > 0.2 ? 0x3a8296 : 0x1a4152, 0.4 + 0.5 * lit);
       g.fillTriangle(cx, cy, vx(i), vy(i), vx(j), vy(j));
       if (lit > 0.45) {
         g.lineStyle(Math.max(1.2 * this.dpr, 2 * s), 0x8ffbef, 0.35 + 0.55 * lit);
@@ -1926,9 +1929,9 @@ export class ArenaRenderer {
         const a = c.presence * fade;
         const a0 = c.center - c.half;
         const a1 = c.center + c.half;
-        g.lineStyle(66 * s, 0x7fd8e0, 0.075 * a);
+        g.lineStyle(70 * s, 0x7fd8e0, 0.12 * a);
         this.arcPath(R, a0, a1);
-        g.lineStyle(34 * s, 0xdafffa, 0.1 * a);
+        g.lineStyle(36 * s, 0xdafffa, 0.16 * a);
         this.arcPath(R, a0 + CLOUDS.edge * 0.5, a1 - CLOUDS.edge * 0.5);
         // Courants : filets lumineux qui glissent le long de l'orbite dans le sens de la dérive
         if (!calm) {
@@ -2071,11 +2074,13 @@ export class ArenaRenderer {
         continue;
       }
       const spin = clock * 2.0 * w.spin;
-      g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0xb8c4ff, 0.75 * w.presence * fade);
+      g.fillStyle(0x6a7cff, 0.12 * w.presence * fade);
+      g.fillCircle(px, py, 52 * s);
+      g.lineStyle(Math.max(2 * this.dpr, 3 * s), 0xc4ceff, 0.9 * w.presence * fade);
       for (let arm = 0; arm < 3; arm++) {
         g.beginPath();
-        for (let k = 0; k <= 10; k++) {
-          const q = (6 + k * 3.4) * s;
+        for (let k = 0; k <= 12; k++) {
+          const q = (7 + k * 4.2) * s;
           const th = spin + (arm * TAU) / 3 + w.spin * k * 0.34;
           if (k === 0) g.moveTo(px + Math.cos(th) * q, py + Math.sin(th) * q);
           else g.lineTo(px + Math.cos(th) * q, py + Math.sin(th) * q);

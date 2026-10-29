@@ -609,6 +609,9 @@ export class App {
           if (session.sim.time >= 20) void this.music.preloadWorld2();
           // …et celui de l'univers 3 avant la seconde transition (à 240 s)
           if (session.sim.time >= 130) void this.music.preloadWorld3();
+          // Les morceaux des univers déjà traversés sont libérés (mémoire du téléphone) ; un saut de test en arrière les redécode
+          if (session.sim.time >= 250 && session.transitLeft === 0) this.music.releaseWorld('world2');
+          if (session.sim.time >= 370 && session.transitLeft === 0) this.music.releaseWorld('world3');
         } else if (session.sim.time >= PHASE2_PRELOAD_AT) void this.music.preloadPhase2();
         if (!session.worlds) this.music.maintain();
       }

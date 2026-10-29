@@ -235,14 +235,14 @@ export function eclipseAt(l: number, out: EclipseState): EclipseState {
 
 export const W3_ATTACKS = {
   /** Monolithe voyageur : bloc de pierre lent sur une corde de l'orbite, longuement annoncé ; sa menace dure tant que son bord peut encore toucher l'orbite. */
-  monolith: { speedScale: 0.46, scale: 2.2, extraWarn: 0.55, sep: { min: 1.6, max: 2.7 }, beatShare: 0.7 },
+  monolith: { speedScale: 0.46, scale: 3.3, extraWarn: 0.55, sep: { min: 1.6, max: 2.7 }, beatShare: 0.7 },
   /** Procession : 2 ou 3 monolithes sur la même trajectoire, chacun franchissant l'orbite sur un battement (`beats` battements d'intervalle). */
-  procession: { count: { min: 2, max: 3 }, beats: 2, scale: 1.9, maxShift: 0.9 },
+  procession: { count: { min: 2, max: 3 }, beats: 2, scale: 2.5, maxShift: 0.9 },
   /**
    * Effondrement minéral : le monolithe se fissure en avançant (fissures de plus en plus visibles), se brise près du centre SUR un impact de la carte
    * (retard seulement : jamais d'annonce raccourcie) puis libère 2 ou 3 fragments dont les trajectoires sont annoncées.
    */
-  collapse: { speedScale: 0.5, scale: 2.0, extraWarn: 0.65, fragments: { min: 2, max: 3 }, fragScale: 0.78, spread: { min: 0.5, max: 0.95 }, minImpact: 0.4, maxWait: 3.0, beatWait: 0.7 },
+  collapse: { speedScale: 0.5, scale: 3.1, extraWarn: 0.65, fragments: { min: 2, max: 3 }, fragScale: 0.95, spread: { min: 0.5, max: 0.95 }, minImpact: 0.4, maxWait: 3.0, beatWait: 0.7 },
 } as const;
 
 /**
@@ -259,8 +259,8 @@ export function world3Weights(l: number): Partial<Record<'monolith' | 'processio
   const finale = ramp(98, 6);
   return {
     monolith: 1.0 * ramp(0, 6) * (1 - 0.55 * ramp(30, 25)) * (1 - 0.4 * finale) * calm,
-    procession: 0.8 * ramp(14, 10) * (0.7 + 0.5 * finale) * calm,
-    collapse: 1.7 * ramp(24, 8) * calm,
+    procession: 1.3 * ramp(14, 10) * (0.7 + 0.6 * finale) * calm,
+    collapse: 2.8 * ramp(24, 8) * (1 - 0.3 * finale) * calm,
     processionCollapse: 0.7 * ramp(96, 8) * calm,
   };
 }

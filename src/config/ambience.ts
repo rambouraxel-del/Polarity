@@ -274,22 +274,24 @@ export const AMBIENCE = {
     decor: {
       /** Couleurs : fond du ciel (haut → bas), nuages (profond, sarcelle, turquoise, aigue-marine), blanc glacé, accent violet discret, fumée sombre. */
       sky: { top: 0x010a12, mid: 0x04303d, bottom: 0x021a26 },
-      colors: { deep: 0x0b3a63, teal: 0x1b8fa6, turquoise: 0x2fd9d0, aqua: 0x9ff7ee, ice: 0xdafffa, violet: 0x5b46b8, smoke: 0x021722, haze: 0x7fc3cf },
+      colors: { deep: 0x0b3a63, teal: 0x1b8fa6, turquoise: 0x2fd9d0, aqua: 0x9ff7ee, ice: 0xdafffa, violet: 0x7a52d8, smoke: 0x01121a, haze: 0x7fc3cf },
       /** Plafonds par plan (qualité haute ; les niveaux inférieurs en gardent moins, voir `tiers`). */
-      counts: { far: 6, mid: 6, near: 4, wisps: 5, rays: 3 },
+      counts: { far: 4, smoke: 3, mid: 5, near: 3, wisps: 4, rays: 3 },
+      /** Tailles des nuages par plan (× grande dimension d'écran) : les quadrilatères les plus grands coûtent le plus de remplissage au GPU. */
+      cloudSize: { far: [0.75, 1.15], smoke: [0.7, 1.1], mid: [0.55, 0.95], near: [0.6, 1.1], wisp: [0.7, 1.3] },
       tiers: {
         high: { clouds: 1, rocks: 1, falls: 1, rays: 1, wisps: 1 },
         medium: { clouds: 0.75, rocks: 0.85, falls: 1, rays: 0.67, wisps: 0.7 },
         low: { clouds: 0.5, rocks: 0.7, falls: 0, rays: 0.34, wisps: 0.4 },
       },
       /** Opacités de base de chaque plan de nuages (additif) et de la fumée sombre (qui creuse la profondeur). */
-      alpha: { far: 0.4, mid: 0.3, near: 0.18, smoke: 0.4, wisp: 0.42 },
+      alpha: { far: 0.42, mid: 0.3, near: 0.18, smoke: 0.55, wisp: 0.42 },
       /** Vitesse de dérive (part de l'écran par seconde), par plan : le plan proche glisse plus vite que le lointain (parallaxe). */
       drift: { far: 0.006, mid: 0.012, near: 0.024 },
       /** Tourbillon central : taille (× grande dimension de l'écran), opacité, rotation (rad/s) et opacité du foyer au-dessus du voile. */
       swirl: { size: 1.5, alpha: 0.55, spin: 0.045, coreAlpha: 0.75, coreSize: 240 },
       /** Planète à anneau (position en fraction d'écran depuis le centre de l'arène, taille × grande dimension, anneau, inclinaison, lueur). */
-      planet: { x: 0.26, y: -0.3, size: 0.26, ring: 2.5, tilt: -0.34, glow: 0.5, alpha: 0.95 },
+      planet: { x: 0.27, y: -0.36, size: 0.22, ring: 2.5, tilt: -0.34, glow: 0.5, alpha: 0.95 },
       rays: { alpha: 0.17, length: 1.1 },
       /** Monolithes flottants : tailles (× grande dimension), opacités (la brume atmosphérique éclaircit les plus lointains), dérive et amplitude de flottement. */
       rocks: {
@@ -301,8 +303,10 @@ export const AMBIENCE = {
         bob: 0.01,
         sway: 0.03,
       },
+      /** Bords sombres (vignette) : taille (× demi-diagonale) et opacité ; plus marqués pendant l'éclipse. */
+      edge: { size: 2.5, alpha: 0.55 },
       /** Allègement du voile de la zone de jeu dans cet univers (0 = voile normal) : les nuages et le tourbillon se voient mieux sous l'orbite. */
-      veilRelief: 0.4,
+      veilRelief: 0.55,
       /** Poussières lumineuses (fraction du plafond de qualité). */
       motes: 0.5,
       /** Réactions à la musique : multiplicateurs des signaux de la carte (basses, impacts, montées, percussions) et part d'apaisement d'un passage calme. */

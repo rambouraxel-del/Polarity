@@ -202,6 +202,17 @@ export class Music {
     return this.world3Loading;
   }
 
+  /**
+   * Libère un morceau du voyage quand son univers est derrière nous (≈ 46 Mo décodés chacun) : sur téléphone, pas plus de deux gros buffers à la fois. Un saut de test en arrière
+   * redécode le morceau à la demande (`preloadWorld2` / `preloadWorld3`).
+   */
+  releaseWorld(key: 'world2' | 'world3'): void {
+    if (!this.buffers[key]) return;
+    delete this.buffers[key];
+    if (key === 'world2') this.world2Loading = null;
+    else this.world3Loading = null;
+  }
+
   private async decodeExtra(key: 'phase2' | 'world2' | 'world3', url: string): Promise<void> {
     const ctx = this.host.context();
     if (!ctx) throw new Error('contexte audio indisponible');
