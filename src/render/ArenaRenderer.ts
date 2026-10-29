@@ -10,6 +10,7 @@ import { SHARDS } from '../config/economy';
 import { trailById } from '../config/trails';
 import { laserAngle, pathX, pathY, projectileX, projectileY, sectorCenterAt, sectorHalfAt, type Hazard, type LaserHazard, type ProjectileHazard, type SectorHazard } from '../sim/hazards';
 import { CLOUDS, CURRENTS, WORLDS, WORLD_LIST } from '../config/worlds';
+import { W3_WELLS } from '../config/world3';
 import { WorldsField } from '../sim/field';
 import { AMBIENCE } from '../config/ambience';
 import { ORBIT, orbitLook, worldOrbitLook } from '../config/orbit';
@@ -99,13 +100,14 @@ function smoothstep01(x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-type WorldLook = 'rock' | 'orb' | 'shard' | 'gas' | 'debris' | 'ember';
+type WorldLook = 'rock' | 'orb' | 'shard' | 'monolith' | 'chunk' | 'ember';
 
 /** Apparence d'un projectile dans le voyage des univers (décoratif : la hitbox ne dépend que de `scale`). */
 function hazardLook(h: ProjectileHazard, world: number): WorldLook {
   // La Faille : orbes d'énergie, et fragments dimensionnels pour les spirales fracturées
   if (world === 2) return h.pattern === 'fractureSpiral' || h.pattern === 'waveSpiral' ? 'shard' : 'orb';
-  if (world === 3) return (h.scale ?? 1) >= 1.5 ? 'gas' : 'debris';
+  // La Mer nébulaire : monolithes (et leurs fragments après l'effondrement)
+  if (world === 3) return h.fragment ? 'chunk' : 'monolith';
   if (world >= 4) return 'ember';
   return 'rock';
 }
@@ -183,6 +185,7 @@ export class ArenaRenderer {
   private readonly cloudBuf: { center: number; half: number; presence: number }[] = [];
   private readonly waveBuf: { angle: number; warn: number; active: boolean; sign: 1 | -1 }[] = [];
   private readonly vortexBuf: { angle: number; spin: 1 | -1; warn: number; presence: number }[] = [];
+  private readonly wellBuf: { angle: number; spin: 1 | -1; warn: number; presence: number }[] = [];
   /** Divisions d'astéroïdes déjà animées (décoratif, jamais lu par la simulation). */
   private readonly splitDone = new Set<number>();
   /** Affiche les hitboxes et silhouettes (URL ?debug). */
@@ -423,7 +426,7 @@ export class ArenaRenderer {
       for (const h of sim.hazards) {
         if (h.kind !== 'projectile') continue;
         this.drawProjectileWarning(h, t, clock);
-        if (h.split && t >= h.split.t && !this.splitDone.has(h.id)) this.splitBurst(h.id, h.split.x, h.split.y);
+        if (h.split && t >= h.split.t && !this.splitDone.has(h.id)) this.splitBurst(h.id, h.split.x, h.split.y, this.worlds && sim.world === 3);
         if (t >= h.launch && t <= h.end) {
           const look = this.worlds ? hazardLook(h, sim.world) : 'rock';
           if (look === 'rock') this.drawAsteroid(h, t, asteroids++, emitting, realDt);
@@ -1586,13 +1589,14 @@ export class ArenaRenderer {
   // ————————————————————————————————————————————— effets
 
   /** Éclat bref à l'endroit où un astéroïde se divise en deux fragments. */
-  private splitBurst(id: number, x: number, y: number): void {
+  private splitBurst(id: number, x: number, y: number, mineral = false): void {
     if (this.splitDone.size > 64) this.splitDone.clear();
     this.splitDone.add(id);
-    this.rings.push({ x, y, t: 0, life: 0.3, radius: 26, color: 0xffb347 });
+    // Effondrement minéral : l'éclat est celui d'un bloc qui éclate (poussière turquoise, éclats clairs et sombres), plus ample qu'un astéroïde
+    this.rings.push({ x, y, t: 0, life: mineral ? 0.45 : 0.3, radius: mineral ? 46 : 26, color: mineral ? 0xbff8f0 : 0xffb347 });
     if (this.rings.length > MAX_RINGS) this.rings.splice(0, this.rings.length - MAX_RINGS);
-    this.burst(x, y, 0xffffff, 8, 150, 0.4);
-    this.burst(x, y, 0xff8a3d, 10, 130, 0.45);
+    this.burst(x, y, 0xffffff, mineral ? 12 : 8, mineral ? 190 : 150, 0.4);
+    this.burst(x, y, mineral ? 0x6ff2e4 : 0xff8a3d, mineral ? 16 : 10, mineral ? 170 : 130, 0.5);
   }
 
   /** Ajoute une particule décorative (tampon circulaire : aucune allocation, plafond FX.maxParticles). */
@@ -1821,34 +1825,8 @@ export class ArenaRenderer {
       this.g.strokeCircle(X, Y, hr * s);
       return;
     }
-    if (look === 'gas') {
-      const rot = clock * 0.6 + h.id;
-      f.fillStyle(0xbff8ff, 0.07);
-      f.fillCircle(X, Y, hr * 1.9 * s);
-      f.fillStyle(0xd8f6ff, 0.1);
-      f.fillCircle(X, Y, hr * 1.35 * s);
-      for (let i = 0; i < 5; i++) {
-        const a = rot + (i * TAU) / 5;
-        f.fillStyle(0xe8fffb, 0.09);
-        f.fillCircle(X + Math.cos(a) * hr * 0.55 * s, Y + Math.sin(a) * hr * 0.55 * s, hr * 0.55 * s);
-      }
-      this.g.fillStyle(0x0b2b33, 0.35);
-      this.g.fillCircle(X, Y, hr * 0.98 * s);
-      this.g.lineStyle(Math.max(2 * this.dpr, 3.2 * s), COLORS.projectile, 0.95);
-      this.g.strokeCircle(X, Y, hr * s);
-      return;
-    }
-    if (look === 'debris') {
-      const a = clock * 2 + h.id;
-      const rr = hr * 1.25 * s;
-      f.fillStyle(0xffd6e0, 0.12);
-      f.fillCircle(this.sx(x - ux * 10), this.sy(y - uy * 10), hr * 0.9 * s);
-      const pts = [0, 1, 2, 3].map((i) => [X + Math.cos(a + (i * TAU) / 4) * rr * (i % 2 ? 0.6 : 1), Y + Math.sin(a + (i * TAU) / 4) * rr * (i % 2 ? 0.6 : 1)] as const);
-      this.g.fillStyle(0xfff0f4, 0.55);
-      this.g.fillTriangle(pts[0][0], pts[0][1], pts[1][0], pts[1][1], pts[2][0], pts[2][1]);
-      this.g.fillTriangle(pts[0][0], pts[0][1], pts[2][0], pts[2][1], pts[3][0], pts[3][1]);
-      this.g.lineStyle(lw, COLORS.projectile, 0.95);
-      this.g.strokeCircle(X, Y, hr * s);
+    if (look === 'monolith' || look === 'chunk') {
+      this.drawMonolith(h, t, look === 'monolith', X, Y, hr, clock);
       return;
     }
     // Braise emportée (Monde des vents) : roche incandescente, traînée ambrée courbe
@@ -1869,6 +1847,69 @@ export class ArenaRenderer {
   }
 
   /**
+   * Monolithe voyageur / fragment (La Mer nébulaire) : bloc de pierre facetté, éclairé du côté du centre de la nébuleuse, liseré turquoise ; en cas d'effondrement, des
+   * fissures lumineuses se creusent de plus en plus pendant l'approche. Le contour CORAIL (hitbox) reste dessiné à la taille réelle : il porte l'information.
+   */
+  private drawMonolith(h: ProjectileHazard, t: number, big: boolean, X: number, Y: number, hr: number, clock: number): void {
+    const s = this.scale;
+    const f = this.trailG;
+    const g = this.g;
+    const n = 8;
+    const R0 = hr * s * (big ? 0.96 : 0.9);
+    const spin = h.id * 0.7 + clock * (big ? 0.12 : 1.1) * (h.id % 2 ? 1 : -1);
+    const light = Math.atan2(this.sy(0) - Y, this.sx(0) - X);
+    // Éclatement imminent : léger tremblement et lueur au cœur
+    let crack = 0;
+    if (h.split && big) crack = Math.min(1, Math.max(0, (t - h.launch) / Math.max(0.001, h.split.t - h.launch)));
+    const jit = crack > 0.85 && !this.reducedEffects ? 1.8 * s * Math.sin(clock * 70) : 0;
+    const cx = X + jit;
+    const cy = Y;
+    // Halo de poussière
+    f.fillStyle(0x6ff2e4, 0.06 + 0.06 * crack);
+    f.fillCircle(cx, cy, R0 * 1.55);
+    const vx = (i: number): number => cx + Math.cos(spin + (i * TAU) / n) * R0 * (0.78 + 0.22 * hash01(h.id * 13 + i, 5));
+    const vy = (i: number): number => cy + Math.sin(spin + (i * TAU) / n) * R0 * (0.78 + 0.22 * hash01(h.id * 13 + i, 5));
+    g.fillStyle(0x0a1f29, 0.97);
+    g.beginPath();
+    g.moveTo(vx(0), vy(0));
+    for (let i = 1; i < n; i++) g.lineTo(vx(i), vy(i));
+    g.closePath();
+    g.fillPath();
+    // Facettes : celles qui regardent la lumière sont plus claires, liseré turquoise sur leur arête
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const mid = Math.atan2((vy(i) + vy(j)) / 2 - cy, (vx(i) + vx(j)) / 2 - cx);
+      const lit = Math.max(0, Math.cos(mid - light));
+      g.fillStyle(lit > 0.2 ? 0x1f5566 : 0x0f2b36, 0.35 + 0.5 * lit);
+      g.fillTriangle(cx, cy, vx(i), vy(i), vx(j), vy(j));
+      if (lit > 0.45) {
+        g.lineStyle(Math.max(1.2 * this.dpr, 2 * s), 0x8ffbef, 0.35 + 0.55 * lit);
+        g.lineBetween(vx(i), vy(i), vx(j), vy(j));
+      }
+    }
+    // Fissures lumineuses (effondrement) : de plus en plus nombreuses et vives
+    if (crack > 0.02) {
+      const nc = Math.min(6, 1 + Math.floor(crack * 6));
+      for (let k = 0; k < nc; k++) {
+        const a0 = h.id * 1.3 + k * 1.05;
+        g.lineStyle(Math.max(1.2 * this.dpr, (1.4 + 1.6 * crack) * s), 0xdafffa, 0.4 + 0.55 * crack);
+        g.beginPath();
+        g.moveTo(cx, cy);
+        let a = a0;
+        for (let q = 1; q <= 3; q++) {
+          a += (hash01(h.id * 7 + k * 3 + q, 9) - 0.5) * 1.1;
+          g.lineTo(cx + Math.cos(a) * R0 * (0.3 * q), cy + Math.sin(a) * R0 * (0.3 * q));
+        }
+        g.strokePath();
+      }
+      f.fillStyle(0xdafffa, 0.5 * crack * crack);
+      f.fillCircle(cx, cy, R0 * (0.25 + 0.3 * crack));
+    }
+    g.lineStyle(Math.max(2 * this.dpr, 3 * s), COLORS.projectile, 0.95);
+    g.strokeCircle(X, Y, hr * s);
+  }
+
+  /**
    * Mécaniques des univers sur l'orbite (lisibles, jamais confondues avec un danger : pas de corail ni de magenta).
    * Mer nébulaire : nuages (bandes turquoise douces + bords pointillés) et ondes de pression (annonce pulsée puis front lumineux).
    * Monde des vents : hémisphère rapide (traits ambrés qui défilent) / lent (pointillés cuivrés), frontières marquées, annonce d'inversion,
@@ -1880,20 +1921,24 @@ export class ArenaRenderer {
     const kind = field.kindAt(t);
     const calm = this.reducedEffects;
     if (kind === 'clouds') {
+      // Brumes et courants : nappes de gaz qui dérivent le long de l'orbite et ralentissent le vaisseau (légèrement voilées : jamais de corail ni de magenta)
       for (const c of field.cloudsAt(t, this.cloudBuf)) {
         const a = c.presence * fade;
-        g.lineStyle(48 * s, 0x2fd9d0, 0.1 * a);
-        this.arcPath(R, c.center - c.half, c.center + c.half);
-        g.lineStyle(24 * s, 0x6ff2e4, 0.13 * a);
-        this.arcPath(R, c.center - c.half + CLOUDS.edge * 0.5, c.center + c.half - CLOUDS.edge * 0.5);
-        g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), 0xb8fff0, 0.55 * a);
-        const span = 2 * c.half;
-        const nseg = Math.max(4, Math.round(span / 0.06));
-        for (let i = 0; i < nseg; i += 2) {
-          const b0 = c.center - c.half + (span * i) / nseg;
-          const b1 = c.center - c.half + (span * (i + 1)) / nseg;
-          this.arcPath(R + 26, b0, b1);
-          this.arcPath(R - 26, b0, b1);
+        const a0 = c.center - c.half;
+        const a1 = c.center + c.half;
+        g.lineStyle(66 * s, 0x7fd8e0, 0.075 * a);
+        this.arcPath(R, a0, a1);
+        g.lineStyle(34 * s, 0xdafffa, 0.1 * a);
+        this.arcPath(R, a0 + CLOUDS.edge * 0.5, a1 - CLOUDS.edge * 0.5);
+        // Courants : filets lumineux qui glissent le long de l'orbite dans le sens de la dérive
+        if (!calm) {
+          const span = a1 - a0;
+          for (let i = 0; i < 6; i++) {
+            const u = (((i * 0.37 + clock * (0.05 + 0.012 * i) * (i % 2 ? 1 : -1)) % 1) + 1) % 1;
+            const b0 = a0 + span * u * 0.85;
+            g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), 0xe8fffb, (0.22 + 0.2 * (i % 3) / 2) * a * Math.sin(Math.PI * u));
+            this.arcPath(R - 18 + i * 7, b0, b0 + span * 0.14);
+          }
         }
       }
       for (const w of field.wavesAt(t, this.waveBuf)) {
@@ -1918,6 +1963,7 @@ export class ArenaRenderer {
           this.radial(w.angle, 40);
         }
       }
+      this.drawWells(field, t, clock, fade);
       return;
     }
     if (kind !== 'currents') return;
@@ -1979,6 +2025,70 @@ export class ArenaRenderer {
         const a = v.angle + off;
         const tx = -Math.sin(a) * v.spin;
         const ty = Math.cos(a) * v.spin;
+        const ax = this.sx((R + 30) * Math.cos(a));
+        const ay = this.sy((R + 30) * Math.sin(a));
+        const c = 8 * s;
+        g.lineBetween(ax - tx * c + Math.cos(a) * c * 0.7, ay - ty * c + Math.sin(a) * c * 0.7, ax + tx * c * 0.4, ay + ty * c * 0.4);
+        g.lineBetween(ax - tx * c - Math.cos(a) * c * 0.7, ay - ty * c - Math.sin(a) * c * 0.7, ax + tx * c * 0.4, ay + ty * c * 0.4);
+      }
+    }
+  }
+
+  /**
+   * Puits gravitationnels (Mer nébulaire) : anomalie autour d'un bloc flottant posé juste hors de l'orbite. Annonce : arcs pointillés et cercle qui se resserre ;
+   * actif : spirale qui tourne dans le sens du puits, flèches le long de l'orbite (aller dans ce sens = plus vite, à contre-sens = plus lent), anneau de lentille.
+   */
+  private drawWells(field: WorldsField, t: number, clock: number, fade: number): void {
+    const g = this.g;
+    const s = this.scale;
+    const half = W3_WELLS.half;
+    for (const w of field.wellsAt(t, this.wellBuf)) {
+      const rx = Math.cos(w.angle);
+      const ry = Math.sin(w.angle);
+      const px = this.sx(R * rx);
+      const py = this.sy(R * ry);
+      // Bloc flottant (silhouette sombre à liseré clair) : l'ancre du puits
+      const bx = this.sx((R + 64) * rx);
+      const by = this.sy((R + 64) * ry);
+      const rr = 15 * s * (0.6 + 0.4 * Math.max(w.presence, w.warn));
+      g.fillStyle(0x0a1f29, 0.95 * fade);
+      g.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = w.angle + (i * TAU) / 6 + 0.4;
+        const k = 0.75 + 0.25 * hash01(i + Math.round(w.angle * 100), 21);
+        if (i === 0) g.moveTo(bx + Math.cos(a) * rr * k, by + Math.sin(a) * rr * k);
+        else g.lineTo(bx + Math.cos(a) * rr * k, by + Math.sin(a) * rr * k);
+      }
+      g.closePath();
+      g.fillPath();
+      g.lineStyle(Math.max(1.2 * this.dpr, 1.8 * s), 0x8ffbef, 0.8 * fade);
+      g.strokeCircle(bx, by, rr * 1.05);
+      if (w.presence <= 0) {
+        g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0xa9b8ff, 0.75 * fade);
+        const nseg = 10;
+        for (let i = 0; i < nseg; i += 2) this.arcPath(R + 30, w.angle - half + (2 * half * i) / nseg, w.angle - half + (2 * half * (i + 1)) / nseg);
+        g.strokeCircle(px, py, (26 + 18 * (1 - w.warn)) * s);
+        continue;
+      }
+      const spin = clock * 2.0 * w.spin;
+      g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0xb8c4ff, 0.75 * w.presence * fade);
+      for (let arm = 0; arm < 3; arm++) {
+        g.beginPath();
+        for (let k = 0; k <= 10; k++) {
+          const q = (6 + k * 3.4) * s;
+          const th = spin + (arm * TAU) / 3 + w.spin * k * 0.34;
+          if (k === 0) g.moveTo(px + Math.cos(th) * q, py + Math.sin(th) * q);
+          else g.lineTo(px + Math.cos(th) * q, py + Math.sin(th) * q);
+        }
+        g.strokePath();
+      }
+      g.lineStyle(Math.max(1 * this.dpr, 1.6 * s), 0x8ffbef, 0.4 * w.presence * fade);
+      g.strokeCircle(bx, by, rr * (1.5 + 0.25 * Math.sin(clock * 3)));
+      g.lineStyle(Math.max(1.5 * this.dpr, 2.4 * s), 0xdafffa, 0.85 * w.presence * fade);
+      for (const off of [-half * 0.6, 0, half * 0.6]) {
+        const a = w.angle + off;
+        const tx = -Math.sin(a) * w.spin;
+        const ty = Math.cos(a) * w.spin;
         const ax = this.sx((R + 30) * Math.cos(a));
         const ay = this.sy((R + 30) * Math.sin(a));
         const c = 8 * s;

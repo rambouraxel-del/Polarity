@@ -1,6 +1,7 @@
 import map from '../data/polar-rift-music-map.json';
 import phase2Map from '../data/polar-rift-phase2.json';
 import world2Map from '../data/polar-rift-world2.json';
+import world3Map from '../data/polar-rift-world3.json';
 import { PHASE2_MUSIC } from '../config/phases';
 import { AMBIENCE } from '../config/ambience';
 import type { MusicPosition, MusicTrack } from '../audio/music';
@@ -113,6 +114,20 @@ export const MUSIC_MAP = {
       hitStrength: world2Map.hitStrength,
       dropStrength: world2Map.dropStrength,
       calm: world2Map.calm,
+    }),
+    // Univers 3 « La Mer nébulaire » : carte du morceau joué tel quel (temps du fichier)
+    w3: parse({
+      duration: world3Map.plan.duration,
+      beats: world3Map.beats,
+      strength: world3Map.strength,
+      bass: world3Map.bass,
+      intensity: world3Map.intensity,
+      drops: world3Map.drops,
+      builds: world3Map.builds,
+      hits: world3Map.hits,
+      hitStrength: world3Map.hitStrength,
+      dropStrength: world3Map.dropStrength,
+      calm: world3Map.calm,
     }),
   } as Record<MusicTrack, TrackMap>,
 };

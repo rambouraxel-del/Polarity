@@ -1,12 +1,13 @@
 import { ARENA } from '../config/balance';
 import { ALT_BEAMS, ARC_SHOT, CONVOY, FRAGMENT, LASER, ROT_BEAM, SPIRAL, SWEEP_BEAM } from '../config/hazards';
 import { beatPeriodAt, nextAccent, nextBeat } from '../config/phases';
-import { WORLD_HAZARDS as WH } from '../config/worlds';
+import { WORLD_HAZARDS as WH, worldStart } from '../config/worlds';
 import { W2_ATTACKS as W2, WORLD2_SPAN, inBuild, inCalm } from '../config/world2';
+import { W3_ATTACKS as W3, W3_CALM } from '../config/world3';
 import { TAU } from '../core/math';
 import type { Rng } from '../core/rng';
 import type { DifficultyParams } from './difficulty';
-import { makeArcProjectile, makeChordProjectile, makeCurveProjectile, makeLaser, makeRayProjectile, makeSector, makeSpiralProjectile, shiftHazard, firstOrbitContact, type Hazard, type ProjectileHazard } from './hazards';
+import { makeArcProjectile, makeChordProjectile, makeLaser, makeRayProjectile, makeSector, makeSpiralProjectile, shiftHazard, firstOrbitContact, type Hazard, type ProjectileHazard } from './hazards';
 import { angularTravel, type SpeedFn } from './speed';
 
 export type PatternId =
@@ -44,13 +45,11 @@ export type PatternId =
   | 'fractureSpiral'
   | 'crackOrb'
   | 'waveSpiral'
-  // Mer nébulaire
-  | 'gasMass'
-  | 'gasDrift'
-  | 'nebulaDebris'
-  | 'debrisVolley'
-  | 'massDebris'
-  | 'gasPair'
+  // Mer nébulaire : monolithes voyageurs (seuls ou en procession) et effondrement minéral (config/world3.ts)
+  | 'monolith'
+  | 'procession'
+  | 'collapse'
+  | 'processionCollapse'
   // Monde des vents
   | 'windShards'
   | 'emberStream'
@@ -60,7 +59,7 @@ export type PatternId =
   | 'emberSpiral';
 
 export type Family = 'projectile' | 'sector' | 'combo' | 'fragment' | 'convoy' | 'laser' | 'rhythm' | 'bigarc' | 'spiral' | 'rotbeam' | 'sweepbeam' | 'altbeams'
-  | 'crack' | 'rupture' | 'orb' | 'surge' | 'gas' | 'debris' | 'ember' | 'gust';
+  | 'crack' | 'rupture' | 'orb' | 'surge' | 'monolith' | 'collapse' | 'ember' | 'gust';
 
 /** Grille de rythme (instants de jeu actif) : battements, moments forts, période. Calculée hors ligne, jamais lue dans l'audio. */
 export interface Rhythm {
@@ -519,70 +518,41 @@ export const PATTERNS: Record<PatternId, PatternDef> = {
     },
   },
 
-  // ————————————————————————— Mer nébulaire (masses lentes, débris ondulants)
-  gasMass: {
-    id: 'gasMass', family: 'gas', name: 'Masse gazeuse', cost: 1.5,
+  // ————————————————————————— Mer nébulaire : monolithes voyageurs et effondrement minéral (calés sur la carte musicale de config/world3.ts)
+  monolith: {
+    id: 'monolith', timed: true, family: 'monolith', name: 'Monolithe voyageur', cost: 1.6,
     build(ctx) {
-      return [gasMass(ctx, 'gasMass', ctx.now)];
+      const group: Hazard[] = [monolith(ctx, 'monolith', ctx.now, W3.monolith.scale)];
+      // La plupart des monolithes franchissent l'orbite sur un battement (le reste garde son rythme propre)
+      if (ctx.rng.next() < W3.monolith.beatShare) alignToBeat(ctx, group, W3.procession.maxShift);
+      return clearCalm(group);
     },
   },
-  gasDrift: {
-    id: 'gasDrift', family: 'gas', name: 'Masse à la dérive', cost: 1.7,
+  procession: {
+    id: 'procession', timed: true, family: 'monolith', name: 'Procession minérale', cost: 2.2,
     build(ctx) {
-      const { rng, p } = ctx;
-      const speed = p.projectileSpeed * WH.gasDrift.speedScale;
-      const warn = p.projectileWarn + WH.gasDrift.extraWarn;
-      const aimA = aimAngle(ctx, ctx.now + warn + approachTime(speed));
-      const side = rng.sign();
-      const spread = rng.range(1.2, 1.7);
-      const depth = rng.range(150, 230);
-      const h = shortFlight(makeArcProjectile('gasDrift', ctx.now, warn, speed,
-        [S * Math.cos(aimA - side * spread), S * Math.sin(aimA - side * spread)],
-        [depth * Math.cos(aimA), depth * Math.sin(aimA)],
-        [S * Math.cos(aimA + side * spread), S * Math.sin(aimA + side * spread)]));
-      if (!h) return [gasMass(ctx, 'gasDrift', ctx.now)];
-      h.scale = WH.gasDrift.scale;
-      return [h];
+      return procession(ctx, 'procession', ctx.now);
     },
   },
-  nebulaDebris: {
-    id: 'nebulaDebris', family: 'debris', name: 'Débris nébulaires', cost: 1.3,
+  collapse: {
+    id: 'collapse', timed: true, family: 'collapse', name: 'Effondrement minéral', cost: 2.3,
     build(ctx) {
-      const { rng } = ctx;
-      const n = rng.int(WH.debris.count.min, WH.debris.count.max);
-      const base = aimAngle(ctx, ctx.now + 2.2);
-      const out: Hazard[] = [];
-      for (let i = 0; i < n; i++) out.push(debris(ctx, 'nebulaDebris', ctx.now + i * rng.range(WH.debris.stagger.min, WH.debris.stagger.max), base + rng.range(-0.9, 0.9)));
-      return out;
+      return collapse(ctx, 'collapse', ctx.now);
     },
   },
-  debrisVolley: {
-    id: 'debrisVolley', family: 'debris', name: 'Nuée de débris', cost: 1.8,
+  processionCollapse: {
+    id: 'processionCollapse', timed: true, family: 'collapse', name: 'Procession + effondrement', cost: 2.8,
     build(ctx) {
-      const { rng, playerDir } = ctx;
-      const sweep = playerDir * rng.range(0.4, 0.6);
-      const base = aimAngle(ctx, ctx.now + 2.4) - sweep;
-      const gap = rng.range(WH.debris.stagger.min, WH.debris.stagger.max) * 1.2;
-      const out: Hazard[] = [];
-      for (let i = 0; i < 4; i++) out.push(debris(ctx, 'debrisVolley', ctx.now + i * gap, base + i * sweep));
-      return out;
-    },
-  },
-  massDebris: {
-    id: 'massDebris', family: 'combo', name: 'Masse + débris', cost: 2.1,
-    build(ctx) {
-      const mass = gasMass(ctx, 'massDebris', ctx.now);
-      const side = ctx.rng.sign();
-      const a = (mass.kind === 'projectile' ? mass.cross1 : ctx.playerAngle) + side * ctx.rng.range(1.0, 1.6);
-      return [mass, debris(ctx, 'massDebris', ctx.now + ctx.p.comboStagger * 1.4, a), debris(ctx, 'massDebris', ctx.now + ctx.p.comboStagger * 2.2, a + side * 0.5)];
-    },
-  },
-  gasPair: {
-    id: 'gasPair', family: 'gas', name: 'Masses croisées', cost: 2.3,
-    build(ctx) {
-      const a = gasMass(ctx, 'gasPair', ctx.now);
-      const b = gasMass(ctx, 'gasPair', ctx.now + ctx.rng.range(WH.gasMass.pairStagger.min, WH.gasMass.pairStagger.max));
-      return [a, b];
+      const lead = procession(ctx, 'processionCollapse', ctx.now, 2);
+      // Les deux événements sont annoncés ensemble : l'effondrement se brise de l'autre côté, APRÈS le passage du dernier bloc de la procession
+      const col = collapse(ctx, 'processionCollapse', ctx.now, 2);
+      let leadEnd = ctx.now;
+      for (const h of lead) if (h.kind === 'projectile') leadEnd = Math.max(leadEnd, h.crossTime2);
+      let colContact = Infinity;
+      for (const h of col) colContact = Math.min(colContact, firstOrbitContact(h));
+      const delay = leadEnd + 1.6 - colContact;
+      if (delay > 0) for (const h of col) shiftHazard(h, delay);
+      return [...lead, ...clearCalm(col)];
     },
   },
 
@@ -719,17 +689,18 @@ function riftOrb(ctx: PatternContext, pattern: string, warnStart: number): Proje
   return shortFlight(h);
 }
 
-/** Masse gazeuse : grand projectile lent sur une corde de l'orbite. */
-function gasMass(ctx: PatternContext, pattern: string, warnStart: number): Hazard {
+/** Monolithe voyageur : grand bloc de pierre lent sur une corde de l'orbite (même géométrie qu'un projectile droit, taille et vitesse propres). */
+function monolith(ctx: PatternContext, pattern: string, warnStart: number, scale: number, aim?: number): ProjectileHazard {
   const { rng, p } = ctx;
-  const speed = p.projectileSpeed * WH.gasMass.speedScale;
-  const warn = p.projectileWarn + WH.gasMass.extraWarn;
-  const a = aimAngle(ctx, warnStart + warn + approachTime(speed));
-  const other = a + rng.sign() * rng.range(1.6, 2.6);
+  const m = W3.monolith;
+  const speed = p.projectileSpeed * m.speedScale;
+  const warn = p.projectileWarn + m.extraWarn;
+  const a = aim ?? aimAngle(ctx, warnStart + warn + approachTime(speed));
+  const other = a + rng.sign() * rng.range(m.sep.min, m.sep.max);
   const h = rng.next() < 0.33 ? makeChordProjectile(pattern, warnStart, warn, speed, other, a) : makeChordProjectile(pattern, warnStart, warn, speed, a, other);
-  h.scale = WH.gasMass.scale;
-  // La masse est large : sa menace dure tant que son bord peut encore toucher l'orbite
-  h.threatEnd = Math.min(h.end, h.threatEnd + (asteroidReach(WH.gasMass.scale) / speed));
+  h.scale = scale;
+  // Le bloc est large : sa menace dure tant que son bord peut encore toucher l'orbite
+  h.threatEnd = Math.min(h.end, h.threatEnd + asteroidReach(scale) / speed);
   return h;
 }
 
@@ -738,27 +709,125 @@ function asteroidReach(scale: number): number {
   return 14 * (scale - 1);
 }
 
-/** Débris nébulaire : petit projectile lent dont la trajectoire ondule ; passe près de l'angle `angle`. */
-function debris(ctx: PatternContext, pattern: string, warnStart: number, angle: number): Hazard {
+/** Temps local de la Mer nébulaire (s de jeu actif depuis son début) d'un instant de jeu absolu. */
+const localW3 = (t: number): number => t - worldStart(2);
+
+/**
+ * Aucun danger ne TOUCHE l'orbite pendant un passage calme du morceau (config/world3.ts) : si le premier contact d'un des blocs tombe dans un calme, tout le groupe est
+ * retardé jusqu'à sa fin (retard seulement : l'annonce, elle, reste visible pendant le calme). Jusqu'à trois passes (un calme peut en suivre un autre de près).
+ */
+function clearCalm(group: Hazard[]): Hazard[] {
+  for (let pass = 0; pass < 3; pass++) {
+    let need = 0;
+    for (const h of group) {
+      const c = localW3(firstOrbitContact(h));
+      for (const [a, b] of W3_CALM) if (c >= a && c < b) need = Math.max(need, b - c + 0.05);
+    }
+    if (need <= 0) break;
+    for (const h of group) shiftHazard(h, need);
+  }
+  return group;
+}
+
+/** Décale tout le groupe (jamais en avant) pour que son premier contact avec l'orbite tombe sur un battement de la grille, s'il est à moins de `maxShift` s. */
+function alignToBeat(ctx: PatternContext, group: Hazard[], maxShift: number): void {
+  const rh = ctx.rhythm;
+  if (!rh || group.length === 0) return;
+  let contact = Infinity;
+  for (const h of group) contact = Math.min(contact, firstOrbitContact(h));
+  const beat = rh.nextBeat(contact);
+  if (beat > contact && beat - contact <= maxShift) for (const h of group) shiftHazard(h, beat - contact);
+}
+
+/**
+ * Procession minérale : 2 ou 3 monolithes sur la MÊME trajectoire, chacun franchissant l'orbite sur un battement (`beats` battements d'intervalle).
+ * Le premier contact est calé sur un battement de la grille (retard seulement) ; tous les blocs sont annoncés dès le départ.
+ */
+function procession(ctx: PatternContext, pattern: string, warnStart: number, maxCount: number = W3.procession.count.max): Hazard[] {
   const { rng, p } = ctx;
-  const d = WH.debris;
-  const speed = p.projectileSpeed * d.speedScale;
-  const other = angle + rng.sign() * rng.range(1.5, 2.6);
-  // Corde de l'orbite entre `angle` et `other`, prolongée hors champ ; l'ondulation s'ajoute perpendiculairement
-  const p1x = R * Math.cos(angle);
-  const p1y = R * Math.sin(angle);
-  let ux = R * Math.cos(other) - p1x;
-  let uy = R * Math.sin(other) - p1y;
-  const len = Math.hypot(ux, uy) || 1;
-  ux /= len;
-  uy /= len;
-  const along = p1x * ux + p1y * uy;
-  const x0 = p1x - along * ux - S * ux;
-  const y0 = p1y - along * uy - S * uy;
-  const amp = rng.range(d.amp.min, d.amp.max);
-  const k = rng.range(d.k.min, d.k.max);
-  const h = makeCurveProjectile(pattern, warnStart, p.projectileWarn + d.extraWarn, { type: 'wave', x0, y0, vx: ux * speed, vy: uy * speed, amp, k }, (2 * S) / speed, d.scale);
-  return h;
+  const m = W3.monolith;
+  const c = W3.procession;
+  const period = ctx.rhythm?.beatPeriodAt(warnStart) ?? 0.5;
+  const stagger = Math.max(0.7, c.beats * period);
+  const speed = p.projectileSpeed * m.speedScale;
+  const warn = p.projectileWarn + m.extraWarn;
+  const a1 = aimAngle(ctx, warnStart + warn + approachTime(speed));
+  const a2 = a1 + rng.sign() * rng.range(m.sep.min, m.sep.max);
+  const n = rng.int(c.count.min, Math.min(maxCount, c.count.max));
+  const out: Hazard[] = [];
+  for (let i = 0; i < n; i++) {
+    const h = makeChordProjectile(pattern, warnStart, warn + i * stagger, speed, a1, a2);
+    h.scale = c.scale;
+    h.threatEnd = Math.min(h.end, h.threatEnd + asteroidReach(c.scale) / speed);
+    out.push(h);
+  }
+  alignToBeat(ctx, out, c.maxShift);
+  return clearCalm(out);
+}
+
+/**
+ * Effondrement minéral : un monolithe traverse l'arène (ses fissures se creusent le long du trajet, côté rendu), se brise près du centre puis libère des
+ * fragments dont les trajectoires sont annoncées. L'instant de la rupture est calé sur un grand impact de la carte musicale (`maxWait` s au plus, retard
+ * seulement), à défaut sur un battement proche ; jamais d'annonce raccourcie.
+ */
+function collapse(ctx: PatternContext, pattern: string, warnStart: number, maxFragments: number = W3.collapse.fragments.max): Hazard[] {
+  const { rng, p } = ctx;
+  const c = W3.collapse;
+  const speed = p.projectileSpeed * c.speedScale;
+  const warn = p.projectileWarn + c.extraWarn;
+  const a1 = aimAngle(ctx, warnStart + warn + approachTime(speed));
+  const a2 = a1 + rng.sign() * rng.range(FRAGMENT.sep.min, FRAGMENT.sep.max);
+  // Corde de l'orbite entre a1 (entrée) et a2 ; rupture près du milieu, donc près du centre
+  const p1x = R * Math.cos(a1);
+  const p1y = R * Math.sin(a1);
+  let ux = R * Math.cos(a2) - p1x;
+  let uy = R * Math.sin(a2) - p1y;
+  const chord = Math.hypot(ux, uy);
+  ux /= chord;
+  uy /= chord;
+  const along1 = p1x * ux + p1y * uy;
+  const x0 = p1x - along1 * ux - S * ux;
+  const y0 = p1y - along1 * uy - S * uy;
+  const launch = warnStart + warn;
+  const phi = 0.5 + rng.range(-FRAGMENT.splitJitter, FRAGMENT.splitJitter);
+  const sx = p1x + ux * chord * phi;
+  const sy = p1y + uy * chord * phi;
+  const splitS = (sx - x0) * ux + (sy - y0) * uy;
+  const tSplit = launch + splitS / speed;
+  const main = makeRayProjectile(pattern, warnStart, launch, x0, y0, ux * speed, uy * speed, { end: tSplit, scale: c.scale });
+  // Le bloc ne revient jamais sur l'orbite : un seul point de passage (l'entrée) ; sa menace dure tant que son bord peut encore toucher l'orbite
+  main.cross2 = main.cross1;
+  main.crossTime2 = main.crossTime1;
+  main.threatEnd = Math.min(main.end, main.threatEnd + asteroidReach(c.scale) / speed);
+  main.split = { x: sx, y: sy, t: tSplit };
+  const out: Hazard[] = [main];
+  const psi = Math.atan2(uy, ux);
+  const n = rng.int(c.fragments.min, Math.min(maxFragments, c.fragments.max));
+  const spread = rng.range(c.spread.min, c.spread.max);
+  for (let k = 0; k < n; k++) {
+    // Éventail de fragments autour de la direction du bloc (un seul fragment au centre si n est impair)
+    const side = n === 1 ? 0 : (k / (n - 1)) * 2 - 1;
+    const ang = psi + side * spread;
+    const dx = Math.cos(ang);
+    const dy = Math.sin(ang);
+    const b = sx * dx + sy * dy;
+    const exit = -b + Math.sqrt(Math.max(0, b * b - (sx * sx + sy * sy) + R * R));
+    const fs = Math.max(FRAGMENT.minSpeed, Math.min(speed * 1.7, exit / FRAGMENT.minLead));
+    out.push(makeRayProjectile(pattern, warnStart, tSplit, sx, sy, dx * fs, dy * fs, { scale: c.fragScale, fragment: true }));
+  }
+  // Rupture calée sur un grand impact (puis, à défaut, sur un battement proche) : retard seulement
+  const rh = ctx.rhythm;
+  if (rh) {
+    let target = Infinity;
+    const impact = rh.nextImpact?.(tSplit, c.minImpact);
+    if (impact !== undefined && Number.isFinite(impact) && impact - tSplit <= c.maxWait) target = impact;
+    else {
+      const beat = rh.nextBeat(tSplit);
+      if (beat - tSplit <= c.beatWait) target = beat;
+    }
+    if (Number.isFinite(target) && target > tSplit) for (const h of out) shiftHazard(h, target - tSplit);
+  }
+  return clearCalm(out);
 }
 
 /** Fragments emportés : spirales entrantes, comme entraînées par un courant. */
@@ -912,8 +981,8 @@ export const FAMILY_INTRO: Record<Family, string> = {
   rupture: 'Onde de rupture : la faille centrale se charge, puis libère une onde sur le secteur annoncé, sur un grand impact de la musique.',
   orb: 'Orbe de faille : une sphère d’énergie suit une courbe ; tout son tracé est annoncé.',
   surge: 'Arc rampant : une décharge glisse lentement le long de l’orbite ; anticipez sa position.',
-  gas: 'Masse gazeuse : grande et lente ; son contour est sa zone dangereuse.',
-  debris: 'Débris nébulaires : petits fragments ondulants ; suivez leur tracé.',
+  monolith: 'Monolithe voyageur : un bloc de pierre immense et lent, seul ou en procession sur le rythme ; son contour est sa zone dangereuse.',
+  collapse: 'Effondrement minéral : le monolithe se fissure, se brise sur un impact de la musique et libère des fragments dont les trajectoires sont annoncées.',
   ember: 'Fragments emportés : ils tournent avec le courant avant de couper l’orbite.',
   gust: 'Vague de vent : un front tourne lentement autour de l’arène ; restez devant lui ou laissez-le passer.',
 };

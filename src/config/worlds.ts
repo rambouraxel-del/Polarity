@@ -1,5 +1,6 @@
 import type { PatternWeights } from '../sim/patterns';
 import { world2Weights } from './world2';
+import { world3Weights } from './world3';
 
 /**
  * VOYAGE À TRAVERS LES UNIVERS (refonte de la Survie, en cours de validation) — SOURCE UNIQUE des réglages.
@@ -95,26 +96,32 @@ export const WORLD_BONUS_PROPOSAL: Readonly<Record<number, number>> = { 2: 60, 3
 
 // ————————————————————————————————————————————— mécaniques environnementales (champs de vitesse)
 
-/** Mer nébulaire : nuages de ralentissement sur l'orbite et ondes de pression. Non mortels : ils changent la vitesse du vaisseau. */
+/**
+ * Mer nébulaire — familles 1 (brumes et courants) du champ de vitesse. Non mortelles : elles changent la vitesse du vaisseau, toujours progressivement.
+ * Les ondes de pression (famille 2) sont calées sur les impacts de la carte musicale et les puits gravitationnels (famille 5) sur ses battements :
+ * leurs instants sont dans `config/world3.ts`. Le cumul de tous les ralentissements est BORNÉ (`clamp.min`).
+ */
 export const CLOUDS = {
-  /** Facteur de vitesse au cœur d'un nuage. */
-  factor: 0.55,
-  /** Demi-largeur angulaire d'un nuage (rad) et largeur du fondu d'entrée/sortie (rad) : interpolation douce, jamais de saut. */
-  half: { min: 0.32, max: 0.55 },
+  /** Facteur de vitesse au cœur d'une nappe de brume. */
+  factor: 0.58,
+  /** Demi-largeur angulaire d'une nappe (rad) et largeur du fondu d'entrée/sortie (rad) : interpolation douce, jamais de saut. */
+  half: { min: 0.34, max: 0.58 },
   edge: 0.16,
-  /** Dérive lente le long du cercle (rad/s, signe tiré). */
-  drift: { min: 0.025, max: 0.07 },
-  /** Emplacements simultanés ; chaque nuage vit `life` s, apparaît et s'efface en `fade` s, puis l'emplacement se repose `gap` s. */
+  /** Dérive lente le long du cercle (rad/s, signe tiré) : le courant qui emporte la nappe. */
+  drift: { min: 0.03, max: 0.075 },
+  /** Emplacements simultanés ; chaque nappe vit `life` s, apparaît et s'efface en `fade` s, puis l'emplacement se repose `gap` s. */
   slots: 3,
-  life: { min: 26, max: 40 },
-  fade: 3,
+  life: { min: 24, max: 38 },
+  fade: 3.2,
   gap: { min: 3, max: 9 },
-  /** Décalage d'apparition du premier nuage de chaque emplacement (s locales). */
-  firstAt: [3, 9, 15] as readonly number[],
-  /** Ondes de pression : annonce (s), vitesse angulaire du front (rad/s), demi-largeur (rad), facteur, intervalle (s). */
-  wave: { warn: 2.4, speed: 1.15, half: 0.3, edge: 0.12, factor: 0.62, turns: 1, every: { min: 15, max: 22 }, first: 24 },
-  /** Bulles d'ombre (décor seulement : jamais les dangers ni leurs annonces) : intervalle, durée, opacité maximale du voile. */
-  shadow: { every: { min: 16, max: 24 }, duration: { min: 5, max: 8 }, alpha: 0.55, first: 30 },
+  /** Décalage d'apparition de la première nappe de chaque emplacement (s locales) et instant (s locales) après lequel l'emplacement ne produit plus de nappe : la brume
+   *  domine la découverte (0–30 s) puis se raréfie quand les puits et l'éclipse arrivent. */
+  firstAt: [2, 8, 14] as readonly number[],
+  until: [112, 88, 56] as readonly number[],
+  /** Ondes de pression : annonce (s), vitesse angulaire du front (rad/s), demi-largeur (rad), facteur, tours. Départ = impact de la carte (config/world3.ts). */
+  wave: { warn: 2.4, speed: 1.15, half: 0.3, edge: 0.12, factor: 0.64, turns: 1 },
+  /** Bornes du facteur total du champ (filet de sécurité : jamais de ralentissement cumulé excessif). */
+  clamp: { min: 0.5, max: 1.35 },
 } as const;
 
 /** Monde des vents : hémisphères de vitesse, inversions de courant, tourbillons. */
@@ -200,21 +207,13 @@ export const WORLD_LIST: readonly WorldDef[] = [
     palette: { sky: 0x02141c, primary: 0x2fd9d0, secondary: 0x1e6b8a, accent: 0xb8fff0, core: 0x9ff7ee, orbit: 0x8fe7ff },
     speed: { from: 0.68, to: 0.76 },
     difficulty: [[0, 0.5], [40, 0.6], [80, 0.68], [115, 0.74]],
-    interval: 1.05,
+    interval: 1.15,
     field: 'clouds',
     events: false,
-    beatChance: 0,
+    beatChance: 0.7,
     transition: { variant: 'spiral', from: 0x2fd9d0, to: 0xff8a2a },
-    weights(t) {
-      return {
-        gasMass: 1.0 * ramp(t, 0, 8),
-        nebulaDebris: 0.9 * ramp(t, 8, 10),
-        gasDrift: 0.8 * ramp(t, 22, 12),
-        debrisVolley: 0.75 * ramp(t, 40, 14),
-        massDebris: 0.75 * ramp(t, 64, 16),
-        gasPair: 0.6 * ramp(t, 86, 16),
-      };
-    },
+    // Cinq familles calées sur la carte musicale du morceau (config/world3.ts) : le temps local suffit, aucune lecture de l'audio
+    weights: (t) => world3Weights(t),
   },
   {
     id: 'winds',
@@ -280,12 +279,7 @@ export const worldStartStep = (i: number): number => Math.round(worldStart(i) * 
 export const WORLD_HAZARDS = {
   /** La Faille — orbes : grands arcs d'énergie, un peu plus lents que les astéroïdes, taille 0,9 (les autres attaques : `W2_ATTACKS`, config/world2.ts). */
   riftOrb: { speedScale: 0.84, extraWarn: 0.3, scale: 0.9 },
-  /** Mer nébulaire — masses gazeuses : grandes, lentes, longuement annoncées. */
-  gasMass: { speedScale: 0.42, scale: 2.1, extraWarn: 0.5, pairStagger: { min: 0.9, max: 1.4 } },
-  /** Masses à la dérive : la même masse sur une grande courbe. */
-  gasDrift: { speedScale: 0.56, scale: 1.85, extraWarn: 0.55 },
-  /** Débris nébulaires : petits, translucides, ondulants. */
-  debris: { speedScale: 0.55, scale: 0.62, amp: { min: 14, max: 30 }, k: { min: 2.2, max: 3.6 }, count: { min: 2, max: 3 }, stagger: { min: 0.35, max: 0.6 }, extraWarn: 0.3 },
+  /** Mer nébulaire : monolithes, procession et effondrement (réglages dans `W3_ATTACKS`, config/world3.ts). */
   /** Monde des vents — fragments emportés par les courants (spirales entrantes). */
   windShard: { speedScale: 0.74, spin: { min: 1.0, max: 1.6 }, count: { min: 2, max: 3 }, stagger: { min: 0.18, max: 0.3 }, scale: 0.8, extraWarn: 0.3 },
   /** Courant de braises : convoi sur une courbe. */

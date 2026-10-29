@@ -151,8 +151,8 @@ describe('La Faille : grille de rythme (préparée à l’avance, jamais lue dan
     expect(WORLDS_RHYTHM.nextImpact!(W2_T0 + 119.9, 0.5)).toBe(Infinity);
     // Hors de l'univers 2 : la grille de La Faille ne répond pas
     expect(WORLDS_RHYTHM.nextHit!(50)).toBe(Infinity);
-    expect(WORLDS_RHYTHM.nextImpact!(300, 0.5)).toBe(Infinity);
-    expect(WORLDS_RHYTHM.nextBeat(300)).toBe(300);
+    expect(WORLDS_RHYTHM.nextImpact!(400, 0.5)).toBe(Infinity);
+    expect(WORLDS_RHYTHM.nextBeat(400)).toBe(400);
   });
 
   it('le calcul est pur : mêmes questions, mêmes réponses', () => {

@@ -243,6 +243,75 @@ export const AMBIENCE = {
     stabilize: 0.3,
   },
 
+  /**
+   * L'univers 3 « La Mer nébulaire » : immense nébuleuse turquoise (nuages volumétriques, tourbillon lumineux, planète à anneau, rayons), gigantesques monolithes
+   * flottants en parallaxe, cascades de brume, poussières. TOUT est dessiné par code (textures procédurales, `render/ambience/nebulaTextures.ts`), jamais d'image
+   * importée. Les paramètres de stade sont remplacés, en fondu avec la présence du décor, par ceux ci-dessous ; le décor réagit à la carte musicale du morceau
+   * (`config/world3.ts`) : basses, percussions, montées, impacts, passages calmes. Décoratif seulement.
+   */
+  world3: {
+    params: {
+      stars: 0.4,
+      starSpeed: 0.3,
+      dust: 0.5,
+      nebula: 0,
+      riftOpen: 0.5,
+      riftGlow: 0.5,
+      beatGain: 0.9,
+      bassGain: 1,
+      ringChance: 0.35,
+      arcRate: 0,
+      debris: 0,
+      gridWarp: 0.5,
+      waveGain: 0.9,
+      heat: 0.2,
+      fissure: 0,
+      boltChance: 0,
+      waveChance: 0.4,
+    } as Readonly<Record<keyof typeof STAGE_PARAMS, number>>,
+    /** Percussions : constante de décroissance de l'impulsion (s) : elles font scintiller les arêtes des monolithes et les brumes. */
+    perc: { decay: 0.16 },
+    decor: {
+      /** Couleurs : fond du ciel (haut → bas), nuages (profond, sarcelle, turquoise, aigue-marine), blanc glacé, accent violet discret, fumée sombre. */
+      sky: { top: 0x010a12, mid: 0x04303d, bottom: 0x021a26 },
+      colors: { deep: 0x0b3a63, teal: 0x1b8fa6, turquoise: 0x2fd9d0, aqua: 0x9ff7ee, ice: 0xdafffa, violet: 0x5b46b8, smoke: 0x021722, haze: 0x7fc3cf },
+      /** Plafonds par plan (qualité haute ; les niveaux inférieurs en gardent moins, voir `tiers`). */
+      counts: { far: 6, mid: 6, near: 4, wisps: 5, rays: 3 },
+      tiers: {
+        high: { clouds: 1, rocks: 1, falls: 1, rays: 1, wisps: 1 },
+        medium: { clouds: 0.75, rocks: 0.85, falls: 1, rays: 0.67, wisps: 0.7 },
+        low: { clouds: 0.5, rocks: 0.7, falls: 0, rays: 0.34, wisps: 0.4 },
+      },
+      /** Opacités de base de chaque plan de nuages (additif) et de la fumée sombre (qui creuse la profondeur). */
+      alpha: { far: 0.4, mid: 0.3, near: 0.18, smoke: 0.4, wisp: 0.42 },
+      /** Vitesse de dérive (part de l'écran par seconde), par plan : le plan proche glisse plus vite que le lointain (parallaxe). */
+      drift: { far: 0.006, mid: 0.012, near: 0.024 },
+      /** Tourbillon central : taille (× grande dimension de l'écran), opacité, rotation (rad/s) et opacité du foyer au-dessus du voile. */
+      swirl: { size: 1.5, alpha: 0.55, spin: 0.045, coreAlpha: 0.75, coreSize: 240 },
+      /** Planète à anneau (position en fraction d'écran depuis le centre de l'arène, taille × grande dimension, anneau, inclinaison, lueur). */
+      planet: { x: 0.26, y: -0.3, size: 0.26, ring: 2.5, tilt: -0.34, glow: 0.5, alpha: 0.95 },
+      rays: { alpha: 0.17, length: 1.1 },
+      /** Monolithes flottants : tailles (× grande dimension), opacités (la brume atmosphérique éclaircit les plus lointains), dérive et amplitude de flottement. */
+      rocks: {
+        // Emplacements (fraction de la largeur et de la hauteur d'écran depuis le centre de l'arène) : composition fixe, comme dans les références — de gros blocs
+        // sombres qui cadrent les bords (en haut à droite, en bas), des îlots intermédiaires, de petits blocs perdus dans la brume du lointain.
+        far: { size: [0.09, 0.15], alpha: 0.7, haze: 0.5, slots: [[0.16, -0.36], [-0.3, -0.4], [0.38, 0.04], [-0.4, 0.14]] },
+        mid: { size: [0.17, 0.26], alpha: 0.92, haze: 0.18, slots: [[-0.36, -0.22], [0.36, 0.28], [-0.12, 0.47]] },
+        near: { size: [0.3, 0.44], alpha: 1, haze: 0, slots: [[0.5, -0.5], [-0.54, 0.5], [0.55, 0.56]] },
+        bob: 0.01,
+        sway: 0.03,
+      },
+      /** Allègement du voile de la zone de jeu dans cet univers (0 = voile normal) : les nuages et le tourbillon se voient mieux sous l'orbite. */
+      veilRelief: 0.4,
+      /** Poussières lumineuses (fraction du plafond de qualité). */
+      motes: 0.5,
+      /** Réactions à la musique : multiplicateurs des signaux de la carte (basses, impacts, montées, percussions) et part d'apaisement d'un passage calme. */
+      react: { bass: 0.5, drop: 0.9, build: 1.1, perc: 0.55, calm: 0.55, kick: 7 },
+      /** Éclipse des géants : taille de la masse (× grande dimension), position verticale, opacité maximale, nombre de morceaux à la dispersion. */
+      eclipse: { size: 1.9, y: -0.08, alpha: 0.9, chunks: 6, shade: 0.8, flash: 0.9, glow: 0.45 },
+    },
+  },
+
   /** Moments forts PRÉPARÉS (instants de survie active, indépendants de l'audio) : s'ajoutent aux réactions issues de l'analyse musicale. */
   script: [
     { at: 60, wave: 0.55, fissure: 0.4 },

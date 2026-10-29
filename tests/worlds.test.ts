@@ -221,14 +221,16 @@ describe('univers : champs de vitesse (Mer nébulaire, Monde des vents)', () => 
       }
   });
 
-  it('univers 3 : nuages lents (facteur < 1 en leur centre), jamais au-delà des bornes', () => {
+  it('univers 3 : brumes lentes (facteur < 1 en leur centre), cumul toujours dans les bornes de la Mer nébulaire', () => {
     let slow = 0;
     for (let t = 240; t < 360; t += 0.5) {
       for (const c of f.cloudsAt(t)) if (c.presence > 0.99) slow = Math.min(slow || 1, f.factor(c.center, t, 1));
       for (let a = 0; a < 6.3; a += 0.2) {
-        const k = f.factor(a, t, 1);
-        expect(k).toBeGreaterThanOrEqual(CURRENTS.clamp.min - 1e-12);
-        expect(k).toBeLessThanOrEqual(1 + 1e-12);
+        for (const dir of [1, -1] as const) {
+          const k = f.factor(a, t, dir);
+          expect(k).toBeGreaterThanOrEqual(CLOUDS.clamp.min - 1e-12);
+          expect(k).toBeLessThanOrEqual(CLOUDS.clamp.max + 1e-12);
+        }
       }
     }
     expect(slow).toBeGreaterThan(0);
@@ -394,10 +396,12 @@ describe('univers : le gameplay ne lit jamais l’audio', () => {
     }
   });
 
-  it('grille de rythme : battements réels des univers 1 et 2, aucun battement inventé en 3 et 4', () => {
+  it('grille de rythme : battements réels des univers 1 à 3, aucun battement inventé en 4', () => {
     expect(WORLD_RHYTHM_DATA.beats1.length).toBeGreaterThan(100);
     expect(WORLD_RHYTHM_DATA.beats1.every((b) => b < 120)).toBe(true);
-    for (const t of [250, 300, 400, 900]) {
+    expect(WORLD_RHYTHM_DATA.beats3.length).toBeGreaterThan(200);
+    expect(WORLD_RHYTHM_DATA.beats3.every((b) => b >= 239.5 && b < 360)).toBe(true);
+    for (const t of [370, 400, 900]) {
       expect(WORLDS_RHYTHM.nextBeat(t)).toBe(t);
       expect(WORLDS_RHYTHM.nextAccent(t)).toBe(Infinity);
     }
@@ -486,7 +490,7 @@ function musicSetup() {
   const ctx = new FakeCtx();
   const out = new FakeNode();
   const host: AudioHost = { context: () => ctx as unknown as BaseAudioContext, output: () => out as unknown as AudioNode };
-  const buffers = { intro: buf('intro'), loop: buf('loop'), outro: buf('outro'), world2: buf('world2') };
+  const buffers = { intro: buf('intro'), loop: buf('loop'), outro: buf('outro'), world2: buf('world2'), world3: buf('world3') };
   const wm = new WorldMusic(host, () => buffers);
   const pos = (): MusicPosition => wm.position({ track: null, time: 0, playing: false } as MusicPosition);
   return { ctx, wm, pos };
@@ -565,19 +569,21 @@ describe('univers : musique (plans, transitions de 4 s, pause, univers sans morc
     expect(after.time).toBeCloseTo(before.time, 6);
   });
 
-  it('univers 3 et 4 sans morceau : fond procédural, aucune position musicale (pas de faux battement), aucune erreur', () => {
-    expect(WORLD_MUSIC[3].track).toBeNull();
+  it('univers 4 sans morceau : fond procédural, aucune position musicale (pas de faux battement), aucune erreur', () => {
+    expect(WORLD_MUSIC[3].track).toBe('world3');
+    expect(WORLD_MUSIC[3].pad).toBeNull();
     expect(WORLD_MUSIC[4].track).toBeNull();
     const { ctx, wm, pos } = musicSetup();
     wm.startGame(2);
     ctx.currentTime = 10;
     expect(() => wm.transition(3)).not.toThrow();
     ctx.currentTime = 20;
+    expect(() => wm.transition(4)).not.toThrow();
+    ctx.currentTime = 24;
     expect(ctx.oscs.length).toBeGreaterThan(0);
     const p = pos();
     expect(p.track).toBeNull();
     expect(p.playing).toBe(false);
-    expect(() => wm.transition(4)).not.toThrow();
     ctx.currentTime = 30;
     expect(pos().track).toBeNull();
     expect(wm.currentWorld).toBe(4);

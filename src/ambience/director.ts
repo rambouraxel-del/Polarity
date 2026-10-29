@@ -1,5 +1,6 @@
 import { AMBIENCE, STAGES, STAGE_PARAMS, type QualitySpec, type QualityTier, type StageParam } from '../config/ambience';
 import { PHASES } from '../config/phases';
+import { eclipseAt, type EclipseState } from '../config/world3';
 import { WORLD_LIST, WORLDS, type TransitionVariant } from '../config/worlds';
 import type { MusicFrame } from './musicSync';
 
@@ -87,13 +88,14 @@ export interface AmbienceState {
   spawnArcs: number;
   /**
    * Voyage des univers : univers affiché (1–4 ; 0 = Survie historique), destination pendant une transition, présence de chaque décor (0–1, fondus
-   * pendant la traversée), voile d'ombre du décor (Mer nébulaire), ouverture de la faille, variante et couleurs de la transition. Décoratif seulement.
+   * pendant la traversée), ouverture de la faille, variante et couleurs de la transition. Décoratif seulement.
    */
   world: number;
   worldTo: number;
   worldMix: number;
   amt: [number, number, number, number];
-  shadow: number;
+  /** Mer nébulaire : Éclipse des géants (masse, pénombre, dispersion, éclat de la révélation), fonction du temps de jeu local (jamais de l'audio). */
+  eclipse: EclipseState;
   holeOpen: number;
   variant: TransitionVariant | null;
   riftFrom: number;
@@ -136,7 +138,7 @@ export class AmbienceDirector {
       worldTo: 0,
       worldMix: 0,
       amt: [1, 0, 0, 0],
-      shadow: 0,
+      eclipse: { mass: 0, dark: 0, scatter: 0, flash: 0, glow: 0, active: false },
       holeOpen: 1,
       variant: null,
       riftFrom: AMBIENCE_COLORS_AZURE,
@@ -163,7 +165,7 @@ export class AmbienceDirector {
     s.worldTo = 0;
     s.worldMix = 0;
     s.amt = [1, 0, 0, 0];
-    s.shadow = 0;
+    eclipseAt(-1e9, s.eclipse);
     s.holeOpen = 1;
     s.variant = null;
     this.scriptIdx = 0;
@@ -194,7 +196,7 @@ export class AmbienceDirector {
     music: MusicFrame,
     reduced: boolean,
     intensity = 1,
-    ph: { phase: 1 | 2; transit: number; phased?: boolean; world?: { index: number; to: number; shadow?: number } } = { phase: 1, transit: 0 },
+    ph: { phase: 1 | 2; transit: number; phased?: boolean; world?: { index: number; to: number } } = { phase: 1, transit: 0 },
   ): AmbienceState {
     const s = this.state;
     s.reduced = reduced;
@@ -219,10 +221,14 @@ export class AmbienceDirector {
     if (ph.world) this.worldLook(survival, ph.transit, ph.world);
     else s.world = 0;
     for (const k of PARAM_KEYS) s.p[k] = paramAt(k, s.stage);
-    // La Faille : les paramètres du stade sont remplacés, en fondu avec la présence du décor, par ceux du morceau
+    // La Faille et la Mer nébulaire : les paramètres du stade sont remplacés, en fondu avec la présence du décor, par ceux du morceau
     if (s.world > 0 && s.amt[1] > 0) {
       const w2 = AMBIENCE.world2.params;
       for (const k of PARAM_KEYS) s.p[k] += (w2[k] - s.p[k]) * s.amt[1];
+    }
+    if (s.world > 0 && s.amt[2] > 0) {
+      const w3 = AMBIENCE.world3.params;
+      for (const k of PARAM_KEYS) s.p[k] += (w3[k] - s.p[k]) * s.amt[2];
     }
     const user = clamp01(intensity);
     s.user = user;
@@ -253,7 +259,7 @@ export class AmbienceDirector {
 
     // Passages calmes de la musique : l'ambiance se calme aussi (jamais sans musique : elle ne réagit alors à rien)
     const cm = AMBIENCE.calm;
-    if (music.active && music.track === 'w2') {
+    if (music.active && (music.track === 'w2' || music.track === 'w3')) {
       // Carte détaillée : le calme est celui du morceau (pas une estimation par seuil d'intensité), apaisé en douceur (figé en pause)
       if (dt > 0) s.calm += ((music.calm ?? 0) - s.calm) * (1 - Math.exp(-dt / AMBIENCE.world2.calmSmooth));
     } else s.calm = music.active ? 1 - smoothstep((s.intensity - cm.low) / (cm.high - cm.low)) : 0;
@@ -295,7 +301,7 @@ export class AmbienceDirector {
    * Univers : présence des décors (fondus pendant la TRAVERSÉE de la transition), faille qui se forme dans les 25 dernières secondes de chaque univers
    * puis enveloppe l'écran pendant la transition, stade d'ambiance étalé sur les 8 minutes, couleurs de la faille selon la variante.
    */
-  private worldLook(survival: number, transit: number, w: { index: number; to: number; shadow?: number }): void {
+  private worldLook(survival: number, transit: number, w: { index: number; to: number }): void {
     const s = this.state;
     const tl = WORLDS.timeline;
     s.world = w.index;
@@ -328,7 +334,9 @@ export class AmbienceDirector {
     s.variant = transit > 0 ? def.transition.variant : null;
     s.riftFrom = def.transition.from;
     s.riftTo = def.transition.to;
-    s.shadow = w.shadow ?? 0;
+    // Mer nébulaire : l'éclipse suit le temps de jeu local (la pause la fige, une transition l'éteint)
+    if (w.index === 3 && transit === 0) eclipseAt(local, s.eclipse);
+    else eclipseAt(-1e9, s.eclipse);
   }
 
   private react(dt: number, music: MusicFrame, reduced: boolean, reaction: number): void {
@@ -350,12 +358,14 @@ export class AmbienceDirector {
     const w2 = AMBIENCE.world2;
     const inW2 = s.world === 2 && s.amt[1] > 0.5;
     s.pulse = inW2 ? 1 + (w2.hole.pulse - 1) * s.amt[1] * (1 - s.stab) : 1;
-    s.perc *= Math.exp(-dt / w2.perc.decay);
+    // Mer nébulaire : les percussions cartographiées font scintiller les arêtes des monolithes et les brumes (aucun éclair)
+    const inW3 = s.world === 3 && s.amt[2] > 0.5;
+    s.perc *= Math.exp(-dt / (inW3 ? AMBIENCE.world3.perc.decay : w2.perc.decay));
     const perc = music.perc ?? 0;
     if (perc > 0 && s.amt[1] > 0.5) {
       s.perc = Math.max(s.perc, perc * (1 - s.stab));
       if ((!reduced || AMBIENCE.reduced.arcs) && perc >= w2.perc.boltFrom && this.rand() < w2.perc.boltChance * perc * (1 - 0.9 * s.calm) * (1 - s.stab)) s.spawnArcs += 1;
-    }
+    } else if (perc > 0 && inW3) s.perc = Math.max(s.perc, perc * (1 - 0.7 * s.calm));
     const ins = w2.instability;
     const instTarget = inW2 && music.active ? clamp01(ins.build * s.build + ins.intensity * Math.max(0, s.intensity - 0.35) + ins.drop * s.drop) * (1 - s.stab) : 0;
     s.instab += (instTarget - s.instab) * (1 - Math.exp(-dt / ins.smooth));

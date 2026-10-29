@@ -30,12 +30,14 @@ export interface MusicBuffers {
   phase2?: AudioBuffer;
   /** Musique de l'univers 2 « La Faille » du voyage des univers (décodée tôt dans une partie du voyage, une seule fois). */
   world2?: AudioBuffer;
+  /** Musique de l'univers 3 « La Mer nébulaire » (« Cosmic Impact »), décodée tôt dans une partie du voyage, une seule fois. */
+  world3?: AudioBuffer;
 }
 
 type State = 'idle' | 'playing' | 'paused' | 'outro';
 
 /** Morceau en cours de lecture (pour la synchronisation de l'ambiance visuelle). */
-export type MusicTrack = 'intro' | 'loop' | 'outro' | 'p2' | 'w2';
+export type MusicTrack = 'intro' | 'loop' | 'outro' | 'p2' | 'w2' | 'w3';
 
 /**
  * Position de lecture ENTENDUE (latence de sortie déduite), réutilisable sans allocation.
@@ -103,12 +105,13 @@ export class Music {
   private pendingSecond: { at: number; first: Voice; loop: AudioBuffer } | null = null;
   private phase2Loading: Promise<void> | null = null;
   private world2Loading: Promise<void> | null = null;
+  private world3Loading: Promise<void> | null = null;
   /** Position de la musique au moment de la fin de partie (mort) : une reprise payée repart de là, jamais du début. */
   private stoppedAt: { pos: number; mode2: boolean } | null = null;
 
   constructor(
     private readonly host: AudioHost,
-    private readonly urls: { intro: string; loop: string; outro: string; phase2?: string; world2?: string } = MUSIC.urls,
+    private readonly urls: { intro: string; loop: string; outro: string; phase2?: string; world2?: string; world3?: string } = MUSIC.urls,
   ) {}
 
   /** La musique de phase 2 est-elle décodée ? */
@@ -187,7 +190,19 @@ export class Music {
     return this.world2Loading;
   }
 
-  private async decodeExtra(key: 'phase2' | 'world2', url: string): Promise<void> {
+  /** Voyage des univers : charge et décode la musique de l'univers 3, une seule fois, avant la seconde transition (elle entre pendant la transition 2 → 3). */
+  preloadWorld3(): Promise<void> {
+    if (this.buffers.world3 || !this.urls.world3) return Promise.resolve();
+    if (!this.world3Loading) {
+      if (!this.host.context()) return Promise.resolve();
+      this.world3Loading = this.decodeExtra('world3', this.urls.world3).catch(() => {
+        this.world3Loading = null;
+      });
+    }
+    return this.world3Loading;
+  }
+
+  private async decodeExtra(key: 'phase2' | 'world2' | 'world3', url: string): Promise<void> {
     const ctx = this.host.context();
     if (!ctx) throw new Error('contexte audio indisponible');
     const res = await fetch(url);

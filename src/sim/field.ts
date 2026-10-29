@@ -1,6 +1,7 @@
 import { CLOUDS, CURRENTS, WORLD_LIST, WORLDS, worldIndexAt, worldStart, type FieldKind } from '../config/worlds';
+import { W3_WAVE_AT, W3_WELLS, W3_WELL_AT } from '../config/world3';
 import { Rng } from '../core/rng';
-import { wrapAngle } from '../core/math';
+import { angleDiff, wrapAngle } from '../core/math';
 
 /**
  * Champs de vitesse des univers (mécaniques environnementales) : facteur multiplicatif de la vitesse de base du vaisseau selon sa POSITION sur
@@ -24,6 +25,16 @@ export function zoneMembership(angle: number, c: number, half: number, edge: num
   return 1 - smooth((d - (half - edge)) / edge);
 }
 
+/**
+ * Appartenance (0–1) SYMÉTRIQUE d'un angle à une zone centrée en `c` (de part et d'autre, ± `half`), fondu de largeur `edge` vers l'extérieur. Utilisée par la Mer
+ * nébulaire (brumes, ondes de pression, puits). NB : `zoneMembership` ci-dessus (conservée à l'identique pour les tourbillons du Monde des vents) ne couvre que
+ * le côté « angle > centre » de la zone ; ici la zone est bien centrée sur son centre, comme son dessin.
+ */
+export function zoneMembershipSym(angle: number, c: number, half: number, edge: number): number {
+  const d = Math.abs(angleDiff(c, angle));
+  return 1 - smooth((d - (half - edge)) / edge);
+}
+
 export interface Cloud {
   start: number;
   end: number;
@@ -38,6 +49,16 @@ export interface PressureWave {
   end: number;
   a0: number;
   sign: 1 | -1;
+}
+
+/** Puits gravitationnel (Mer nébulaire) : anomalie autour d'un bloc flottant, vitesse selon le sens de déplacement. */
+export interface GravityWell {
+  warnAt: number;
+  start: number;
+  end: number;
+  angle: number;
+  /** Sens de rotation du puits : +1 = angles croissants. Aller dans ce sens = plus vite, à contre-sens = plus lent. */
+  spin: 1 | -1;
 }
 
 export interface Vortex {
@@ -76,7 +97,7 @@ const worldOf = (kind: FieldKind): number => WORLD_LIST.findIndex((w) => w.field
 export class WorldsField implements SpeedField {
   readonly clouds: Cloud[] = [];
   readonly waves: PressureWave[] = [];
-  readonly shadows: { start: number; end: number }[] = [];
+  readonly wells: GravityWell[] = [];
   private readonly inversions: number[] = [];
   private readonly vortices: Vortex[] = [];
   private readonly invRng: Rng;
@@ -96,32 +117,36 @@ export class WorldsField implements SpeedField {
     this.nextVortex = cs + CURRENTS.vortex.first;
   }
 
-  /** Nuages, ondes et bulles d'ombre de la Mer nébulaire (univers fini : calendrier complet dès la création). */
+  /**
+   * Brumes, ondes de pression et puits gravitationnels de la Mer nébulaire (univers fini : calendrier complet dès la création). Les nappes viennent du
+   * générateur dédié ; les ondes et les puits ont leurs INSTANTS dans la carte musicale (config/world3.ts), seuls leurs angles et sens sont tirés.
+   */
   private buildClouds(rng: Rng): void {
     const ws = worldStart(this.cloudsWorld);
     const we = this.cloudsWorld >= WORLD_LIST.length - 1 ? ws + 3600 : ws + WORLDS.span;
     for (let slot = 0; slot < CLOUDS.slots; slot++) {
       let t = ws + (CLOUDS.firstAt[slot] ?? 3 + 6 * slot);
+      const until = Math.min(we, ws + (CLOUDS.until[slot] ?? WORLDS.span));
       // Emplacements répartis autour du cercle (jamais tous du même côté)
       let a = (slot / CLOUDS.slots) * Math.PI * 2 + rng.range(-0.5, 0.5);
-      while (t < we) {
+      while (t < until) {
         const life = rng.range(CLOUDS.life.min, CLOUDS.life.max);
         const drift = rng.sign() * rng.range(CLOUDS.drift.min, CLOUDS.drift.max);
-        this.clouds.push({ start: t, end: Math.min(we, t + life), a0: wrapAngle(a), drift, half: rng.range(CLOUDS.half.min, CLOUDS.half.max) });
+        this.clouds.push({ start: t, end: Math.min(until, t + life), a0: wrapAngle(a), drift, half: rng.range(CLOUDS.half.min, CLOUDS.half.max) });
         a += drift * life + rng.range(0.9, 2.2) * rng.sign();
         t += life + rng.range(CLOUDS.gap.min, CLOUDS.gap.max);
       }
     }
     const w = CLOUDS.wave;
     const turn = (w.turns * Math.PI * 2) / w.speed;
-    for (let t = ws + w.first; t + w.warn + turn < we; t += w.warn + turn + rng.range(w.every.min, w.every.max)) {
-      this.waves.push({ warnAt: t, start: t + w.warn, end: t + w.warn + turn, a0: rng.range(0, Math.PI * 2), sign: rng.sign() as 1 | -1 });
+    for (const at of W3_WAVE_AT) {
+      const start = ws + at;
+      this.waves.push({ warnAt: start - w.warn, start, end: start + turn, a0: rng.range(0, Math.PI * 2), sign: rng.sign() as 1 | -1 });
     }
-    const sh = CLOUDS.shadow;
-    for (let t = ws + sh.first; t < we - 4; t += rng.range(sh.every.min, sh.every.max)) {
-      const d = rng.range(sh.duration.min, sh.duration.max);
-      this.shadows.push({ start: t, end: Math.min(we, t + d) });
-      t += d;
+    for (const at of W3_WELL_AT) {
+      const start = ws + at;
+      const life = rng.range(W3_WELLS.life.min, W3_WELLS.life.max);
+      this.wells.push({ warnAt: start - W3_WELLS.warn, start, end: Math.min(we, start + life), angle: rng.range(0, Math.PI * 2), spin: rng.sign() as 1 | -1 });
     }
   }
 
@@ -156,8 +181,8 @@ export class WorldsField implements SpeedField {
   factor(angle: number, t: number, dir: 1 | -1): number {
     const kind = this.kindAt(t);
     if (kind === 'none') return 1;
-    let f = kind === 'clouds' ? this.cloudsFactor(angle, t) : this.currentsFactor(angle, t, dir);
-    const c = CURRENTS.clamp;
+    let f = kind === 'clouds' ? this.cloudsFactor(angle, t, dir) : this.currentsFactor(angle, t, dir);
+    const c = kind === 'clouds' ? CLOUDS.clamp : CURRENTS.clamp;
     if (f < c.min) f = c.min;
     else if (f > c.max) f = c.max;
     return f;
@@ -170,19 +195,26 @@ export class WorldsField implements SpeedField {
     return Math.min(smooth((t - c.start) / CLOUDS.fade), smooth((c.end - t) / CLOUDS.fade));
   }
 
-  private cloudsFactor(angle: number, t: number): number {
+  private cloudsFactor(angle: number, t: number, dir: 1 | -1): number {
     let f = 1;
     for (const c of this.clouds) {
       if (t <= c.start || t >= c.end) continue;
-      const m = zoneMembership(angle, c.a0 + c.drift * (t - c.start), c.half, CLOUDS.edge);
+      const m = zoneMembershipSym(angle, c.a0 + c.drift * (t - c.start), c.half, CLOUDS.edge);
       if (m > 0) f *= 1 - (1 - CLOUDS.factor) * m * this.cloudPresence(c, t);
     }
     const w = CLOUDS.wave;
     for (const p of this.waves) {
       if (t < p.start || t > p.end) continue;
       const fade = Math.min(smooth((t - p.start) / 0.5), smooth((p.end - t) / 0.5));
-      const m = zoneMembership(angle, p.a0 + p.sign * w.speed * (t - p.start), w.half, w.edge);
+      const m = zoneMembershipSym(angle, p.a0 + p.sign * w.speed * (t - p.start), w.half, w.edge);
       if (m > 0) f *= 1 - (1 - w.factor) * m * fade;
+    }
+    const q = W3_WELLS;
+    for (const x of this.wells) {
+      if (t < x.start || t > x.end) continue;
+      const presence = Math.min(smooth((t - x.start) / 0.6), smooth((x.end - t) / 0.8));
+      const m = zoneMembershipSym(angle, x.angle, q.half, q.edge) * presence;
+      if (m > 0) f *= 1 + ((dir === x.spin ? q.with : q.against) - 1) * m;
     }
     return f;
   }
@@ -209,12 +241,16 @@ export class WorldsField implements SpeedField {
     return out;
   }
 
-  /** Bulle d'ombre (0–1) : voile du DÉCOR seulement, jamais des dangers. */
-  shadowAt(t: number): number {
-    for (const s of this.shadows) {
-      if (t > s.start && t < s.end) return Math.min(smooth((t - s.start) / 1.2), smooth((s.end - t) / 1.2));
+  /** Puits gravitationnels visibles (annoncés ou actifs) à l'instant `t`. */
+  wellsAt(t: number, out: { angle: number; spin: 1 | -1; warn: number; presence: number }[] = []): { angle: number; spin: 1 | -1; warn: number; presence: number }[] {
+    out.length = 0;
+    for (const x of this.wells) {
+      if (t < x.warnAt || t > x.end) continue;
+      const warn = t < x.start ? (t - x.warnAt) / (x.start - x.warnAt) : 1;
+      const presence = t < x.start ? 0 : Math.min(smooth((t - x.start) / 0.6), smooth((x.end - t) / 0.8));
+      out.push({ angle: x.angle, spin: x.spin, warn, presence });
     }
-    return 0;
+    return out;
   }
 
   // ————————————————————————— Monde des vents

@@ -159,7 +159,8 @@ export class AmbienceRenderer {
     // Voile : plus l'ambiance est lumineuse, plus la zone de jeu est protégée (plafonné) ; en phase 2 il s'allège pour laisser voir le tunnel sous l'arène
     const d = AMBIENCE.shape.veilRadius * 2 * v.scale;
     this.veil.setPosition(v.cx, v.cy).setDisplaySize(d, d);
-    const protect = AMBIENCE.caps.veilAlpha * Math.min(1, 0.55 + (0.45 * s.stage) / 4 + s.drop * 0.1);
+    // La Mer nébulaire : voile allégé (le tourbillon et les nuages restent visibles sous l'orbite ; menaces et vaisseau restent au-dessus)
+    const protect = AMBIENCE.caps.veilAlpha * Math.min(1, 0.55 + (0.45 * s.stage) / 4 + s.drop * 0.1) * (1 - AMBIENCE.world3.decor.veilRelief * s.amt[2]);
     const veilA = protect + (AMBIENCE.tunnel.veilAlpha - protect) * tunnelAmount;
     this.veil.setAlpha(veilA);
     // Vignette de la phase 2 : bords et coins sombres (profondeur, lisibilité de l'arène)

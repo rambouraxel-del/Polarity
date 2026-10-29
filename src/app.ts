@@ -8,7 +8,7 @@ import { WorldMusic } from './audio/worldMusic';
 import { MusicSyncGuard } from './audio/syncGuard';
 import { WORLD_LIST, localTime } from './config/worlds';
 import { WORLD2_AT } from './config/world2';
-import { WorldsField } from './sim/field';
+import { WORLD3_AT } from './config/world3';
 import { WORLDS_RHYTHM } from './config/worldMusic';
 import { AmbienceDirector, QualityGovernor } from './ambience/director';
 import { MusicSync } from './ambience/musicSync';
@@ -308,7 +308,7 @@ export class App {
           perc: f.perc ?? 0,
           calm: f.calm ?? 0,
           // Univers 2 : temps de jeu local − temps local entendu (montage + calage) ; positif = le jeu est en avance sur le son
-          drift: s?.worlds && s.sim.world === 2 && s.transitLeft === 0 && this.musicPos.track === 'w2' ? (localTime(t) - (this.musicPos.time + WORLD2_AT)) * 1000 : NaN,
+          drift: this.musicDrift(s) * 1000,
         };
       },
       resyncMusic: () => {
@@ -320,6 +320,7 @@ export class App {
         };
         // Saut direct dans l'univers 2 : le morceau n'est pas encore décodé, on l'attend (rien ne bloque le jeu)
         if (s.sim.world === 2 && !this.music.decoded.world2) void this.music.preloadWorld2().then(go);
+        else if (s.sim.world === 3 && !this.music.decoded.world3) void this.music.preloadWorld3().then(go);
         else go();
       },
       persist: () => this.persist(false),
@@ -606,6 +607,8 @@ export class App {
         // Univers : le morceau de l'univers 2 est décodé tôt (il entre pendant la première transition, à 120 s)
         if (session.worlds) {
           if (session.sim.time >= 20) void this.music.preloadWorld2();
+          // …et celui de l'univers 3 avant la seconde transition (à 240 s)
+          if (session.sim.time >= 130) void this.music.preloadWorld3();
         } else if (session.sim.time >= PHASE2_PRELOAD_AT) void this.music.preloadPhase2();
         if (!session.worlds) this.music.maintain();
       }
@@ -640,15 +643,25 @@ export class App {
   }
 
   /**
-   * La Faille : si le jeu prend durablement du retard sur la musique (appareil très lent), la musique est recalée sur le temps de jeu (voir `MusicSyncGuard`).
+   * Univers 2 et 3 : temps de jeu local − temps local ENTENDU (calage du morceau compris), en secondes ; positif = le jeu est en avance sur le son.
+   * NaN hors d'un univers à morceau cartographié ou sans musique entendue.
+   */
+  private musicDrift(s: GameSession | null): number {
+    if (!s?.worlds || s.transitLeft !== 0 || !this.musicPos.playing) return NaN;
+    const l = localTime(s.sim.time);
+    if (s.sim.world === 2 && this.musicPos.track === 'w2') return l - (this.musicPos.time + WORLD2_AT);
+    if (s.sim.world === 3 && this.musicPos.track === 'w3') return l - (this.musicPos.time + WORLD3_AT);
+    return NaN;
+  }
+
+  /**
+   * La Faille et la Mer nébulaire : si le jeu prend durablement du retard sur la musique (appareil très lent), la musique est recalée sur le temps de jeu (voir `MusicSyncGuard`).
    * Jamais pendant une pause, une transition, un saut de test ou sans musique entendue.
    */
   private guardMusicSync(s: GameSession, realDt: number): void {
     let drift = NaN;
-    if (s.worlds && s.sim.world === 2 && s.phase === 'running' && s.transitLeft === 0 && s.testRate === 1 && !s.testFrozen && this.musicPos.track === 'w2' && this.musicPos.playing) {
-      drift = localTime(s.sim.time) - (this.musicPos.time + WORLD2_AT);
-    }
-    if (this.syncGuard.update(drift, realDt)) this.worldMusic.startGame(2, localTime(s.sim.time));
+    if (s.worlds && s.phase === 'running' && s.transitLeft === 0 && s.testRate === 1 && !s.testFrozen) drift = this.musicDrift(s);
+    if (this.syncGuard.update(drift, realDt)) this.worldMusic.startGame(s.sim.world, localTime(s.sim.time));
   }
 
   /** Ambiance de la Survie et du défi quotidien (décorative) : jamais en campagne ni en défi classique. */
@@ -666,7 +679,7 @@ export class App {
         phase: 1,
         transit,
         phased: true,
-        world: { index: s.sim.world, to: transit > 0 ? s.transitTo : s.sim.world, shadow: s.sim.field instanceof WorldsField ? s.sim.field.shadowAt(s.sim.time) : 0 },
+        world: { index: s.sim.world, to: transit > 0 ? s.transitTo : s.sim.world },
       });
     }
     return this.ambience.update(s.sim.time + this.ambiencePreview, dt, frame, this.reducedMotion, this.save.options.visualIntensity, { phase: s.sim.phase, transit, phased: s.sim.director.phased });
