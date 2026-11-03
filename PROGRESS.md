@@ -259,6 +259,12 @@ Voir `CHANGELOG.md` (« Décisions requises » et « Points bloquants restants a
 - [x] `codemagic.yaml` (parcours `ios-verification` sans signature + `ios-testflight` signé, TestFlight interne), `scripts/ios-ci.ts` (garde Bundle ID, numéro de build), `npm run mobile:ios:guard`, tests `tests/ios-ci.test.ts`, guide `docs/CODEMAGIC_IOS.md`.
 - [ ] À faire par l'éditeur : Bundle ID définitif, App Store Connect (clé API, fiche, groupe interne), Codemagic (intégration `polar-rift-asc`, groupe `polar_rift_ios`), puis lancer `ios-verification`. **Aucune exécution cloud faite : compilation iOS non prouvée.**
 
+## Mer nébulaire V2 + fusion dans `main` (travail direct sur `main`, sauvegarde `backup/pre-20261103-063240`)
+
+- Audit puis fusion fast-forward de `feat/univers3-mer-nebulaire` (1 025 tests, build, bundle sains avant fusion ; aucun fichier serveur/sauvegarde/records/`BALANCE_VERSION` modifié).
+- Accès mobile : bouton « Voyage des univers · TEST » + « Immortel » à la préparation de la Survie ; partie de test (`isTest`), aucun ticket consommé, aucun gain/record/classement.
+- Décor V2 (voir `docs/UNIVERS.md` § « Décor V2 ») ; tests : 1 028, e2e complet, e2e-world3, build, bundle.
+
 ## La Mer nébulaire (univers 3 du voyage, branche `feat/univers3-mer-nebulaire`, non fusionnée)
 - [x] Analyse de « Cosmic Impact » (`scripts/analyze-world3.py` → `src/data/polar-rift-world3.json`), morceau joué tel quel (démarré 0,3 s avant l'émergence, fondu final avant la faille de sortie), libéré de la mémoire après l'univers
 - [x] Cinq familles : brumes et courants, ondes de pression (sur impacts), monolithes voyageurs (seuls / procession sur battements), effondrement minéral (rupture sur impact), puits gravitationnels (sur battements) ; éclipse visuelle ; anciennes attaques retirées ; aucun danger ne touche l'orbite en calme ; cumul des ralentissements borné

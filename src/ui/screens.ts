@@ -3,6 +3,7 @@ import { LEVEL_DURATION } from '../config/balance';
 import { GAME_NAME } from '../config/brand';
 import { ACHIEVEMENT_CATEGORIES, type MetricKey } from '../config/achievements';
 import { POWERS } from '../config/powers';
+import { WORLDS_PUBLIC_ENTRY } from '../config/worlds';
 import { prismShopHtml, privacyHtml, type StoreView } from './storeScreens';
 import { BONUS, BONUS_LIST, bonusDef, type BonusKind } from '../config/economy';
 import { bonusStock, maxAffordable } from '../economy/bonus';
@@ -592,6 +593,7 @@ export function prepScreen(save: SaveData, message: { kind: 'ok' | 'error'; text
     ${msg}
     <div class="prep__go">${button({ action: 'survival-start', label: 'Lancer la partie', icon: 'play', variant: 'primary', size: 'go', attrs: 'data-autofocus' })}</div>
     ${body}
+    ${WORLDS_PUBLIC_ENTRY ? `<div class="prep__test"><div class="prep__test-row">${button({ action: 'worlds-start', label: 'Voyage des univers · TEST', variant: 'ghost', size: 'sm', attrs: 'aria-describedby="prep-test-note"' })}${button({ action: 'worlds-start', label: 'Immortel', variant: 'ghost', size: 'sm', attrs: 'data-immortal="1" aria-describedby="prep-test-note"' })}</div><p class="small" id="prep-test-note">Partie de test : 4 univers de 2 min, aucun gain, aucun record, aucun classement.</p></div>` : ''}
   </div>`;
 }
 

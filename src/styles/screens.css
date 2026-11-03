@@ -1465,6 +1465,22 @@
   margin: 0 0 10px;
 }
 
+.prep__test {
+  margin: 10px 0 0;
+  text-align: center;
+}
+
+.prep__test-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.prep__test p {
+  margin: 4px 2px 0;
+  font-size: 11px;
+}
+
 .prep__rules {
   margin: 8px 2px 0;
   font-size: 11.5px;

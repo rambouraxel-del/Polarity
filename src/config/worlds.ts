@@ -68,6 +68,12 @@ const smooth = (x: number): number => {
 /** Rampe douce de 0 à 1 entre `from` et `from + span` (temps local). */
 export const ramp = (t: number, from: number, span: number): number => smooth((t - from) / span);
 
+/**
+ * Entrée « Voyage des univers · TEST » sur l'écran de préparation de la Survie (accès direct sur mobile). Toujours une partie de test : aucun gain,
+ * aucun record, aucun succès, aucun envoi au classement. `false` = seule la fenêtre DEV (mode développeur) permet de le lancer.
+ */
+export const WORLDS_PUBLIC_ENTRY = true;
+
 export const WORLDS = {
   /** Durée de chaque univers (s de survie active). */
   span: 120,

@@ -723,3 +723,38 @@ describe('La Mer nébulaire : lecture du morceau sur l’horloge audio', () => {
     expect(WORLD_MUSIC[3].track).toBe('world3');
   });
 });
+
+describe('Mer nébulaire V2 — arc visuel et accès de test', () => {
+  it("l'arc visuel monte sans jamais redescendre, de 0 à 1, sur le temps local seul", async () => {
+    const { nebulaArc } = await import('../src/config/world3');
+    expect(nebulaArc(0)).toBe(0);
+    expect(nebulaArc(120)).toBe(1);
+    expect(nebulaArc(200)).toBe(1);
+    let prev = -1;
+    for (let t = 0; t <= 120; t += 0.25) {
+      const a = nebulaArc(t);
+      expect(a).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = a;
+    }
+    // mystère < accélération < agitation < climax
+    expect(nebulaArc(30)).toBeLessThan(nebulaArc(75));
+    expect(nebulaArc(75)).toBeLessThan(nebulaArc(100));
+    expect(nebulaArc(100)).toBeLessThan(nebulaArc(104));
+  });
+
+  it("l'état d'ambiance porte l'arc dans l'univers 3 seulement", () => {
+    const d = new AmbienceDirector(() => 0.5);
+    expect(d.state.neb).toBe(0);
+    d.reset();
+    expect(d.state.neb).toBe(0);
+  });
+
+  it("la préparation de la Survie propose le voyage en TEST, sans toucher au lancement officiel", async () => {
+    const S = await import('../src/ui/screens');
+    const { defaultSave } = await import('../src/save/save');
+    const html = S.prepScreen(defaultSave());
+    expect(html).toContain('data-action="worlds-start"');
+    expect(html).toContain('TEST');
+    expect(html).toContain('data-action="survival-start"');
+  });
+});

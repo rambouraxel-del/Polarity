@@ -1,6 +1,6 @@
 import { AMBIENCE, STAGES, STAGE_PARAMS, type QualitySpec, type QualityTier, type StageParam } from '../config/ambience';
 import { PHASES } from '../config/phases';
-import { eclipseAt, type EclipseState } from '../config/world3';
+import { eclipseAt, nebulaArc, type EclipseState } from '../config/world3';
 import { WORLD_LIST, WORLDS, type TransitionVariant } from '../config/worlds';
 import type { MusicFrame } from './musicSync';
 
@@ -96,6 +96,8 @@ export interface AmbienceState {
   amt: [number, number, number, number];
   /** Mer nébulaire : Éclipse des géants (masse, pénombre, dispersion, éclat de la révélation), fonction du temps de jeu local (jamais de l'audio). */
   eclipse: EclipseState;
+  /** Mer nébulaire : montée en puissance visuelle (0 = début mystérieux → 1 = apogée), fonction du temps de jeu local (0 hors de l'univers 3). */
+  neb: number;
   holeOpen: number;
   variant: TransitionVariant | null;
   riftFrom: number;
@@ -139,6 +141,7 @@ export class AmbienceDirector {
       worldMix: 0,
       amt: [1, 0, 0, 0],
       eclipse: { mass: 0, dark: 0, scatter: 0, flash: 0, glow: 0, active: false },
+      neb: 0,
       holeOpen: 1,
       variant: null,
       riftFrom: AMBIENCE_COLORS_AZURE,
@@ -166,6 +169,7 @@ export class AmbienceDirector {
     s.worldMix = 0;
     s.amt = [1, 0, 0, 0];
     eclipseAt(-1e9, s.eclipse);
+    s.neb = 0;
     s.holeOpen = 1;
     s.variant = null;
     this.scriptIdx = 0;
@@ -337,6 +341,7 @@ export class AmbienceDirector {
     // Mer nébulaire : l'éclipse suit le temps de jeu local (la pause la fige, une transition l'éteint)
     if (w.index === 3 && transit === 0) eclipseAt(local, s.eclipse);
     else eclipseAt(-1e9, s.eclipse);
+    s.neb = w.index === 3 ? nebulaArc(local) : 0;
   }
 
   private react(dt: number, music: MusicFrame, reduced: boolean, reaction: number): void {

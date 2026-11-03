@@ -1,7 +1,7 @@
 # Voyage à travers les univers (refonte de la Survie, en validation)
 
-Branche : `feat/survie-univers` (jamais fusionnée dans `main` sans validation du propriétaire).
-État : **mode de test isolé**. Il se lance seulement depuis la fenêtre DEV (mode développeur actif). Toute partie du voyage est une
+Branche : fusionné dans `main` (après audit : aucun changement du serveur, des sauvegardes, des records ni de `BALANCE_VERSION`).
+État : **mode de test isolé**. Il se lance depuis le bouton « Voyage des univers · TEST » de l'écran de préparation de la Survie (`WORLDS_PUBLIC_ENTRY`, `config/worlds.ts` ; `false` = fenêtre DEV seulement) ou depuis la fenêtre DEV. Toute partie du voyage est une
 **partie de test** : aucun record, aucun gain, aucun succès, aucun ticket ni envoi au service. La Survie officielle (`BALANCE_VERSION` 4),
 le défi quotidien, les défis classiques et la campagne ne changent pas.
 
@@ -130,7 +130,7 @@ il y a une seule transition par frontière.
 - Chemins relatifs : le dossier fonctionne sous n'importe quelle URL HTTPS.
 - Hébergement actuel : page Claude privée « Polar Rift Univers ». Elle est ouverte depuis le compte Claude du propriétaire ; sa sauvegarde locale
   est séparée de celle du jeu officiel.
-- Pour jouer au voyage : Options → mode développeur (mot de passe habituel) → fenêtre DEV → « Voyage des univers ».
+- Pour jouer au voyage : Survie → Préparation → « Voyage des univers · TEST » (ou « Immortel » pour traverser sans mourir) ; la fenêtre DEV (mode développeur) donne en plus les sauts de temps et l'accès direct à l'univers 3.
 - Le site GitHub Pages ne se publie que depuis `main` (`.github/workflows/pages.yml`) : pousser cette branche ne change rien au jeu officiel.
 
 
@@ -277,6 +277,16 @@ monolithes (pierre facettée éclairée vers le centre, **halo et contour corail
 Génération : textures calculées en ≈ 370 petits travaux (chacun ≤ 7 ms sur ordinateur, ≤ 21 ms avec le processeur ralenti ×4), un toutes les 0,08 s pendant La Faille (≈ 30 s en tout, rien pendant une pause) : jamais d'à-coup à l'entrée ; d'un coup (≈ 0,44 s sur ordinateur) si l'on saute directement dans l'univers 3 (fenêtre DEV). Mesure
 indicative (navigateur de bureau) : 52 objets d'image au plus, remplissage équivalent à ≈ 17 écrans en qualité haute, ≈ 14 en moyenne, ≈ 12 en basse (la qualité adaptative descend
 si les images sont lentes). Le coût GPU d'un téléphone n'est pas mesurable sans appareil.
+
+### Décor V2 — profondeur et mouvement permanent
+
+Refonte du rendu (gameplay, équilibrage et cinq familles inchangés). Principes :
+
+- **Arc visuel** `nebulaArc(local)` (`config/world3.ts`, `AmbienceState.neb`) : 0–30 s mystère (lumière à ≈ 62 %, fumée épaisse, planète voilée, mouvement lent), 30–75 s accélération, 75–100 s agitation (l'éclipse assombrit puis tout se déchaîne), 100–120 s climax (impact de la révélation = toute la lumière, lignes de vitesse, ondes de choc sur les battements forts). Fonction du **temps de jeu local** seul : le décor reste vivant sans musique ; la musique amplifie (basses, impacts, montées) et se tait dans les passages calmes.
+- **Profondeur** : caméra flottante (balancement lent de tout le décor, chaque plan le suit à sa profondeur : lointain ≈ immobile, proche ample) ; quatre plans de nuages + filaments + monolithes en trois plans ; planète quasi fixe.
+- **Mouvement** : (1) quatre tuiles de gaz SANS COUTURE (`nebulaTextures.ts` : bruit fractal périodique) qui défilent en sens contraires (ombre, bancs turquoise, filaments étirés, voile violet) — les couches se déforment l'une l'autre ; (2) les nuages et filaments TRAVERSENT l'écran dans le sens du vent (plan proche plus rapide) et se déforment en respirant ; (3) **géants de passage** : monolithes qui traversent le fond (rythme et vitesse selon l'arc), certains occultent la lumière, dissous au-dessus de la zone de jeu pour la lisibilité, aucun pendant la pénombre de l'éclipse ; (4) tourbillon à trois plans contrarotatifs qui respire ; (5) ondes de choc sur les impacts ; (6) lignes de vitesse à l'apogée ; (7) poussières portées par le vent.
+- Réglages : `AMBIENCE.world3.decor` (`flow`, `drift`, `cam`, `passers`, `shock`, `warp`, `tiers`). Qualité adaptative : haute (4 courants, 3 géants, 3 ondes), moyenne (3 / 2 / 2), basse (2 / 1 / 1, pas de lignes de vitesse).
+- Remplissage mesuré (navigateur de bureau, somme des surfaces d'images visibles / écran) : ≈ 19–20 écrans en haute, 16–17 en moyenne, 14 en basse ; objets : 55–67.
 
 ### Remplacer ou régler la musique de l'univers 3
 

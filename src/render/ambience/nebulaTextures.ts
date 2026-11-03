@@ -17,6 +17,9 @@ export const NEB_TEX = {
   ringFront: 'n-ring-front',
   streak: 'n-streak',
   ray: 'n-ray',
+  /** Courants de gaz SANS COUTURE (tuiles défilantes) : bancs de brume et filaments, et onde de choc. */
+  flow: ['n-flow-a', 'n-flow-b'],
+  shock: 'n-shock',
 } as const;
 
 function rng(seed: number): () => number {
@@ -38,7 +41,7 @@ const smooth = (x: number): number => {
 /** Bruit de valeur périodique (grille `n` × `n`), interpolé en douceur : brique de base du bruit fractal. */
 class Lattice {
   private readonly v: Float32Array;
-  constructor(private readonly n: number, seed: number) {
+  constructor(readonly n: number, seed: number) {
     const r = rng(seed);
     this.v = new Float32Array(n * n);
     for (let i = 0; i < this.v.length; i++) this.v[i] = r();
@@ -165,6 +168,68 @@ function wispJobs(scene: Phaser.Scene, key: string, seed: number): (() => void)[
       return Math.min(1, ridge * smooth((env - 0.3) * 3) * fall * 1.5);
     };
   });
+}
+
+// ————————————————————————————————————————————— courants de gaz sans couture
+
+/** Bruit fractal PÉRIODIQUE sur [0,1)² (une grille de 4·2^o cases par octave, bouclée) : la texture se raccorde à elle-même quand elle défile. */
+function tileFbm(lats: Lattice[], u: number, v: number): number {
+  let sum = 0;
+  let amp = 0.5;
+  let norm = 0;
+  for (const l of lats) {
+    sum += amp * l.at(u * l.n, v * l.n);
+    norm += amp;
+    amp *= 0.5;
+  }
+  return sum / norm;
+}
+
+const tileLats = (octaves: number, seed: number): Lattice[] => Array.from({ length: octaves }, (_, o) => new Lattice(4 * 2 ** o, seed + o * 131));
+
+/**
+ * Tuile de gaz sans couture, déformée par un champ de domaine périodique : `bank` = bancs de brume volumineux aux veines lumineuses (deux couches qui
+ * défilent en sens contraires se déforment l'une l'autre) ; sinon filaments fins (crêtes) à étirer au rendu pour en faire des courants. Blanc + alpha.
+ */
+function flowJobs(scene: Phaser.Scene, key: string, seed: number, bank: boolean): (() => void)[] {
+  const size = 256;
+  return pixelJobs(scene, key, size, size, 16, () => {
+    const L = tileLats(5, seed);
+    const W1 = tileLats(3, seed ^ 0x51ed);
+    const W2 = tileLats(3, seed ^ 0xa3c5);
+    const R = tileLats(4, seed ^ 0x77f1);
+    return (x, y) => {
+      const u = x / size;
+      const v = y / size;
+      const wu = (tileFbm(W1, u, v) - 0.5) * (bank ? 0.34 : 0.5);
+      const wv = (tileFbm(W2, u, v) - 0.5) * (bank ? 0.34 : 0.5);
+      if (bank) {
+        const d = tileFbm(L, u + wu, v + wv);
+        const ridge = 1 - Math.abs(2 * tileFbm(R, u + wu * 1.6, v + wv * 1.6) - 1);
+        return Math.min(1, smooth((d - 0.36) * 3.1) * (0.3 + 1.0 * ridge * ridge));
+      }
+      const n = tileFbm(R, u + wu, v + wv);
+      const ridge = Math.pow(1 - Math.abs(2 * n - 1), 4.2);
+      const env = tileFbm(L, u * 1 + wv, v + wu);
+      return Math.min(1, ridge * smooth((env - 0.28) * 3.2) * 1.5);
+    };
+  });
+}
+
+/** Onde de choc : anneau lumineux doux à bord extérieur net (déployée au rendu par un impact). Blanc + alpha. */
+function shockTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists(NEB_TEX.shock)) return;
+  const size = 256;
+  const { c, ctx } = makeCanvas(size, size);
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.7, 'rgba(255,255,255,0)');
+  g.addColorStop(0.9, 'rgba(255,255,255,0.8)');
+  g.addColorStop(0.955, 'rgba(255,255,255,0.35)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  scene.textures.addCanvas(NEB_TEX.shock, c);
 }
 
 // ————————————————————————————————————————————— tourbillon de la nébuleuse
@@ -484,6 +549,8 @@ export function nebulaJobs(scene: Phaser.Scene): (() => void)[] {
   const jobs: (() => void)[] = [];
   NEB_TEX.cloud.forEach((k, i) => jobs.push(...cloudJobs(scene, k, 1301 + i * 977, i % 2 ? 0.7 : 1.15)));
   NEB_TEX.wisp.forEach((k, i) => jobs.push(...wispJobs(scene, k, 8801 + i * 421)));
+  NEB_TEX.flow.forEach((k, i) => jobs.push(...flowJobs(scene, k, 7301 + i * 619, i === 0)));
+  jobs.push(() => shockTexture(scene));
   jobs.push(...swirlJobs(scene));
   NEB_TEX.rock.forEach((k, i) => jobs.push(...rockJobs(scene, k, 5501 + i * 313, i)));
   jobs.push(() => planetTexture(scene));

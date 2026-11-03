@@ -6,7 +6,7 @@ import type { QualityTier } from './config/ambience';
 import { Music, type MusicPosition } from './audio/music';
 import { WorldMusic } from './audio/worldMusic';
 import { MusicSyncGuard } from './audio/syncGuard';
-import { WORLD_LIST, localTime } from './config/worlds';
+import { WORLD_LIST, WORLDS_PUBLIC_ENTRY, localTime } from './config/worlds';
 import { WORLD2_AT } from './config/world2';
 import { WORLD3_AT } from './config/world3';
 import { WORLDS_RHYTHM } from './config/worldMusic';
@@ -284,7 +284,7 @@ export class App {
       },
       lb: this.lb,
       session: () => this.session,
-      restartTest: () => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.session?.config.worlds ? this.session.config.bonus : false, worlds: this.session?.config.worlds }),
+      restartTest: () => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.session?.config.worlds ? this.session.config.bonus : false, worlds: this.session?.config.worlds, test: this.session?.config.worlds ? this.session.config.test : undefined }),
       startWorlds: (bonus) => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus, worlds: true }),
       worldOverlay: (on) => {
         if (this.renderer) this.renderer.worldDebug = on;
@@ -742,9 +742,11 @@ export class App {
     // Le mode choisi à la préparation est figé pour toute la partie (rejouer garde le même mode) ; « Sans bonus » : aucune charge, aucun pouvoir
     // Mode développeur : une partie lancée alors qu'il est actif est une partie de TEST pour toute sa durée (le réglage est relu à chaque départ,
     // jamais repris d'une partie précédente). Test : aucun pouvoir ni charge, aucun ticket du classement.
-    // Voyage des univers : uniquement en mode développeur (sinon : Survie officielle)
-    if (cfg.worlds && !this.save.options.dev.enabled) cfg = { ...cfg, worlds: undefined };
-    const test = cfg.mode === 'survival' && this.save.options.dev.enabled;
+    // Voyage des univers : toujours une partie de TEST (jamais de gain, de record ni de classement), accessible depuis la préparation de la Survie
+    // (`WORLDS_PUBLIC_ENTRY`) ou la fenêtre DEV ; désactivé, il redevient la Survie officielle.
+    if (cfg.worlds && !(WORLDS_PUBLIC_ENTRY || this.save.options.dev.enabled)) cfg = { ...cfg, worlds: undefined };
+    const test = cfg.mode === 'survival' && (this.save.options.dev.enabled || (cfg.worlds === true && cfg.test === true));
+    const noTicket = test || (cfg.mode === 'survival' && cfg.worlds === true);
     cfg = { ...cfg, test: test || undefined };
     if (cfg.mode === 'survival' && cfg.worlds) {
       // Partie de test : pouvoirs facultatifs avec des charges de TEST (l'inventaire du joueur n'est jamais touché)
@@ -760,8 +762,8 @@ export class App {
     this.reviveMessage = null;
     this.lastConfig = cfg;
     // Un ticket du classement n'est jamais consommé par une partie de test : il reste pour la prochaine partie normale
-    this.runTicket = cfg.mode === 'survival' && !test ? this.nextTicket : null;
-    if (!test) this.nextTicket = null;
+    this.runTicket = cfg.mode === 'survival' && !noTicket ? this.nextTicket : null;
+    if (!noTicket) this.nextTicket = null;
     this.runLb = { kind: 'hidden' };
     // Récompenses gratuites : le départ est enregistré par le SERVICE (preuve d'horaire du Défi quotidien ; condition du drop rare en Survie)
     this.dailyAttempt = null;
@@ -1986,6 +1988,7 @@ export class App {
         this.persist(false);
         this.showScreen('prep', false);
         break;
+      case 'worlds-start': this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: false, worlds: true, test: target.dataset.immortal === '1' ? true : undefined }); break;
       case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.save.options.survivalMode === 'bonus' }); break;
       case 'play-daily': {
         const date = utcDateString();

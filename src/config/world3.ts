@@ -231,6 +231,36 @@ export function eclipseAt(l: number, out: EclipseState): EclipseState {
   return out;
 }
 
+// ————————————————————————————————————————————— arc visuel de l'univers (décor seulement)
+
+/**
+ * Montée en puissance VISUELLE de la Mer nébulaire (0 = début mystérieux, 1 = apogée) selon le temps local : 0–30 s mystère (brumes denses, lumière
+ * faible, mouvement lent), 30–75 s accélération, 75–100 s agitation croissante (l'éclipse assombrit puis déchaîne), 100–120 s climax (l'impact de la
+ * révélation libère toute la lumière). Fonction du temps de jeu local SEULEMENT (jamais de l'audio : le décor reste vivant sans musique ; la pause la
+ * fige) ; jamais lue par la simulation.
+ */
+export const W3_ARC: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [30, 0.2],
+  [75, 0.55],
+  [100, 0.8],
+  [W3_ECLIPSE.reveal + WORLD3_AT, 0.84],
+  [W3_ECLIPSE.reveal + WORLD3_AT + 3.5, 1],
+  [WORLD3_SPAN, 1],
+];
+
+export function nebulaArc(l: number): number {
+  const a = W3_ARC;
+  if (l <= a[0][0]) return a[0][1];
+  for (let i = 1; i < a.length; i++) {
+    if (l <= a[i][0]) {
+      const k = sm((l - a[i - 1][0]) / (a[i][0] - a[i - 1][0]));
+      return a[i - 1][1] + (a[i][1] - a[i - 1][1]) * k;
+    }
+  }
+  return a[a.length - 1][1];
+}
+
 // ————————————————————————————————————————————— familles 3 et 4 : dangers (monolithes, effondrement)
 
 export const W3_ATTACKS = {

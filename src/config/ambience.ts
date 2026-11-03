@@ -276,18 +276,46 @@ export const AMBIENCE = {
       sky: { top: 0x010a12, mid: 0x04303d, bottom: 0x021a26 },
       colors: { deep: 0x0b3a63, teal: 0x1b8fa6, turquoise: 0x2fd9d0, aqua: 0x9ff7ee, ice: 0xdafffa, violet: 0x7a52d8, smoke: 0x01121a, haze: 0x7fc3cf },
       /** Plafonds par plan (qualité haute ; les niveaux inférieurs en gardent moins, voir `tiers`). */
-      counts: { far: 4, smoke: 3, mid: 5, near: 3, wisps: 4, rays: 3 },
+      counts: { far: 3, smoke: 2, mid: 4, near: 2, wisps: 4, rays: 3 },
       /** Tailles des nuages par plan (× grande dimension d'écran) : les quadrilatères les plus grands coûtent le plus de remplissage au GPU. */
-      cloudSize: { far: [0.75, 1.15], smoke: [0.7, 1.1], mid: [0.55, 0.95], near: [0.6, 1.1], wisp: [0.7, 1.3] },
+      cloudSize: { far: [0.75, 1.15], smoke: [0.7, 1.1], mid: [0.55, 0.95], near: [0.5, 0.95], wisp: [0.7, 1.2] },
       tiers: {
-        high: { clouds: 1, rocks: 1, falls: 1, rays: 1, wisps: 1 },
-        medium: { clouds: 0.75, rocks: 0.85, falls: 1, rays: 0.67, wisps: 0.7 },
-        low: { clouds: 0.5, rocks: 0.7, falls: 0, rays: 0.34, wisps: 0.4 },
+        high: { clouds: 1, rocks: 1, falls: 1, rays: 1, wisps: 1, flow: 4, passers: 1, warp: 1, rings: 3 },
+        medium: { clouds: 0.75, rocks: 0.85, falls: 1, rays: 0.67, wisps: 0.8, flow: 3, passers: 0.67, warp: 0.6, rings: 2 },
+        low: { clouds: 0.5, rocks: 0.7, falls: 0, rays: 0.34, wisps: 0.4, flow: 2, passers: 0.34, warp: 0, rings: 1 },
       },
       /** Opacités de base de chaque plan de nuages (additif) et de la fumée sombre (qui creuse la profondeur). */
       alpha: { far: 0.42, mid: 0.3, near: 0.18, smoke: 0.55, wisp: 0.42 },
-      /** Vitesse de dérive (part de l'écran par seconde), par plan : le plan proche glisse plus vite que le lointain (parallaxe). */
-      drift: { far: 0.006, mid: 0.012, near: 0.024 },
+      /**
+       * Courants : les nuages TRAVERSENT l'écran dans le sens du vent (u par seconde au repos ; × la vitesse de l'arc `0,35 + 1,9 × avancement`) : le plan
+       * proche file bien plus vite que le lointain (parallaxe). Les filaments de gaz sont les plus rapides.
+       */
+      drift: { far: 0.012, smoke: 0.009, mid: 0.024, near: 0.05, wisp: 0.075 },
+      /**
+       * Caméra flottante : amplitude (× u) et fréquence du balancement lent de tout le décor ; chaque plan le suit à sa profondeur (lointain ≈ immobile, proche
+       * ample) : la parallaxe reste marquée même sans aucun autre mouvement.
+       */
+      cam: { amp: 0.04, rate: 0.047, depth: { far: 0.2, smoke: 0.45, mid: 0.8, near: 1.7, wisp: 1.2, planet: 0.12 } },
+      /**
+       * Tuiles de gaz sans couture qui défilent : couche sombre (creuse la profondeur), bancs turquoise, filaments étirés (courants lumineux), voile violet à
+       * contre-courant. `speed` : u par seconde au repos ; `dir` : angle du courant (rad, écran : y vers le bas) ; `scale` : taille d'une tuile (× u) ; `stretch` : étirement
+       * dans le sens du courant ; `alpha` : opacité ; `reactive` : part qui s'embrase sur les basses, les impacts et les montées.
+       */
+      flow: [
+        { tex: 0, color: 'smoke', add: false, alpha: 0.34, speed: 0.012, dir: -0.45, scale: 1.25, stretch: 1, reactive: 0 },
+        { tex: 0, color: 'turquoise', add: true, alpha: 0.2, speed: 0.024, dir: -0.7, scale: 0.95, stretch: 1, reactive: 0.7 },
+        { tex: 1, color: 'aqua', add: true, alpha: 0.17, speed: 0.06, dir: -0.15, scale: 0.8, stretch: 2.6, reactive: 1 },
+        { tex: 0, color: 'violet', add: true, alpha: 0.1, speed: 0.018, dir: 2.5, scale: 1.7, stretch: 1, reactive: 0.4 },
+      ] as readonly { tex: 0 | 1; color: 'smoke' | 'turquoise' | 'aqua' | 'violet'; add: boolean; alpha: number; speed: number; dir: number; scale: number; stretch: number; reactive: number }[],
+      /**
+       * Géants de passage (monolithes qui traversent le fond) : nombre maximal, délai entre deux apparitions (s, du début mystérieux à l'apogée), vitesse
+       * (u/s, × profondeur), taille (× u), opacité. Plus il y en a, plus l'univers s'agite ; certains passent devant la lumière (occultation).
+       */
+      passers: { max: 3, interval: [8, 2.4], speed: [0.03, 0.085], size: [0.34, 0.85], alpha: 0.92, occult: 0.4 },
+      /** Ondes de choc des impacts (anneaux qui jaillissent du foyer) : vitesse (u/s), durée (s), opacité. */
+      shock: { speed: 0.95, life: 1.5, alpha: 0.4, gap: 0.5 },
+      /** Lignes de vitesse de l'apogée (le fond file vers l'extérieur) : nombre maximal, opacité. */
+      warp: { lines: 26, alpha: 0.28 },
       /** Tourbillon central : taille (× grande dimension de l'écran), opacité, rotation (rad/s) et opacité du foyer au-dessus du voile. */
       swirl: { size: 1.5, alpha: 0.55, spin: 0.045, coreAlpha: 0.75, coreSize: 240 },
       /** Planète à anneau (position en fraction d'écran depuis le centre de l'arène, taille × grande dimension, anneau, inclinaison, lueur). */
