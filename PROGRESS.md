@@ -259,6 +259,10 @@ Voir `CHANGELOG.md` (« Décisions requises » et « Points bloquants restants a
 - [x] `codemagic.yaml` (parcours `ios-verification` sans signature + `ios-testflight` signé, TestFlight interne), `scripts/ios-ci.ts` (garde Bundle ID, numéro de build), `npm run mobile:ios:guard`, tests `tests/ios-ci.test.ts`, guide `docs/CODEMAGIC_IOS.md`.
 - [ ] À faire par l'éditeur : Bundle ID définitif, App Store Connect (clé API, fiche, groupe interne), Codemagic (intégration `polar-rift-asc`, groupe `polar_rift_ios`), puis lancer `ios-verification`. **Aucune exécution cloud faite : compilation iOS non prouvée.**
 
+## Univers 1 : musique « Neon Arpeggio » (travail direct sur `main`, sauvegarde `backup/pre-20261104-071710`)
+
+- Analyse (`scripts/analyze-world1.py` → `polar-rift-world1.json`), `config/world1.ts`, platine `world1` (joué tel quel), carte `w1` du décor, grille de rythme `WORLDS_RHYTHM` (battements + impacts francs), garde de synchro et préchargement/libération du buffer ; `beatChance` 0,35 → 0,5. Tests : `tests/world1.test.ts` (10), `scripts/e2e-world1.mjs`. Voir `docs/UNIVERS.md`.
+
 ## Mer nébulaire V3 — vol continu (travail direct sur `main`, sauvegarde `backup/pre-20261104-064038`)
 
 - `NebulaDecor` réécrit autour d'un cap de vol : nuages, tuiles de gaz, filaments, blocs (4 plans, opaques), planète, débris et lignes de vitesse défilent en continu à des vitesses étagées ; occlusion réelle ; débris nets (texture dédiée). Réglages : `AMBIENCE.world3.decor` (`flight`, `drift`, `flow`, `rocks`, `debris`, `streaks`, `planet`). Voir `docs/UNIVERS.md` § « Décor V3 ».

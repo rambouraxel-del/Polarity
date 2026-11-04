@@ -28,6 +28,8 @@ export interface MusicBuffers {
   outro?: AudioBuffer;
   /** Musique de la phase 2 (décodée tardivement, une seule fois). */
   phase2?: AudioBuffer;
+  /** Musique de l'univers 1 « L'Orbite originelle » (« Neon Arpeggio »), décodée au départ d'une partie du voyage, libérée une fois l'univers traversé. */
+  world1?: AudioBuffer;
   /** Musique de l'univers 2 « La Faille » du voyage des univers (décodée tôt dans une partie du voyage, une seule fois). */
   world2?: AudioBuffer;
   /** Musique de l'univers 3 « La Mer nébulaire » (« Cosmic Impact »), décodée tôt dans une partie du voyage, une seule fois. */
@@ -37,7 +39,7 @@ export interface MusicBuffers {
 type State = 'idle' | 'playing' | 'paused' | 'outro';
 
 /** Morceau en cours de lecture (pour la synchronisation de l'ambiance visuelle). */
-export type MusicTrack = 'intro' | 'loop' | 'outro' | 'p2' | 'w2' | 'w3';
+export type MusicTrack = 'intro' | 'loop' | 'outro' | 'p2' | 'w1' | 'w2' | 'w3';
 
 /**
  * Position de lecture ENTENDUE (latence de sortie déduite), réutilisable sans allocation.
@@ -104,6 +106,7 @@ export class Music {
   /** Second tour de la phase 1 : raccord à programmer (voir `planSecondPass`). */
   private pendingSecond: { at: number; first: Voice; loop: AudioBuffer } | null = null;
   private phase2Loading: Promise<void> | null = null;
+  private world1Loading: Promise<void> | null = null;
   private world2Loading: Promise<void> | null = null;
   private world3Loading: Promise<void> | null = null;
   /** Position de la musique au moment de la fin de partie (mort) : une reprise payée repart de là, jamais du début. */
@@ -111,7 +114,7 @@ export class Music {
 
   constructor(
     private readonly host: AudioHost,
-    private readonly urls: { intro: string; loop: string; outro: string; phase2?: string; world2?: string; world3?: string } = MUSIC.urls,
+    private readonly urls: { intro: string; loop: string; outro: string; phase2?: string; world1?: string; world2?: string; world3?: string } = MUSIC.urls,
   ) {}
 
   /** La musique de phase 2 est-elle décodée ? */
@@ -178,6 +181,18 @@ export class Music {
     return this.phase2Loading;
   }
 
+  /** Voyage des univers : charge et décode la musique de l'univers 1, une seule fois, avant le départ (écran de préparation) ou au départ. */
+  preloadWorld1(): Promise<void> {
+    if (this.buffers.world1 || !this.urls.world1) return Promise.resolve();
+    if (!this.world1Loading) {
+      if (!this.host.context()) return Promise.resolve();
+      this.world1Loading = this.decodeExtra('world1', this.urls.world1).catch(() => {
+        this.world1Loading = null;
+      });
+    }
+    return this.world1Loading;
+  }
+
   /** Voyage des univers : charge et décode la musique de l'univers 2, une seule fois, tôt dans la partie (elle entre pendant la première transition). */
   preloadWorld2(): Promise<void> {
     if (this.buffers.world2 || !this.urls.world2) return Promise.resolve();
@@ -204,16 +219,17 @@ export class Music {
 
   /**
    * Libère un morceau du voyage quand son univers est derrière nous (≈ 46 Mo décodés chacun) : sur téléphone, pas plus de deux gros buffers à la fois. Un saut de test en arrière
-   * redécode le morceau à la demande (`preloadWorld2` / `preloadWorld3`).
+   * redécode le morceau à la demande (`preloadWorld1` / `preloadWorld2` / `preloadWorld3`).
    */
-  releaseWorld(key: 'world2' | 'world3'): void {
+  releaseWorld(key: 'world1' | 'world2' | 'world3'): void {
     if (!this.buffers[key]) return;
     delete this.buffers[key];
-    if (key === 'world2') this.world2Loading = null;
+    if (key === 'world1') this.world1Loading = null;
+    else if (key === 'world2') this.world2Loading = null;
     else this.world3Loading = null;
   }
 
-  private async decodeExtra(key: 'phase2' | 'world2' | 'world3', url: string): Promise<void> {
+  private async decodeExtra(key: 'phase2' | 'world1' | 'world2' | 'world3', url: string): Promise<void> {
     const ctx = this.host.context();
     if (!ctx) throw new Error('contexte audio indisponible');
     const res = await fetch(url);

@@ -1,6 +1,7 @@
 import { MUSIC } from '../config/music';
 import { PHASE2_MUSIC } from '../config/phases';
-import { WORLD1_PLAN, WORLD_MUSIC, WORLD_TRANSITION_AUDIO as TA, type PadId } from '../config/worldMusic';
+import { WORLD_MUSIC, WORLD_TRANSITION_AUDIO as TA, type PadId } from '../config/worldMusic';
+import { WORLD1_PLAN, WORLD1_START } from '../config/world1';
 import { WORLD2_PLAN, WORLD2_START } from '../config/world2';
 import { WORLD3_FADE_IN, WORLD3_PLAN, WORLD3_START } from '../config/world3';
 import { WORLDS } from '../config/worlds';
@@ -9,7 +10,8 @@ import type { AudioHost, MusicBuffers, MusicPosition } from './music';
 /**
  * Musique du VOYAGE DES UNIVERS (Web Audio). Même contexte, même sortie (volume général, sourdine) et mêmes buffers décodés que `Music` :
  * aucun second moteur, aucun second décodage. Chaque univers joue sur sa « platine » (gain → filtre passe-bas → bus de la musique) :
- *   - univers 1 : intro, puis la région en boucle reprise à `WORLD1_PLAN.loopEntry` (montage de 120 s, raccord en fondu court) ;
+ *   - univers 1 « L'Orbite originelle » : morceau « Neon Arpeggio » joué TEL QUEL dès le départ de la partie (≈ 123 s, aucun montage) ; son fondu final se perd dans
+ *     la transition vers La Faille (`config/world1.ts`) ;
  *   - univers 2 « La Faille » : morceau « Portal Surge » monté sur 120 s (une phrase de trois mesures répétée, raccord sur deux battements réels, fondu de quelques
  *     dizaines de ms) ; il démarre pendant la transition d'entrée et son dernier coup sec tombe sur l'ouverture de la faille de sortie (`config/world2.ts`) ;
  *   - univers 3 « La Mer nébulaire » : morceau « Cosmic Impact » joué TEL QUEL (≈ 119 s, aucun montage), démarré quelques dixièmes de seconde avant l'émergence ;
@@ -30,7 +32,6 @@ interface Deck {
   pad: boolean;
 }
 
-const mod = (a: number, n: number): number => ((a % n) + n) % n;
 const OPEN = 18000;
 
 export class WorldMusic {
@@ -82,8 +83,14 @@ export class WorldMusic {
     this.fadeAll(ctx, MUSIC.restartFade);
     this.world = world;
     this.state = 'playing';
-    this.current = this.play(ctx, world, local + (world > 1 ? WORLDS.transition : 0), ctx.currentTime + MUSIC.restartFade + 0.02, 0.05);
+    this.current = this.play(ctx, world, local + (world > 1 ? WORLDS.transition : 0), ctx.currentTime + WorldMusic.startLag, 0.05);
   }
+
+  /**
+   * Délai (s) entre l'appel de `startGame` et le premier son : le morceau démarre à la position demandée À CE MOMENT-LÀ. Un appelant qui recale la musique sur un jeu qui
+   * continue de tourner passe donc `local + WorldMusic.startLag`, sinon la musique garde ce retard en permanence.
+   */
+  static readonly startLag = MUSIC.restartFade + 0.02;
 
   /** Début de la transition vers l'univers `to` : l'ancienne platine se ferme, la nouvelle entre filtrée et s'ouvre à l'arrivée. */
   transition(to: number): void {
@@ -169,14 +176,13 @@ export class WorldMusic {
     if (pos < 0) return out;
     out.playing = !paused && (st === undefined || st === 'running');
     const track = WORLD_MUSIC[paused ? this.world : (d as Deck).world]?.track;
-    if (track === 'phase1') {
-      if (pos < MUSIC.introDuration) {
-        out.track = 'intro';
-        out.time = pos;
-      } else {
-        out.track = 'loop';
-        out.time = mod(WORLD1_PLAN.loopEntry + (pos - MUSIC.introDuration), MUSIC.loopDuration);
-      }
+    if (track === 'world1') {
+      // Morceau joué tel quel : temps du fichier (= temps de la carte) ; après la fin : aucune musique
+      const m = pos - WORLD1_START;
+      if (m >= 0 && m <= WORLD1_PLAN.duration) {
+        out.track = 'w1';
+        out.time = m;
+      } else out.playing = false;
     } else if (track === 'world3') {
       // Morceau joué tel quel : temps du fichier (= temps de la carte) ; avant la première note et après la fin : aucune musique
       const m = pos - WORLD3_START;
@@ -226,7 +232,7 @@ export class WorldMusic {
     const target = def.gain;
     gain.gain.setValueAtTime(fade > 0 ? 0 : target, at);
     if (fade > 0) gain.gain.linearRampToValueAtTime(target, at + fade);
-    if (def.track === 'phase1' && b.intro && b.loop) this.playWorld1(ctx, deck, b.intro, b.loop, pos, at);
+    if (def.track === 'world1' && b.world1) this.playMontage(ctx, deck, b.world1, pos, at, WORLD1_PLAN, WORLD1_START, 0);
     else if (def.track === 'world2' && b.world2) this.playMontage(ctx, deck, b.world2, pos, at, WORLD2_PLAN, WORLD2_START, 0);
     else if (def.track === 'world3' && b.world3) this.playMontage(ctx, deck, b.world3, pos, at, WORLD3_PLAN, WORLD3_START, WORLD3_FADE_IN);
     else if (def.track === null && def.pad) this.playPad(ctx, deck, def.pad, at);
@@ -249,35 +255,8 @@ export class WorldMusic {
     return { src, g };
   }
 
-  /** Univers 1 : intro puis boucle reprise à `loopEntry` (raccord en fondu court), ou directement dans la boucle. */
-  private playWorld1(ctx: BaseAudioContext, deck: Deck, intro: AudioBuffer, loop: AudioBuffer, pos: number, at: number): void {
-    const I = MUSIC.introDuration;
-    const X = WORLD1_PLAN.crossfade;
-    const t0 = at - pos;
-    if (pos < I - X) {
-      const iv = this.source(ctx, deck, intro, 1);
-      iv.src.start(at, pos);
-      iv.g.gain.setValueAtTime(1, t0 + I - X);
-      iv.g.gain.linearRampToValueAtTime(0, t0 + I);
-      iv.src.stop(t0 + I + 0.02);
-      const lv = this.source(ctx, deck, loop, 0);
-      lv.src.loop = true;
-      lv.src.loopStart = MUSIC.loopStart;
-      lv.src.loopEnd = MUSIC.loopEnd;
-      lv.g.gain.setValueAtTime(0, t0 + I - X);
-      lv.g.gain.linearRampToValueAtTime(1, t0 + I);
-      lv.src.start(t0 + I - X, MUSIC.loopStart + WORLD1_PLAN.loopEntry - X);
-    } else {
-      const lv = this.source(ctx, deck, loop, 1);
-      lv.src.loop = true;
-      lv.src.loopStart = MUSIC.loopStart;
-      lv.src.loopEnd = MUSIC.loopEnd;
-      lv.src.start(at, MUSIC.loopStart + mod(WORLD1_PLAN.loopEntry + (pos - I), MUSIC.loopDuration));
-    }
-  }
-
   /**
-   * Univers 2 et 3 : lecture du montage (`WORLD2_PLAN`) ou du morceau tel quel (`WORLD3_PLAN`, un seul segment) à partir de la position de platine `pos` (s depuis le
+   * Univers 1, 2 et 3 : lecture du montage (`WORLD2_PLAN`) ou du morceau tel quel (`WORLD1_PLAN`, `WORLD3_PLAN` : un seul segment) à partir de la position de platine `pos` (s depuis le
    * début de la transition d'entrée), à l'instant audio `at`. `fadeIn` : fondu d'entrée de la première voix quand le morceau démarre vraiment (0 = aucun).
    * Montage de La Faille :
    * Chaque segment est une voix ; au raccord, la voix suivante entre pendant `crossfade` s pendant que la précédente sort (même phase de battement, fondu terminé

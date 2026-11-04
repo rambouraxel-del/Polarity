@@ -2,7 +2,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ARENA, SAFETY, SIM } from '../src/config/balance';
 import { playerHitRadius } from '../src/config/hitbox';
-import { MUSIC } from '../src/config/music';
 import { BALANCE_VERSION } from '../src/config/version';
 import { WORLD_MUSIC, WORLD_RHYTHM_DATA, WORLD_TRANSITION_AUDIO, WORLD2_START, WORLDS_RHYTHM } from '../src/config/worldMusic';
 import { WORLD2_AT } from '../src/config/world2';
@@ -490,7 +489,7 @@ function musicSetup() {
   const ctx = new FakeCtx();
   const out = new FakeNode();
   const host: AudioHost = { context: () => ctx as unknown as BaseAudioContext, output: () => out as unknown as AudioNode };
-  const buffers = { intro: buf('intro'), loop: buf('loop'), outro: buf('outro'), world2: buf('world2'), world3: buf('world3') };
+  const buffers = { intro: buf('intro'), loop: buf('loop'), outro: buf('outro'), world1: buf('world1'), world2: buf('world2'), world3: buf('world3') };
   const wm = new WorldMusic(host, () => buffers);
   const pos = (): MusicPosition => wm.position({ track: null, time: 0, playing: false } as MusicPosition);
   return { ctx, wm, pos };
@@ -500,19 +499,33 @@ function musicSetup() {
 const deckGain = (s: FakeScheduled): FakeParam => ((s.connections[0] as FakeGain).connections[0] as FakeGain).gain;
 
 describe('univers : musique (plans, transitions de 4 s, pause, univers sans morceau)', () => {
-  it('univers 1 : intro puis boucle reprise au battement choisi, sans minuterie', () => {
+  it('univers 1 : « Neon Arpeggio » joué tel quel dès le départ (une voix, fichier depuis 0, pas de boucle), position = temps du fichier, sans minuterie', () => {
     const { ctx, wm, pos } = musicSetup();
     wm.startGame(1);
-    expect(ctx.sources.map(nameOf)).toEqual(['intro', 'loop']);
-    const loop = ctx.sources[1];
-    expect(loop.loop).toBe(true);
-    expect(loop.loopStart).toBe(MUSIC.loopStart);
-    expect(loop.loopEnd).toBe(MUSIC.loopEnd);
-    expect(loop.starts[0].offset).toBeCloseTo(MUSIC.loopStart + 52.144 - 0.35, 9);
-    ctx.currentTime = 60;
+    expect(ctx.sources.map(nameOf)).toEqual(['world1']);
+    const v = ctx.sources[0];
+    expect(v.loop).toBe(false);
+    expect(v.starts[0].offset).toBeCloseTo(0, 9);
+    // la musique sonne après le fondu de relance ; 60 s plus tard elle en est à ≈ 60 s du fichier
+    ctx.currentTime = v.starts[0].when + 60;
     const p = pos();
-    expect(p.track).toBe('loop');
+    expect(p.track).toBe('w1');
     expect(p.playing).toBe(true);
+    expect(p.time).toBeCloseTo(60, 6);
+    // après la fin du fichier (123 s) : plus de musique
+    ctx.currentTime = v.starts[0].when + 130;
+    expect(pos().playing).toBe(false);
+  });
+
+  it('univers 1 : un recalage sur un jeu qui continue (garde de synchro) tient compte du délai de relance : aucun retard permanent', () => {
+    const { ctx, wm, pos } = musicSetup();
+    ctx.currentTime = 50;
+    // le jeu est au temps local 30 s à l'appel ; le son ne démarre qu'après `startLag` s, quand le jeu est à 30 + startLag
+    wm.startGame(1, 30 + WorldMusic.startLag);
+    const v = ctx.sources[0];
+    ctx.currentTime = v.starts[0].when;
+    expect(pos().time).toBeCloseTo(30 + WorldMusic.startLag, 6);
+    expect(v.starts[0].when - 50).toBeCloseTo(WorldMusic.startLag, 9);
   });
 
   it('transition 1 → 2 : fondu croisé sur l’horloge audio (aucune coupure sèche), entrée filtrée, montage de La Faille calé sur la transition', () => {

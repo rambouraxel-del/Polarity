@@ -9,7 +9,7 @@ le défi quotidien, les défis classiques et la campagne ne changent pas.
 
 | # | Univers | Temps actif | Mécanique | Menaces propres | Musique |
 |---|---------|-------------|-----------|-----------------|---------|
-| 1 | Orbite originelle | 0 – 120 s | aucune | motifs historiques, événements (pluie, tempête) | morceau de la phase 1 monté sur 120 s |
+| 1 | Orbite originelle | 0 – 120 s | aucune | motifs historiques, événements (pluie, tempête) | « Neon Arpeggio » joué tel quel (≈ 123 s) |
 | 2 | La Faille | 120 – 240 s | aucune | **cinq attaques** : fissure d'orbite, arc rampant, orbe de faille, onde de rupture, spirale fracturée | « Portal Surge » monté sur 120 s (voir ci-dessous) |
 | 3 | La Mer nébulaire | 240 – 360 s | **cinq familles** : brumes et courants, ondes de pression (sur impacts), puits gravitationnels (sur battements) + dangers : monolithes voyageurs (seuls ou en procession), effondrement minéral ; éclipse des géants (visuelle) | monolithes, fragments | « Cosmic Impact » joué tel quel (voir ci-dessous) |
 | 4 | Monde des vents | 360 s → ∞ | hémisphères 120 % / 50 %, inversions de courant, tourbillons | éclats portés par le vent, rafales (arcs mouvants), traînées de braises | aucun morceau : fond procédural |
@@ -40,7 +40,8 @@ il y a une seule transition par frontière.
 
 - `src/config/worlds.ts` : **source unique** (calendrier, univers, palettes, vitesses, paliers, motifs, mécaniques `CLOUDS` et `CURRENTS`,
   dangers `WORLD_HAZARDS`). Contient aussi deux propositions inactives : `WORLDS_BALANCE_VERSION` (5) et `WORLD_BONUS_PROPOSAL`.
-- `src/config/worldMusic.ts` : musique par univers, montage de l'univers 1, transition audio, grille de rythme `WORLDS_RHYTHM` (déterministe), garde de synchronisation.
+- `src/config/world1.ts` : feuille de route musicale de l'univers 1 (source unique, carte `src/data/polar-rift-world1.json` générée par `scripts/analyze-world1.py`).
+- `src/config/worldMusic.ts` : musique par univers, transition audio, grille de rythme `WORLDS_RHYTHM` (déterministe), garde de synchronisation.
 - `src/config/world2.ts` : **La Faille** — feuille de route musicale (repères en temps local), poids des attaques selon la structure du morceau, réglages des cinq attaques.
 - `src/data/polar-rift-world2.json` : carte musicale de « Portal Surge » (générée par `scripts/analyze-world2.py`).
 - `src/config/world3.ts` : **La Mer nébulaire** — feuille de route musicale (temps local), instants des ondes de pression et des puits, éclipse, poids et réglages des dangers.
@@ -133,6 +134,17 @@ il y a une seule transition par frontière.
 - Pour jouer au voyage : Survie → Préparation → « Voyage des univers · TEST » (ou « Immortel » pour traverser sans mourir) ; la fenêtre DEV (mode développeur) donne en plus les sauts de temps et l'accès direct à l'univers 3.
 - Le site GitHub Pages ne se publie que depuis `main` (`.github/workflows/pages.yml`) : pousser cette branche ne change rien au jeu officiel.
 
+
+## L'Orbite originelle (univers 1) : musique « Neon Arpeggio »
+
+L'univers 1 joue désormais **« Neon Arpeggio »** (à la place du morceau de la Survie), propre au voyage des univers : la **Survie officielle n'est pas touchée** (elle garde intro + boucle et sa grille de rythme).
+
+- **Durée** : le fichier dure 122,96 s ; il est joué TEL QUEL dès le départ de la partie (aucun montage, aucune répétition). La phase dure 120 s de jeu actif ; la dernière phrase tombe en fin d'univers (dernier impact à 118,9 s) et le fondu final du morceau (120,3 → 122,9 s) se perd dans la transition de 4 s vers La Faille.
+- **Analyse** (`python3 -I scripts/analyze-world1.py`, hors ligne, déterministe) : 142,9 pulsations/min (période 0,420 s, très régulière : écart-type 8 ms), 292 battements, 471 percussions, 23 impacts, 5 montées ; contrôle de synchro carte/fichier : écart médian −0,1 ms, 90 % des battements forts à ± 25 ms.
+- **Gameplay recalé** : `WORLDS_RHYTHM` (config/worldMusic.ts) lit uniquement les tableaux de `config/world1.ts` — battements (tous) et moments forts (les impacts d'au moins 0,7 : 16 sur 120 s) ; la période de battement est 0,42 s. La part des vagues mises en rythme passe de 35 % à 50 % (`beatChance` de l'univers 1) : sur 4 parties du robot, environ la moitié des vagues touchent l'orbite exactement sur un battement ou un impact (écart médian à la grille ≤ 45 ms pour les autres). Le gameplay ne lit JAMAIS l'audio : identique musique coupée, en pause ou sans décodage.
+- **Décor recalé** : `MusicSync` lit la carte « w1 » à la position entendue (même ambiance que la Survie : coups de basse détectés entre les battements, passages calmes estimés par l'intensité, passages forts sur les impacts francs).
+- **Audio** : une platine (`WorldMusic`), démarrage retardé jusqu'au décodage (≤ 2,5 s ; `launchRun`), garde de synchro étendue à l'univers 1, buffer (≈ 46 Mo) libéré après la traversée ; le morceau de La Faille n'est plus décodé qu'à partir de 95 s (au lieu de 20 s) pour ne pas cumuler deux gros buffers. Les recalages de la musique (garde, sauts DEV) tiennent compte du délai de relance (`WorldMusic.startLag`) : plus de retard permanent de 0,17 s.
+- Remplacer le morceau : `src/assets/audio/polar-rift-world1.mp3`, puis `python3 -I scripts/analyze-world1.py`, ajuster `W1_ACCENT_MIN` et `beatChance` si besoin.
 
 ## La Faille (univers 2) : musique, décor et attaques liés
 

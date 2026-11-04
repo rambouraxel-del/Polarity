@@ -130,7 +130,7 @@ check('transition 2 → 3 : la musique de La Faille se ferme, celle de la Mer n�
 await page.waitForFunction(() => window.__polarite.session.transitLeft === 0, null, { timeout: 120000 });
 await page.waitForTimeout(3500);
 s = await st();
-check('Mer nébulaire : une seule platine (fond procédural, aucune position musicale)', s.world === 3 && s.decks === 1 && s.track === null, JSON.stringify(s));
+check('Mer nébulaire : une seule platine (le morceau « Cosmic Impact » ; voir scripts/e2e-world3.mjs)', s.world === 3 && s.decks === 1, JSON.stringify(s));
 
 check('aucune requête vers l’extérieur', external.length === 0, external.slice(0, 3).join(' '));
 check('aucune erreur de console', errors.length === 0, errors.slice(0, 3).join(' | '));

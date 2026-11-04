@@ -162,7 +162,7 @@ export const WORLD_LIST: readonly WorldDef[] = [
     interval: 1,
     field: 'none',
     events: true,
-    beatChance: 0.35,
+    beatChance: 0.5,
     transition: { variant: 'rift', from: 0x2f8cff, to: 0xa04bff },
     weights(t) {
       const sector = ramp(t, 10, 10);

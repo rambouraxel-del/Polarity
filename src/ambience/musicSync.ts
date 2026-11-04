@@ -1,8 +1,10 @@
 import map from '../data/polar-rift-music-map.json';
 import phase2Map from '../data/polar-rift-phase2.json';
+import world1Map from '../data/polar-rift-world1.json';
 import world2Map from '../data/polar-rift-world2.json';
 import world3Map from '../data/polar-rift-world3.json';
 import { PHASE2_MUSIC } from '../config/phases';
+import { W1_ACCENT_MIN } from '../config/world1';
 import { AMBIENCE } from '../config/ambience';
 import type { MusicPosition, MusicTrack } from '../audio/music';
 
@@ -101,6 +103,17 @@ export const MUSIC_MAP = {
     outro: parse(map.tracks.outro),
     // Phase 2 : le fichier entier (la position fournie par Music.position est déjà ramenée dans la région en boucle)
     p2: parse({ duration: phase2Map.fileDuration, beats: phase2Map.beats, strength: phase2Map.strength, bass: phase2Map.bass, intensity: phase2Map.intensity, drops: phase2Map.drops, builds: phase2Map.builds }),
+    // Univers 1 « L'Orbite originelle » : carte du morceau joué tel quel (temps du fichier). Même ambiance que la Survie : coups de basse détectés entre les battements
+    // (pas de carte de percussions) et passages calmes estimés par l'intensité ; seuls les impacts francs sont des passages forts.
+    w1: parse({
+      duration: world1Map.plan.duration,
+      beats: world1Map.beats,
+      strength: world1Map.strength,
+      bass: world1Map.bass,
+      intensity: world1Map.intensity,
+      drops: world1Map.drops.filter((_, i) => world1Map.dropStrength[i] >= W1_ACCENT_MIN),
+      builds: world1Map.builds,
+    }),
     // Univers 2 « La Faille » : carte du MONTAGE (temps monotone, phrase répétée dépliée)
     w2: parse({
       duration: world2Map.plan.duration,

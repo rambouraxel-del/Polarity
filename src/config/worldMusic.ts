@@ -1,6 +1,5 @@
-import audio from '../data/polar-rift-audio.json';
-import musicMap from '../data/polar-rift-music-map.json';
 import { WORLDS, worldIndexAt, worldStart } from './worlds';
+import { W1_ACCENTS, W1_BEATS, W1_BEAT_PERIOD, WORLD1_START } from './world1';
 import { W2_BEATS, W2_BEAT_PERIOD, W2_DROPS, W2_DROP_STRENGTH, W2_HITS, WORLD2_START } from './world2';
 import { W3_BEATS, W3_BEAT_PERIOD, W3_DROPS, W3_DROP_STRENGTH, W3_HITS, WORLD3_START } from './world3';
 import type { Rhythm } from '../sim/patterns';
@@ -10,7 +9,7 @@ import type { Rhythm } from '../sim/patterns';
  *
  * Montage temporel virtuel (jamais d'accélération du MP3) : chaque univers dure 120 s de jeu actif ; on choisit des portions du fichier,
  * raccordées sur des battements réels, pour que les moments forts tombent aux bons instants (montée finale juste avant la faille).
- * Univers 1 : morceau de la phase 1 (ci-dessous). Univers 2 : « Portal Surge », montage décrit par `config/world2.ts` (carte `polar-rift-world2.json`). Univers 3 : « Cosmic Impact », joué tel quel
+ * Univers 1 : « Neon Arpeggio », joué tel quel dès le départ (`config/world1.ts`, carte `polar-rift-world1.json`). Univers 2 : « Portal Surge », montage décrit par `config/world2.ts` (carte `polar-rift-world2.json`). Univers 3 : « Cosmic Impact », joué tel quel
  * (`config/world3.ts`, carte `polar-rift-world3.json`).
  * Univers sans morceau (`track: null`) : aucun battement inventé, l'ambiance visuelle tourne sans réaction musicale ; un fond atmosphérique
  * procédural discret (`pad`) peut jouer à la place (désactivable : `pad: null`).
@@ -21,7 +20,7 @@ import type { Rhythm } from '../sim/patterns';
  *   3. rien d'autre à changer : la grille de rythme du gameplay (déterministe) et l'ambiance s'en servent automatiquement.
  */
 
-export type TrackId = 'phase1' | 'world2' | 'world3';
+export type TrackId = 'world1' | 'world2' | 'world3';
 export type PadId = 'nebula' | 'winds';
 
 export interface WorldMusicDef {
@@ -34,20 +33,11 @@ export interface WorldMusicDef {
 }
 
 export const WORLD_MUSIC: Readonly<Record<number, WorldMusicDef>> = {
-  1: { track: 'phase1', pad: null, gain: 1 },
+  1: { track: 'world1', pad: null, gain: 1 },
   2: { track: 'world2', pad: null, gain: 1 },
   3: { track: 'world3', pad: null, gain: 1 },
   4: { track: null, pad: 'winds', gain: 0.6 },
 };
-
-/**
- * Univers 1 (morceau de la phase 1) : intro complète, puis la région en boucle reprise à `loopEntry` s (battement réel), raccord en fondu court.
- * Ainsi le passage fort de la boucle (136,1 s) tombe vers 108 s et la dernière montée (143,98 → 147,71 s) s'achève à ~119,9 s, sur la faille.
- */
-export const WORLD1_PLAN = {
-  loopEntry: 52.144,
-  crossfade: 0.35,
-} as const;
 
 /**
  * Transition audio de 4 s (horloge Web Audio, jamais de minuteur) : l'ancien morceau baisse et se filtre pendant `fadeOut` s, un souffle
@@ -69,25 +59,11 @@ export const WORLD_TRANSITION_AUDIO = {
 export const WORLD_MUSIC_SYNC = { tolerance: 0.1, hold: 1.2, cooldown: 6 } as const;
 
 /** Position de lecture (s depuis le début de la transition d'entrée) à laquelle démarre le montage de l'univers 2 (voir `config/world2.ts`). */
-export { WORLD2_START, WORLD3_START };
+export { WORLD1_START, WORLD2_START, WORLD3_START };
 
-const INTRO = audio.files.intro.decodedDurationSeconds;
-
-function world1Beats(): number[] {
-  const out: number[] = [];
-  for (const b of musicMap.tracks.intro.beats) out.push(b);
-  for (const b of musicMap.tracks.loop.beats) if (b >= WORLD1_PLAN.loopEntry) out.push(INTRO + (b - WORLD1_PLAN.loopEntry));
-  return out.filter((t) => t < WORLDS.span);
-}
-
-function world1Drops(): number[] {
-  const out: number[] = [...musicMap.tracks.intro.drops];
-  for (const d of musicMap.tracks.loop.drops) if (d >= WORLD1_PLAN.loopEntry) out.push(INTRO + (d - WORLD1_PLAN.loopEntry));
-  return out.filter((t) => t < WORLDS.span);
-}
-
-const BEATS1 = world1Beats();
-const DROPS1 = world1Drops();
+/** Repères de l'univers 1 en temps de jeu actif absolu (= temps local : l'univers 1 commence à 0). */
+const BEATS1 = W1_BEATS.filter((t) => t < WORLDS.span);
+const DROPS1 = W1_ACCENTS.filter((t) => t < WORLDS.span);
 
 /** Repères de l'univers 2 en temps de jeu actif absolu (le temps local + le début de l'univers). */
 const W2_T0 = worldStart(1);
@@ -150,7 +126,7 @@ export const WORLDS_RHYTHM: Rhythm = {
   },
   beatPeriodAt(t: number): number {
     const i = worldIndexAt(t);
-    return i === 0 ? musicMap.beatPeriod : i === 1 ? W2_BEAT_PERIOD : i === 2 ? W3_BEAT_PERIOD : 0.5;
+    return i === 0 ? W1_BEAT_PERIOD : i === 1 ? W2_BEAT_PERIOD : i === 2 ? W3_BEAT_PERIOD : 0.5;
   },
   /** Prochaine percussion (univers 2 et 3 ; Infinity ailleurs) : attaque des arcs rampants. */
   nextHit(t: number): number {

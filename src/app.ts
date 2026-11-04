@@ -8,6 +8,7 @@ import { WorldMusic } from './audio/worldMusic';
 import { MusicSyncGuard } from './audio/syncGuard';
 import { WORLD_LIST, WORLDS_PUBLIC_ENTRY, localTime } from './config/worlds';
 import { WORLD2_AT } from './config/world2';
+import { WORLD1_AT } from './config/world1';
 import { WORLD3_AT } from './config/world3';
 import { WORLDS_RHYTHM } from './config/worldMusic';
 import { AmbienceDirector, QualityGovernor } from './ambience/director';
@@ -284,8 +285,8 @@ export class App {
       },
       lb: this.lb,
       session: () => this.session,
-      restartTest: () => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.session?.config.worlds ? this.session.config.bonus : false, worlds: this.session?.config.worlds, test: this.session?.config.worlds ? this.session.config.test : undefined }),
-      startWorlds: (bonus) => this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus, worlds: true }),
+      restartTest: () => this.launchRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.session?.config.worlds ? this.session.config.bonus : false, worlds: this.session?.config.worlds, test: this.session?.config.worlds ? this.session.config.test : undefined }),
+      startWorlds: (bonus) => this.launchRun({ mode: 'survival', seed: this.survivalSeed(), bonus, worlds: true }),
       worldOverlay: (on) => {
         if (this.renderer) this.renderer.worldDebug = on;
       },
@@ -316,10 +317,11 @@ export class App {
         if (!s?.worlds || s.phase !== 'running') return;
         const go = (): void => {
           const c = this.session;
-          if (c === s && c.phase === 'running') this.worldMusic.startGame(c.sim.world, localTime(c.sim.time));
+          if (c === s && c.phase === 'running') this.worldMusic.startGame(c.sim.world, localTime(c.sim.time) + WorldMusic.startLag);
         };
         // Saut direct dans l'univers 2 : le morceau n'est pas encore décodé, on l'attend (rien ne bloque le jeu)
-        if (s.sim.world === 2 && !this.music.decoded.world2) void this.music.preloadWorld2().then(go);
+        if (s.sim.world === 1 && !this.music.decoded.world1) void this.music.preloadWorld1().then(go);
+        else if (s.sim.world === 2 && !this.music.decoded.world2) void this.music.preloadWorld2().then(go);
         else if (s.sim.world === 3 && !this.music.decoded.world3) void this.music.preloadWorld3().then(go);
         else go();
       },
@@ -606,10 +608,11 @@ export class App {
       if (session.config.mode === 'survival') {
         // Univers : le morceau de l'univers 2 est décodé tôt (il entre pendant la première transition, à 120 s)
         if (session.worlds) {
-          if (session.sim.time >= 20) void this.music.preloadWorld2();
+          if (session.sim.time >= 95) void this.music.preloadWorld2();
           // …et celui de l'univers 3 avant la seconde transition (à 240 s)
           if (session.sim.time >= 130) void this.music.preloadWorld3();
           // Les morceaux des univers déjà traversés sont libérés (mémoire du téléphone) ; un saut de test en arrière les redécode
+          if (session.sim.time >= 130 && session.transitLeft === 0) this.music.releaseWorld('world1');
           if (session.sim.time >= 250 && session.transitLeft === 0) this.music.releaseWorld('world2');
           if (session.sim.time >= 370 && session.transitLeft === 0) this.music.releaseWorld('world3');
         } else if (session.sim.time >= PHASE2_PRELOAD_AT) void this.music.preloadPhase2();
@@ -646,13 +649,14 @@ export class App {
   }
 
   /**
-   * Univers 2 et 3 : temps de jeu local − temps local ENTENDU (calage du morceau compris), en secondes ; positif = le jeu est en avance sur le son.
+   * Univers 1, 2 et 3 : temps de jeu local − temps local ENTENDU (calage du morceau compris), en secondes ; positif = le jeu est en avance sur le son.
    * NaN hors d'un univers à morceau cartographié ou sans musique entendue.
    */
   private musicDrift(s: GameSession | null): number {
     if (!s?.worlds || s.transitLeft !== 0 || !this.musicPos.playing) return NaN;
     const l = localTime(s.sim.time);
     if (s.sim.world === 2 && this.musicPos.track === 'w2') return l - (this.musicPos.time + WORLD2_AT);
+    if (s.sim.world === 1 && this.musicPos.track === 'w1') return l - (this.musicPos.time + WORLD1_AT);
     if (s.sim.world === 3 && this.musicPos.track === 'w3') return l - (this.musicPos.time + WORLD3_AT);
     return NaN;
   }
@@ -664,7 +668,7 @@ export class App {
   private guardMusicSync(s: GameSession, realDt: number): void {
     let drift = NaN;
     if (s.worlds && s.phase === 'running' && s.transitLeft === 0 && s.testRate === 1 && !s.testFrozen) drift = this.musicDrift(s);
-    if (this.syncGuard.update(drift, realDt)) this.worldMusic.startGame(s.sim.world, localTime(s.sim.time));
+    if (this.syncGuard.update(drift, realDt)) this.worldMusic.startGame(s.sim.world, localTime(s.sim.time) + WorldMusic.startLag);
   }
 
   /** Ambiance de la Survie et du défi quotidien (décorative) : jamais en campagne ni en défi classique. */
@@ -736,6 +740,19 @@ export class App {
 
   // ————————————————————————————————————————————— parties
 
+  /**
+   * Lance une partie ; pour le voyage des univers, attend (au plus 2,5 s, jamais indéfiniment) le décodage de la musique de l'univers 1 avant le départ, pour que la
+   * partie et le morceau commencent ensemble. Sans contexte audio ou si le décodage échoue : la partie démarre sans musique.
+   */
+  launchRun(cfg: RunConfig): void {
+    if (!cfg.worlds || this.music.decoded.world1) {
+      this.startRun(cfg);
+      return;
+    }
+    const wait = new Promise<void>((resolve) => window.setTimeout(resolve, 2500));
+    void Promise.race([this.music.preloadWorld1(), wait]).then(() => this.startRun(cfg));
+  }
+
   startRun(cfg: RunConfig): void {
     this.endSession();
     // Survie : les charges de l'inventaire sont le stock de la partie (le service vérifie ensuite chaque activation par rejeu)
@@ -804,7 +821,7 @@ export class App {
     this.session = session;
     if (session.worlds) {
       this.music.stop();
-      this.worldMusic.startGame(1);
+      this.worldMusic.startGame(1, WorldMusic.startLag);
       this.banner(`<strong>Univers 1 — ${escapeHtml(WORLD_LIST[0].name)}</strong><br>${escapeHtml(WORLD_LIST[0].tagline)} · partie de test`, 3);
     } else {
       this.worldMusic.stop();
@@ -1988,7 +2005,7 @@ export class App {
         this.persist(false);
         this.showScreen('prep', false);
         break;
-      case 'worlds-start': this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: false, worlds: true, test: target.dataset.immortal === '1' ? true : undefined }); break;
+      case 'worlds-start': this.launchRun({ mode: 'survival', seed: this.survivalSeed(), bonus: false, worlds: true, test: target.dataset.immortal === '1' ? true : undefined }); break;
       case 'survival-start': this.startRun({ mode: 'survival', seed: this.survivalSeed(), bonus: this.save.options.survivalMode === 'bonus' }); break;
       case 'play-daily': {
         const date = utcDateString();
