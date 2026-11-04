@@ -259,6 +259,10 @@ Voir `CHANGELOG.md` (« Décisions requises » et « Points bloquants restants a
 - [x] `codemagic.yaml` (parcours `ios-verification` sans signature + `ios-testflight` signé, TestFlight interne), `scripts/ios-ci.ts` (garde Bundle ID, numéro de build), `npm run mobile:ios:guard`, tests `tests/ios-ci.test.ts`, guide `docs/CODEMAGIC_IOS.md`.
 - [ ] À faire par l'éditeur : Bundle ID définitif, App Store Connect (clé API, fiche, groupe interne), Codemagic (intégration `polar-rift-asc`, groupe `polar_rift_ios`), puis lancer `ios-verification`. **Aucune exécution cloud faite : compilation iOS non prouvée.**
 
+## Mer nébulaire V3 — vol continu (travail direct sur `main`, sauvegarde `backup/pre-20261104-064038`)
+
+- `NebulaDecor` réécrit autour d'un cap de vol : nuages, tuiles de gaz, filaments, blocs (4 plans, opaques), planète, débris et lignes de vitesse défilent en continu à des vitesses étagées ; occlusion réelle ; débris nets (texture dédiée). Réglages : `AMBIENCE.world3.decor` (`flight`, `drift`, `flow`, `rocks`, `debris`, `streaks`, `planet`). Voir `docs/UNIVERS.md` § « Décor V3 ».
+
 ## Mer nébulaire V2 + fusion dans `main` (travail direct sur `main`, sauvegarde `backup/pre-20261103-063240`)
 
 - Audit puis fusion fast-forward de `feat/univers3-mer-nebulaire` (1 025 tests, build, bundle sains avant fusion ; aucun fichier serveur/sauvegarde/records/`BALANCE_VERSION` modifié).

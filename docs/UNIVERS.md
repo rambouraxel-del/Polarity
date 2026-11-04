@@ -288,6 +288,18 @@ Refonte du rendu (gameplay, équilibrage et cinq familles inchangés). Principes
 - Réglages : `AMBIENCE.world3.decor` (`flow`, `drift`, `cam`, `passers`, `shock`, `warp`, `tiers`). Qualité adaptative : haute (4 courants, 3 géants, 3 ondes), moyenne (3 / 2 / 2), basse (2 / 1 / 1, pas de lignes de vitesse).
 - Remplissage mesuré (navigateur de bureau, somme des surfaces d'images visibles / écran) : ≈ 19–20 écrans en haute, 16–17 en moyenne, 14 en basse ; objets : 55–67.
 
+### Décor V3 — vol continu, vrais plans, vraie occlusion
+
+Retour de test : « trop calme, trop fixe ». Le décor n'oscille plus sur place : **tout défile le long d'un cap** (`flight.heading`, vers le bas avec une légère oscillation), comme si le vaisseau traversait l'espace.
+
+- **Cinq plans** (ordre de profondeur) : arrière-plan (ciel, 4 tuiles de gaz, tourbillon), lointain (nuages profonds, planète, blocs `far` pâlis par la brume), milieu (fumée, nuages, filaments, blocs `mid`, débris lointains), proche (nuages clairs, blocs `near`), avant-plan (blocs `fore` énormes et très rapides, débris proches). Vitesses étagées (parallaxe de mouvement) : de 0,016 u/s (nuages lointains) à 0,2 u/s (avant-plan), multipliées par `base + gain × avancement` (0,75 → 2,35) et par la réaction musicale (un coup d'accélérateur sur chaque impact).
+- **Vraie occlusion** : les blocs sont **opaques** (plus de transparence de plan ni d'ombre portée) et dessinés au-dessus de la planète et de tout ce qui est derrière : un bloc d'avant-plan masque réellement la planète, la nébuleuse et les blocs plus lointains. La brume atmosphérique n'éclaircit que les plans lointains, par une lueur additive. Les plans proches (`near`, `fore`) défilent dans des couloirs latéraux hors de la zone de jeu : menaces et orbite restent lisibles.
+- **Planète** : elle dérive le long du cap (≈ 30–90 s pour traverser l'écran selon l'arc), sort par le bas puis revient par le haut dans un autre couloir, anneau incliné autrement ; elle tourne lentement.
+- **Blocs et monolithes** : défilent en continu, roulis lent, flottement latéral, grossissent en approchant du bas (perspective) ; à chaque retour par le haut, forme et couloir sont retirés.
+- **Débris nets** : 26 petites pierres opaques à facettes et liseré clair (texture dédiée, jamais floue), filant à des vitesses selon leur proximité ; les plus proches évitent le disque de l'arène (aucune confusion avec une menace).
+- **Lignes de vitesse** : poussière d'étoiles qui file le long du cap, discrète au début, longue et nombreuse à l'apogée, allongée par les impacts.
+- Qualité adaptative : `tiers` (haute / moyenne / basse : courants, blocs d'avant-plan, débris, lignes). Remplissage mesuré (navigateur de bureau) : ≈ 18–19 écrans en haute, 15–16 en moyenne, 12–14 en basse.
+
 ### Remplacer ou régler la musique de l'univers 3
 
 1. Remplacer `src/assets/audio/polar-rift-world3.mp3`.

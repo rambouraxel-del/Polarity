@@ -20,6 +20,8 @@ export const NEB_TEX = {
   /** Courants de gaz SANS COUTURE (tuiles défilantes) : bancs de brume et filaments, et onde de choc. */
   flow: ['n-flow-a', 'n-flow-b'],
   shock: 'n-shock',
+  /** Petites pierres NETTES (débris) : opaques, facettées, liseré clair. */
+  debris: ['n-deb-a', 'n-deb-b', 'n-deb-c', 'n-deb-d'],
 } as const;
 
 function rng(seed: number): () => number {
@@ -230,6 +232,74 @@ function shockTexture(scene: Phaser.Scene): void {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   scene.textures.addCanvas(NEB_TEX.shock, c);
+}
+
+// ————————————————————————————————————————————— débris nets
+
+/**
+ * Petite pierre anguleuse, OPAQUE et nette (aucun flou : elle reste lisible même rapide) : polygone irrégulier, facettes éclairées par la droite (la lumière vient
+ * du centre), arête sombre entre facettes, fin liseré clair sur le bord éclairé. Dessinée en 96 × 96 puis réduite par le rendu (mipmaps du filtre linéaire).
+ */
+function debrisTextures(scene: Phaser.Scene): void {
+  NEB_TEX.debris.forEach((key, k) => {
+    if (scene.textures.exists(key)) return;
+    const S = 96;
+    const { c, ctx } = makeCanvas(S, S);
+    const r = rng(9100 + k * 77);
+    const n = 6 + (k % 3);
+    const pts: Pt[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + (r() - 0.5) * 0.5;
+      const rad = (0.33 + r() * 0.15) * S * (k === 3 ? (i % 2 ? 0.7 : 1) : 1);
+      pts.push([S / 2 + Math.cos(a) * rad * (k === 1 ? 1.25 : 1), S / 2 + Math.sin(a) * rad * (k === 2 ? 0.8 : 1)]);
+    }
+    const path = (): void => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+    };
+    // Corps : dégradé sombre → clair vers la lumière (droite)
+    const g = ctx.createLinearGradient(S * 0.2, S * 0.3, S * 0.85, S * 0.6);
+    g.addColorStop(0, '#0d242b');
+    g.addColorStop(1, '#2f6b76');
+    ctx.fillStyle = g;
+    path();
+    ctx.fill();
+    // Facettes : triangles du centre vers chaque arête, teinte selon l'orientation (éclairée à droite)
+    for (let i = 0; i < n; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % n];
+      const mx = (a[0] + b[0]) / 2 - S / 2;
+      const lit = Math.max(0, mx / (S * 0.4)) * 0.5 + (r() - 0.5) * 0.18;
+      ctx.fillStyle = `rgba(${lit > 0 ? '120,225,225' : '2,10,14'},${Math.min(0.5, Math.abs(lit))})`;
+      ctx.beginPath();
+      ctx.moveTo(S / 2 + (r() - 0.5) * 8, S / 2 + (r() - 0.5) * 8);
+      ctx.lineTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Arêtes sombres entre facettes, liseré clair sur le contour éclairé
+    ctx.strokeStyle = 'rgba(2,12,16,0.55)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < n; i++) {
+      ctx.beginPath();
+      ctx.moveTo(S / 2, S / 2);
+      ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.stroke();
+    }
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(95,235,226,0.95)';
+    ctx.lineWidth = 3;
+    path();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(2,14,18,0.65)';
+    ctx.lineWidth = 1;
+    path();
+    ctx.stroke();
+    scene.textures.addCanvas(key, c);
+  });
 }
 
 // ————————————————————————————————————————————— tourbillon de la nébuleuse
@@ -551,6 +621,7 @@ export function nebulaJobs(scene: Phaser.Scene): (() => void)[] {
   NEB_TEX.wisp.forEach((k, i) => jobs.push(...wispJobs(scene, k, 8801 + i * 421)));
   NEB_TEX.flow.forEach((k, i) => jobs.push(...flowJobs(scene, k, 7301 + i * 619, i === 0)));
   jobs.push(() => shockTexture(scene));
+  jobs.push(() => debrisTextures(scene));
   jobs.push(...swirlJobs(scene));
   NEB_TEX.rock.forEach((k, i) => jobs.push(...rockJobs(scene, k, 5501 + i * 313, i)));
   jobs.push(() => planetTexture(scene));

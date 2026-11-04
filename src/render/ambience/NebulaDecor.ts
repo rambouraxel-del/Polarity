@@ -11,6 +11,9 @@ import { clamp01, lerpColor, type AmbienceView } from './view';
  * tourbillon lumineux autour d'un foyer, planète à anneau et ses rayons, gigantesques monolithes et îlots flottants (trois plans, brume atmosphérique, liseré
  * de lumière, cascades de brume), poussières lumineuses, et l'ÉCLIPSE DES GÉANTS (masse rocheuse, pénombre, dispersion, éclat de la révélation).
  *
+ * VERSION 3 — un VOL continu : tout défile le long d'un cap (le vaisseau traverse l'espace), cinq plans (arrière-plan, lointain, milieu, proche, AVANT-PLAN) aux vitesses
+ * étagées, blocs rocheux OPAQUES qui masquent réellement planète, nébuleuse et blocs situés derrière eux, planète en dérive, débris nets et lignes de vitesse.
+ *
  * VERSION 2 — un univers profond et vivant : caméra flottante (parallaxe marquée, chaque plan suit à sa profondeur), tuiles de gaz sans couture qui défilent en
  * sens contraires (les courants se déforment l'un l'autre), nuages qui TRAVERSENT l'écran dans le sens du vent, filaments lumineux, géants de passage (monolithes
  * qui occultent la lumière), ondes de choc sur les impacts, lignes de vitesse de l'apogée. Toute l'animation suit l'ARC VISUEL `s.neb` (début mystérieux → agitation →
@@ -25,48 +28,61 @@ import { clamp01, lerpColor, type AmbienceView } from './view';
 
 const D = AMBIENCE.world3.decor;
 const C = D.colors;
+const F = D.flight;
 
+type Plane = 'far' | 'mid' | 'near' | 'fore';
+const PLANES: Plane[] = ['far', 'mid', 'near', 'fore'];
+
+/** Nuage, fumée ou filament de gaz : défile le long du cap (`s` = distance parcourue depuis son entrée, en u), perpendiculairement décalé de `lane`. */
 interface Drifter {
   img: Phaser.GameObjects.Image;
-  /** Position de base (fraction de la grande dimension d'écran, depuis le centre de l'arène) et amplitude de la dérive. */
-  bx: number;
-  by: number;
-  ax: number;
-  ay: number;
   size: number;
   phase: number;
-  /** Vitesse de phase propre (rad/s, avant le plan) et rotation propre. */
   rate: number;
   spin: number;
   rot0: number;
   alpha: number;
   tint: number;
-  layer: 0 | 1 | 2;
-  /** Plan de profondeur 0–1 (0 = très loin, 1 = proche) : parallaxe, secousse des impacts. */
+  /** Plan de profondeur 0–1 (0 = très loin, 1 = proche) : parallaxe de la caméra, secousse des impacts. */
   depth: number;
-  /** Étirement vertical de l'affichage (nuages aplatis). */
   squash: number;
-  /** Position perpendiculaire au vent (× u), phase de traversée (0–1) et distance parcourue (u). */
-  perp: number;
-  pos: number;
-  trav: number;
+  ax: number;
+  ay: number;
+  lane: number;
+  s: number;
 }
 
-interface Passer {
+/** Bloc rocheux opaque d'un plan : défile le long du cap, se retire par le bas et revient par le haut sous une autre forme. */
+interface Rock {
   img: Phaser.GameObjects.Image;
-  active: boolean;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
+  glint: Phaser.GameObjects.Image;
+  fall: Phaser.GameObjects.Image | null;
+  plane: Plane;
+  /** Rang dans son plan (les niveaux de qualité gardent les premiers). */
+  idx: number;
+  lane: number;
+  s: number;
   size: number;
-  rot: number;
+  phase: number;
+  rate: number;
   spin: number;
-  depth: number;
+  rot: number;
   flip: boolean;
   tex: number;
-  alpha: number;
-  age: number;
+  hasFall: boolean;
+}
+
+/** Petite pierre nette. */
+interface Debris {
+  img: Phaser.GameObjects.Image;
+  lane: number;
+  s: number;
+  z: number;
+  size: number;
+  spin: number;
+  rot: number;
+  tex: number;
+  fore: boolean;
 }
 
 interface Ring {
@@ -82,32 +98,13 @@ interface Layer {
   y: number;
 }
 
-interface Rock {
-  img: Phaser.GameObjects.Image;
-  glint: Phaser.GameObjects.Image;
-  fall: Phaser.GameObjects.Image | null;
-  bx: number;
-  by: number;
-  size: number;
-  phase: number;
-  rate: number;
-  alpha: number;
-  haze: number;
-  depth: number;
-  flip: boolean;
-  rot0: number;
-}
-
 const MOTES = 70;
-const SPAN = 1.6;
-/** Cap du vent (rad, écran : y vers le bas) : le gaz monte vers le coin supérieur droit, comme les courants des références. */
-const WIND = -0.6;
+const STREAKS = 48;
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const smooth01 = (x: number): number => {
   const t = x < 0 ? 0 : x > 1 ? 1 : x;
   return t * t * (3 - 2 * t);
 };
-const wrapSpan = (x: number): number => ((((x + SPAN / 2) % SPAN) + SPAN) % SPAN) - SPAN / 2;
 
 export class NebulaDecor {
   private jobs: (() => void)[] = [];
@@ -119,10 +116,10 @@ export class NebulaDecor {
   private readonly near: Drifter[] = [];
   private readonly wisps: Drifter[] = [];
   private readonly layers: Layer[] = [];
-  private readonly passers: Passer[] = [];
   private readonly rings: Ring[] = [];
-  private edge!: Phaser.GameObjects.Image;
   private readonly rocks: Rock[] = [];
+  private readonly debris: Debris[] = [];
+  private edge!: Phaser.GameObjects.Image;
   private readonly rays: Phaser.GameObjects.Image[] = [];
   private swirlA!: Phaser.GameObjects.Image;
   private swirlB!: Phaser.GameObjects.Image;
@@ -138,47 +135,46 @@ export class NebulaDecor {
   private readonly chunks: Phaser.GameObjects.Image[] = [];
   private burst!: Phaser.GameObjects.Image;
   private readonly motes: Phaser.GameObjects.Graphics;
-  private readonly warp: Phaser.GameObjects.Graphics;
+  private readonly streakG: Phaser.GameObjects.Graphics;
   private readonly shade: Phaser.GameObjects.Graphics;
   private readonly moteX = new Float32Array(MOTES);
   private readonly moteY = new Float32Array(MOTES);
   private readonly moteV = new Float32Array(MOTES);
   private readonly moteP = new Float32Array(MOTES);
-  private readonly warpA = new Float32Array(40);
-  private readonly warpR = new Float32Array(40);
-  private readonly warpV = new Float32Array(40);
+  private readonly stLane = new Float32Array(STREAKS);
+  private readonly stS = new Float32Array(STREAKS);
+  private readonly stZ = new Float32Array(STREAKS);
   private swirlRot = 0;
+  /** Planète : distance parcourue le long du cap (u), couloir latéral (u), inclinaison de l'anneau. */
+  private planetS = 0;
+  private planetLane = -0.17;
+  private planetTilt: number = D.planet.tilt;
   /** Horloge d'animation propre (s) : avance avec la musique (montées) et ralentit dans les passages calmes. */
   private clock = 0;
   private visible = false;
-  private nextPasser = 3;
   private prevDrop = 0;
   private prevBeat = 0;
   private ringGap = 0;
   private sizeKey = '';
-  /** Part de la lumière masquée par les géants de passage (0–1), calculée avant le dessin. */
-  private occult = 0;
 
   constructor(private readonly scene: Phaser.Scene, private readonly depth: number, private readonly coreDepth: number) {
     this.sky = scene.add.image(0, 0, AMB_TEX.glow).setDepth(depth - 0.002).setVisible(false);
     this.shade = scene.add.graphics().setDepth(depth + 0.06).setVisible(false);
     this.motes = scene.add.graphics().setDepth(depth + 0.07).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
-    this.warp = scene.add.graphics().setDepth(depth + 0.039).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
+    this.streakG = scene.add.graphics().setDepth(depth + 0.039).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
     for (let i = 0; i < MOTES; i++) this.resetMote(i, true);
-    for (let i = 0; i < this.warpA.length; i++) this.resetWarp(i, true);
+    for (let i = 0; i < STREAKS; i++) {
+      this.stLane[i] = (Math.random() - 0.5) * 1.1;
+      this.stS[i] = Math.random() * 1.8;
+      this.stZ[i] = Math.random();
+    }
   }
 
   private resetMote(i: number, anywhere: boolean): void {
     this.moteX[i] = (Math.random() - 0.5) * 1.1;
-    this.moteY[i] = anywhere ? (Math.random() - 0.5) * 1.6 : 0.85;
-    this.moteV[i] = 0.006 + Math.random() * 0.014;
+    this.moteY[i] = anywhere ? (Math.random() - 0.5) * 1.6 : -0.85;
+    this.moteV[i] = 0.02 + Math.random() * 0.05;
     this.moteP[i] = Math.random() * 6.28;
-  }
-
-  private resetWarp(i: number, anywhere: boolean): void {
-    this.warpA[i] = Math.random() * 6.2832;
-    this.warpR[i] = anywhere ? 0.12 + Math.random() * 0.9 : 0.12 + Math.random() * 0.05;
-    this.warpV[i] = 0.6 + Math.random() * 0.9;
   }
 
   /** Les textures et les objets existent-ils ? */
@@ -224,20 +220,16 @@ export class NebulaDecor {
     }
     this.sky.setTexture('n-sky');
     const base = this.depth;
-    // Tuiles de gaz sans couture (couches de courants) : entre le ciel et les nuages
+    // ARRIÈRE-PLAN : tuiles de gaz sans couture (entre le ciel et les nuages)
     D.flow.forEach((f, i) => {
       const t = scene.add.tileSprite(0, 0, 64, 64, NEB_TEX.flow[f.tex]).setDepth(base + 0.004 + i * 0.0006).setVisible(false).setBlendMode(f.add ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL);
       this.layers.push({ sprite: t, x: rnd() * 256, y: rnd() * 256 });
     });
-    const clouds = (list: Drifter[], n: number, layer: 0 | 1 | 2, depth: number, sizeR: [number, number], tints: number[], alpha: number, smoke: boolean, depthNorm: number): void => {
+    const clouds = (list: Drifter[], n: number, depth: number, sizeR: [number, number], tints: number[], alpha: number, smoke: boolean, depthNorm: number): void => {
       for (let i = 0; i < n; i++) {
-        const img = scene.add.image(0, 0, NEB_TEX.cloud[(i + layer) % NEB_TEX.cloud.length]).setDepth(depth + i * 0.0004).setVisible(false).setBlendMode(smoke ? Phaser.BlendModes.NORMAL : Phaser.BlendModes.ADD);
+        const img = scene.add.image(0, 0, NEB_TEX.cloud[(i + list.length) % NEB_TEX.cloud.length]).setDepth(depth + i * 0.0004).setVisible(false).setBlendMode(smoke ? Phaser.BlendModes.NORMAL : Phaser.BlendModes.ADD);
         list.push({
           img,
-          bx: 0,
-          by: 0,
-          ax: 0.05 + rnd() * 0.1,
-          ay: 0.03 + rnd() * 0.07,
           size: sizeR[0] + rnd() * (sizeR[1] - sizeR[0]),
           phase: rnd() * 6.28,
           rate: (0.6 + rnd() * 0.8) * (rnd() < 0.5 ? -1 : 1),
@@ -245,54 +237,49 @@ export class NebulaDecor {
           rot0: rnd() * 6.28,
           alpha: alpha * (0.7 + rnd() * 0.6),
           tint: tints[i % tints.length],
-          layer,
           depth: depthNorm,
           squash: 0.7 + rnd() * 0.3,
-          // Répartis régulièrement le long du courant (pas de paquets), perpendiculairement au vent : décalés
-          perp: (rnd() - 0.5) * 0.9,
-          pos: (i + rnd() * 0.7) / n,
-          trav: 0,
+          ax: 0.03 + rnd() * 0.06,
+          ay: 0.02 + rnd() * 0.04,
+          lane: (rnd() - 0.5) * 0.8,
+          // Répartis régulièrement le long du cap (pas de paquets)
+          s: ((i + rnd() * 0.7) / n) * 1.8,
         });
       }
     };
-    clouds(this.far, D.counts.far, 0, base + 0.01, D.cloudSize.far as [number, number], [C.deep, C.violet, C.teal, C.violet], D.alpha.far, false, 0.15);
-    clouds(this.smoke, D.counts.smoke, 1, base + 0.02, D.cloudSize.smoke as [number, number], [C.smoke], D.alpha.smoke, true, 0.4);
-    clouds(this.mid, D.counts.mid, 1, base + 0.03, D.cloudSize.mid as [number, number], [C.turquoise, C.teal, C.aqua, C.deep], D.alpha.mid, false, 0.5);
-    clouds(this.near, D.counts.near, 2, base + 0.05, D.cloudSize.near as [number, number], [C.aqua, C.turquoise, C.ice], D.alpha.near, false, 0.9);
-    // Filaments lumineux (courants de gaz) : longs, fins, étirés, traversant l'écran dans le sens du vent
+    // LOINTAIN : nuages profonds ; MILIEU : fumée, nuages turquoise, filaments ; PROCHE : nuages clairs
+    clouds(this.far, D.counts.far, base + 0.01, D.cloudSize.far as [number, number], [C.deep, C.violet, C.teal, C.violet], D.alpha.far, false, 0.15);
+    clouds(this.smoke, D.counts.smoke, base + 0.02, D.cloudSize.smoke as [number, number], [C.smoke], D.alpha.smoke, true, 0.4);
+    clouds(this.mid, D.counts.mid, base + 0.03, D.cloudSize.mid as [number, number], [C.turquoise, C.teal, C.aqua, C.deep], D.alpha.mid, false, 0.5);
+    clouds(this.near, D.counts.near, base + 0.05, D.cloudSize.near as [number, number], [C.aqua, C.turquoise, C.ice], D.alpha.near, false, 0.9);
     for (let i = 0; i < D.counts.wisps; i++) {
       const img = scene.add.image(0, 0, NEB_TEX.wisp[i % NEB_TEX.wisp.length]).setDepth(base + 0.037 + i * 0.0003).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
       this.wisps.push({
         img,
-        bx: 0,
-        by: 0,
-        ax: 0.03 + rnd() * 0.05,
-        ay: 0.02 + rnd() * 0.04,
         size: D.cloudSize.wisp[0] + rnd() * (D.cloudSize.wisp[1] - D.cloudSize.wisp[0]),
         phase: rnd() * 6.28,
         rate: (0.7 + rnd() * 0.6) * (rnd() < 0.5 ? -1 : 1),
         spin: 0,
-        rot0: WIND + (rnd() - 0.5) * 0.5,
+        rot0: (rnd() - 0.5) * 0.3,
         alpha: D.alpha.wisp * (0.7 + rnd() * 0.6),
         tint: [C.aqua, C.turquoise, C.ice][i % 3],
-        layer: 2,
         depth: 0.7,
         squash: 0.34,
-        perp: (rnd() - 0.5) * 1.1,
-        pos: (i + rnd() * 0.8) / D.counts.wisps,
-        trav: 0,
+        ax: 0.02 + rnd() * 0.03,
+        ay: 0.01 + rnd() * 0.02,
+        lane: (rnd() - 0.5) * 0.9,
+        s: ((i + rnd() * 0.8) / D.counts.wisps) * 1.8,
       });
     }
     this.edge = scene.add.image(0, 0, AMB_TEX.vignette).setDepth(base + 0.058).setVisible(false);
-    // Tourbillon : trois plans contrarotatifs + foyer lumineux
+    // Tourbillon : trois plans contrarotatifs + foyer lumineux (le centre de l'arène : il ne défile pas)
     this.swirlC = add(NEB_TEX.swirl, base + 0.0075);
     this.swirlA = add(NEB_TEX.swirl, base + 0.008);
     this.swirlB = add(NEB_TEX.swirl, base + 0.009);
     this.swirlCore = add(NEB_TEX.swirl, this.coreDepth + 0.001);
     this.foyer = add(AMB_TEX.glow, this.coreDepth);
     this.foyerHot = add(AMB_TEX.glow, this.coreDepth + 0.002);
-    // Planète à anneau et ses rayons
-    // (au-dessus de la fumée sombre : la planète reste lumineuse, les nuages additifs passent devant)
+    // Planète à anneau et ses rayons (LOINTAIN, derrière les blocs du milieu, du proche et de l'avant-plan : ils la masquent réellement)
     this.planetGlow = add(AMB_TEX.glow, base + 0.0215);
     this.ringBack = add(NEB_TEX.ringBack, base + 0.0218, Phaser.BlendModes.NORMAL);
     this.planet = add(NEB_TEX.planet, base + 0.022, Phaser.BlendModes.NORMAL);
@@ -300,44 +287,65 @@ export class NebulaDecor {
     for (let i = 0; i < D.counts.rays; i++) this.rays.push(add(NEB_TEX.ray, base + 0.0225).setOrigin(0.5, 0));
     // Ondes de choc des impacts
     for (let i = 0; i < D.tiers.high.rings; i++) this.rings.push({ img: add(NEB_TEX.shock, base + 0.0345), age: 99, life: 1, power: 0 });
-    // Géants de passage : monolithes qui traversent le fond
-    for (let i = 0; i < D.passers.max + 1; i++) {
-      this.passers.push({ img: add(NEB_TEX.rock[i % NEB_TEX.rock.length], base + 0.045, Phaser.BlendModes.NORMAL), active: false, x: 0, y: 0, vx: 0, vy: 0, size: 0, rot: 0, spin: 0, depth: 0.5, flip: false, tex: 0, alpha: 0, age: 0 });
+    // Blocs rocheux OPAQUES, quatre plans
+    const depthOf: Record<Plane, number> = { far: base + 0.018, mid: base + 0.034, near: base + 0.052, fore: base + 0.0555 };
+    for (const plane of PLANES) {
+      const R = D.rocks[plane];
+      for (let i = 0; i < R.count; i++) {
+        const tex = i === 0 && plane === 'fore' ? 0 : Math.floor(rnd() * NEB_TEX.rock.length);
+        const img = add(NEB_TEX.rock[tex], depthOf[plane] + i * 0.0005, Phaser.BlendModes.NORMAL);
+        const glint = add(NEB_TEX.rock[tex], depthOf[plane] + i * 0.0005 + 0.0002);
+        const fall = plane === 'far' ? null : add(NEB_TEX.streak, depthOf[plane] + i * 0.0005 + 0.0003).setOrigin(0.5, 0);
+        const r: Rock = { img, glint, fall, plane, idx: i, lane: 0, s: 0, size: 0, phase: rnd() * 6.28, rate: 0.15 + rnd() * 0.2, spin: 0, rot: 0, flip: false, tex, hasFall: false };
+        this.rollRock(r, rnd, true, i);
+        this.rocks.push(r);
+      }
     }
-    // Monolithes et îlots : trois plans
-    const rock = (plan: 'far' | 'mid' | 'near', depth: number, depthNorm: number, falls: boolean): void => {
-      const r = D.rocks[plan];
-      r.slots.forEach(([sx, sy], i) => {
-        const k = (i * 2 + (plan === 'far' ? 0 : plan === 'mid' ? 1 : 3)) % NEB_TEX.rock.length;
-        const img = add(NEB_TEX.rock[k], depth + i * 0.0005, Phaser.BlendModes.NORMAL);
-        const glint = add(NEB_TEX.rock[k], depth + i * 0.0005 + 0.0002);
-        const fall = falls && k !== 3 ? add(NEB_TEX.streak, depth + i * 0.0005 + 0.0003).setOrigin(0.5, 0) : null;
-        this.rocks.push({
-          img,
-          glint,
-          fall,
-          bx: sx,
-          by: sy,
-          size: r.size[0] + rnd() * (r.size[1] - r.size[0]),
-          phase: rnd() * 6.28,
-          rate: 0.15 + rnd() * 0.2,
-          alpha: r.alpha,
-          haze: r.haze,
-          depth: depthNorm,
-          // La lumière vient du centre : les blocs de droite sont retournés
-          flip: sx > 0,
-          rot0: (rnd() - 0.5) * 0.14,
-        });
-      });
-    };
-    rock('far', base + 0.018, 0.25, false);
-    rock('mid', base + 0.034, 0.55, true);
-    rock('near', base + 0.052, 1, true);
+    // Débris nets : une moitié au premier plan, l'autre au milieu
+    for (let i = 0; i < D.debris.count; i++) {
+      const fore = rnd() < D.debris.near;
+      const img = add(NEB_TEX.debris[i % NEB_TEX.debris.length], fore ? base + 0.0558 : base + 0.04, Phaser.BlendModes.NORMAL);
+      const d: Debris = { img, lane: 0, s: rnd() * 1.8, z: fore ? 0.55 + rnd() * 0.45 : rnd() * 0.55, size: 0, spin: 0, rot: 0, tex: i % NEB_TEX.debris.length, fore };
+      this.rollDebris(d, rnd);
+      this.debris.push(d);
+    }
     // Éclipse : masse colossale, morceaux, éclat de la révélation
-    this.mass = add(NEB_TEX.rock[0], base + 0.055, Phaser.BlendModes.NORMAL);
+    this.mass = add(NEB_TEX.rock[0], base + 0.0553, Phaser.BlendModes.NORMAL);
     for (let i = 0; i < D.eclipse.chunks; i++) this.chunks.push(add(NEB_TEX.rock[(i % 2) * 2 + 2], base + 0.056, Phaser.BlendModes.NORMAL));
     this.burst = add(AMB_TEX.glow, base + 0.058);
     this.built = true;
+  }
+
+  /** Tire la forme, la taille et le couloir d'un bloc (à la création et à chaque retour par le haut). `first` : position de départ répartie sur tout le trajet. */
+  private rollRock(r: Rock, rnd: () => number, first: boolean, i: number): void {
+    const R = D.rocks[r.plane];
+    r.size = R.size[0] + rnd() * (R.size[1] - R.size[0]);
+    // Couloir : alterne gauche/droite (les plans proches restent hors de la zone de jeu), un peu au hasard
+    const side = (i + (first ? 0 : Math.floor(rnd() * 3))) % 2 === 0 ? 1 : -1;
+    r.lane = side * (R.lane[0] + rnd() * (R.lane[1] - R.lane[0]));
+    r.flip = r.lane > 0;
+    r.spin = (rnd() - 0.5) * 2 * D.rocks.spin;
+    r.rot = (rnd() - 0.5) * 0.3;
+    if (!first) {
+      r.tex = Math.floor(rnd() * NEB_TEX.rock.length);
+      if (r.plane === 'fore' && r.tex === 3) r.tex = 0;
+      r.img.setTexture(NEB_TEX.rock[r.tex]);
+      r.glint.setTexture(NEB_TEX.rock[r.tex]);
+    }
+    r.hasFall = r.tex !== 3;
+    r.s = first ? ((i + rnd() * 0.6) / D.rocks[r.plane].count) * 1.8 : 0;
+  }
+
+  private rollDebris(d: Debris, rnd: () => number): void {
+    d.z = d.fore ? 0.55 + rnd() * 0.45 : rnd() * 0.55;
+    d.size = lerp(D.debris.size[0], D.debris.size[1], d.z);
+    d.spin = (rnd() - 0.5) * 2.2;
+    d.rot = rnd() * 6.28;
+    d.tex = Math.floor(rnd() * NEB_TEX.debris.length);
+    d.img.setTexture(NEB_TEX.debris[d.tex]);
+    // Les plus proches évitent le disque de l'arène : petites et rapides, elles ne doivent pas se confondre avec une menace
+    const side = rnd() < 0.5 ? 1 : -1;
+    d.lane = d.z > 0.5 ? side * (0.2 + rnd() * 0.3) : (rnd() - 0.5) * 0.9;
   }
 
   setVisible(v: boolean): void {
@@ -354,12 +362,9 @@ export class NebulaDecor {
       r.glint.setVisible(false);
       r.fall?.setVisible(false);
     }
+    for (const d of this.debris) d.img.setVisible(false);
     for (const r of this.rays) r.setVisible(false);
     for (const l of this.layers) l.sprite.setVisible(false);
-    for (const p of this.passers) {
-      p.img.setVisible(false);
-      p.active = false;
-    }
     for (const r of this.rings) {
       r.img.setVisible(false);
       r.age = 99;
@@ -368,63 +373,11 @@ export class NebulaDecor {
       for (const o of [this.edge, this.swirlA, this.swirlB, this.swirlC, this.swirlCore, this.foyer, this.foyerHot, this.planetGlow, this.planet, this.ringBack, this.ringFront, this.mass, this.burst, ...this.chunks]) o.setVisible(false);
     }
     this.motes.clear().setVisible(false);
-    this.warp.clear().setVisible(false);
+    this.streakG.clear().setVisible(false);
     this.shade.clear().setVisible(false);
-    this.nextPasser = 3;
-    this.occult = 0;
   }
 
   // ————————————————————————— dessin
-
-  /** Géants de passage : apparition (rythme selon l'arc), déplacement, occultation de la lumière (calcul AVANT le dessin du reste). */
-  private updatePassers(s: AmbienceState, dt: number, speed: number, prog: number, max: number): void {
-    const P = D.passers;
-    const eclApproach = s.eclipse.active && s.eclipse.scatter === 0;
-    this.nextPasser -= dt * (0.6 + 0.4 * speed);
-    let alive = 0;
-    for (const p of this.passers) if (p.active) alive++;
-    if (this.nextPasser <= 0 && alive < max && !eclApproach) {
-      const p = this.passers.find((q) => !q.active);
-      if (p) {
-        const depth = 0.2 + Math.random() * 0.8;
-        p.active = true;
-        p.depth = depth;
-        p.size = lerp(P.size[0], P.size[1], depth) * (0.85 + 0.3 * Math.random());
-        const spd = lerp(P.speed[0], P.speed[1], depth) * (0.55 + 1.5 * prog);
-        const ang = WIND + (Math.random() - 0.5) * 0.9 + (Math.random() < 0.3 ? Math.PI : 0);
-        const perp = (Math.random() - 0.5) * 0.85;
-        const half = 0.62 + p.size * 0.5;
-        // Position en u depuis le centre de l'arène : on part du bord opposé au sens de marche, décalé perpendiculairement
-        p.x = -Math.cos(ang) * half - Math.sin(ang) * perp;
-        p.y = -Math.sin(ang) * half + Math.cos(ang) * perp;
-        p.vx = Math.cos(ang) * spd;
-        p.vy = Math.sin(ang) * spd;
-        p.rot = (Math.random() - 0.5) * 0.6;
-        p.spin = (Math.random() - 0.5) * 0.05 * (0.5 + prog);
-        p.flip = Math.random() < 0.5;
-        p.tex = Math.floor(Math.random() * NEB_TEX.rock.length);
-        p.alpha = P.alpha * (0.55 + 0.45 * depth);
-        p.age = 0;
-        p.img.setTexture(NEB_TEX.rock[p.tex]).setDepth(this.depth + (depth < 0.5 ? 0.0195 : 0.045));
-        this.nextPasser = lerp(P.interval[0], P.interval[1], prog) * (0.7 + 0.6 * Math.random());
-      }
-    }
-    let occ = 0;
-    for (const p of this.passers) {
-      if (!p.active) continue;
-      p.age += dt;
-      p.x += p.vx * dt * (0.6 + 0.4 * speed);
-      p.y += p.vy * dt * (0.6 + 0.4 * speed);
-      p.rot += p.spin * dt;
-      const ahead = (p.x * p.vx + p.y * p.vy) / (Math.hypot(p.vx, p.vy) || 1);
-      if (ahead > 0.62 + p.size * 0.5) p.active = false;
-      else if (p.depth > 0.5) {
-        const d = Math.hypot(p.x, p.y);
-        occ = Math.max(occ, (1 - smooth01(d / (p.size * 0.55 + 0.04))) * p.alpha);
-      }
-    }
-    this.occult = occ;
-  }
 
   /** `amount` : présence du décor (0–1, fondus de transition). */
   draw(s: AmbienceState, v: AmbienceView, dt: number, amount: number): void {
@@ -440,12 +393,12 @@ export class NebulaDecor {
     const prog = s.neb;
     const climax = smooth01((prog - 0.84) / 0.16);
     // Horloge d'animation : la musique accélère (montées, intensité), un passage calme ralentit ; effets réduits = mouvement atténué.
-    // L'ARC (`prog`) accélère tout le décor, musique ou non.
+    // L'ARC (`prog`) accélère tout le décor, musique ou non ; les impacts donnent un coup d'accélérateur.
     const speed = (reduced ? 0.4 : 1) * (1 + React.build * 1.6 * s.build + 0.5 * s.intensity) * (1 - React.calm * calm);
     this.clock += dt * speed;
     const ck = this.clock;
-    const fs = 0.35 + 1.9 * prog;
-    const dtm = dt * speed;
+    const fs = F.base + F.gain * prog;
+    const dtm = dt * speed * (1 + (reduced ? 0 : 0.8 * s.drop));
     const u = Math.max(v.width, v.height);
     const W = v.width;
     const H = v.height;
@@ -458,21 +411,21 @@ export class NebulaDecor {
     const mix = (c: number): number => (toWinds > 0 ? lerpColor(c, hot, toWinds * 0.8) : c);
     const bright = (c: number): number => mix(climax > 0 ? lerpColor(c, C.ice, 0.3 * climax) : c);
 
-    // Géants de passage : déplacement et occultation (avant le calcul de la lumière)
-    const maxPass = Math.max(1, Math.round(D.passers.max * q.passers));
-    this.updatePassers(s, dt, speed, prog, maxPass);
-
     // Lumière globale : le début est sombre et mystérieux, l'éclipse l'éteint, la révélation la rallume (au-delà du niveau normal pendant quelques secondes)
     const lum = 0.62 + 0.38 * Math.pow(prog, 0.8);
-    const light = clamp01(1 - ecl.dark * 0.95) * (1 + D.eclipse.glow * ecl.glow) * (1 + 0.5 * ecl.flash) * (1 - D.passers.occult * this.occult);
+    const light = clamp01(1 - ecl.dark * 0.95) * (1 + D.eclipse.glow * ecl.glow) * (1 + 0.5 * ecl.flash);
     const pulse = 1 + React.bass * s.bass * 0.5 + React.drop * s.drop * 0.55;
     const k = amount * s.user;
     const kick = reduced ? 0 : React.kick * s.drop * v.scale;
 
-    // Vent et caméra flottante (parallaxe : chaque plan suit à sa profondeur)
-    const phi = WIND + 0.22 * Math.sin(ck * 0.021);
-    const wx = Math.cos(phi);
-    const wy = Math.sin(phi);
+    // Cap du vol : (fx, fy) = sens du défilement, (px, py) = perpendiculaire (couloirs) ; longueur du trajet visible le long du cap (u)
+    const phi = F.heading + F.sway * Math.sin(ck * 0.031);
+    const fx = Math.cos(phi);
+    const fy = Math.sin(phi);
+    const px = -fy;
+    const py = fx;
+    const span = (Math.abs(fx) * W + Math.abs(fy) * H) / u;
+    // Caméra flottante (parallaxe : chaque plan la suit à sa profondeur)
     const camA = D.cam.amp * (reduced ? 0.4 : 1) * (0.6 + 0.8 * prog);
     const camX = camA * (Math.sin(ck * D.cam.rate) + 0.45 * Math.sin(ck * D.cam.rate * 2.8 + 1.3));
     const camY = camA * 0.7 * (Math.cos(ck * D.cam.rate * 0.83 + 0.6) + 0.4 * Math.sin(ck * D.cam.rate * 2.3 + 2.1));
@@ -480,7 +433,7 @@ export class NebulaDecor {
     // Fond
     this.sky.setVisible(true).setPosition(W / 2, H / 2).setDisplaySize(W + 4, H + 4).setAlpha(amount * (0.55 + 0.45 * light));
 
-    // Courants : tuiles de gaz qui défilent en sens contraires (les couches se déforment l'une l'autre)
+    // ARRIÈRE-PLAN : tuiles de gaz qui défilent le long du cap à des vitesses différentes (les couches se glissent les unes sur les autres)
     const key = `${W}x${H}`;
     const nFlow = Math.min(this.layers.length, q.flow);
     for (let i = 0; i < this.layers.length; i++) {
@@ -491,18 +444,17 @@ export class NebulaDecor {
         continue;
       }
       const ts = (f.scale * u) / 256;
-      if (this.sizeKey !== key) {
-        L.sprite.setSize(W + 4, H + 4).setTileScale(ts * f.stretch, ts);
-      }
-      const ang = f.dir + 0.12 * Math.sin(ck * 0.03 + i * 1.7);
+      if (this.sizeKey !== key) L.sprite.setSize(W + 4, H + 4).setTileScale(ts, ts * f.stretch);
+      const ang = phi + f.dir;
       const vel = f.speed * fs * u * dtm;
-      L.x += (Math.cos(ang) * vel) / (ts * f.stretch);
-      L.y += (Math.sin(ang) * vel) / ts;
+      // Le contenu avance dans le sens du cap : la position de la tuile recule
+      L.x -= (Math.cos(ang) * vel) / ts;
+      L.y -= (Math.sin(ang) * vel) / (ts * f.stretch);
       const react = f.reactive * (0.5 * s.bass * React.bass * 2 + 0.45 * s.drop + 0.5 * s.build + 0.3 * s.perc);
       let a: number;
       let tint: number;
       if (f.add) {
-        a = f.alpha * k * lum * light * (1 + react) * (0.85 + 0.15 * Math.sin(ck * 0.2 + i * 2)) * (1 - 0.4 * calm) * (f.tex === 1 ? 0.5 + 1.0 * prog : 1);
+        a = f.alpha * k * lum * light * (1 + react) * (0.85 + 0.15 * Math.sin(ck * 0.2 + i * 2)) * (1 - 0.4 * calm) * (f.tex === 1 ? 0.55 + 1.0 * prog : 1);
         tint = bright(C[f.color]);
       } else {
         a = f.alpha * k * (1.4 - 0.75 * prog) * (1 + 0.8 * ecl.dark) * (1 + 0.4 * calm);
@@ -514,16 +466,18 @@ export class NebulaDecor {
     }
     this.sizeKey = key;
 
-    // Nuages : ils traversent l'écran dans le sens du vent (le plan proche file plus vite), se déforment en respirant
-    const place = (d: Drifter, lv: number, cam: number): number => {
-      d.trav += dtm * lv * fs;
-      const T = wrapSpan(d.pos * SPAN + d.trav);
+    // Nuages et filaments : ils défilent le long du cap (le plan proche file plus vite), se déforment en respirant
+    const place = (d: Drifter, lv: number, cam: number, align: boolean): number => {
+      const len = span + d.size * 1.2;
+      d.s += dtm * lv * fs;
+      if (d.s > len) d.s -= len;
+      const T = d.s - len / 2;
       const ph = ck * d.rate * (0.06 + 0.11 * d.depth) + d.phase;
       const ox = d.ax * Math.sin(ph) + 0.35 * d.ax * Math.sin(ph * 0.37 + d.phase * 2);
       const oy = d.ay * Math.cos(ph * 0.83) + 0.3 * d.ay * Math.sin(ph * 0.29 + d.phase);
-      const pr = d.perp * pull;
-      let X = v.cx + ((wx * T - wy * pr) * pull + ox - camX * cam) * u;
-      let Y = v.cy + ((wy * T + wx * pr) * pull + oy - camY * cam) * u;
+      const pr = d.lane * pull;
+      let X = v.cx + ((fx * T + px * pr) * pull + ox - camX * cam) * u;
+      let Y = v.cy + ((fy * T + py * pr) * pull + oy - camY * cam) * u;
       if (kick > 0) {
         const dx = X - v.cx;
         const dy = Y - v.cy;
@@ -537,9 +491,9 @@ export class NebulaDecor {
         .setVisible(true)
         .setPosition(X, Y)
         .setDisplaySize(sz * (1 + 0.14 * Math.sin(ph * 1.3 + 1)), sz * d.squash * (1 + 0.14 * Math.cos(ph * 1.9)))
-        .setRotation(d.rot0 + d.spin * ck + 0.12 * Math.sin(ph * 0.9));
+        .setRotation(align ? phi + d.rot0 : d.rot0 + d.spin * ck + 0.12 * Math.sin(ph * 0.9));
       // Fondu aux extrémités du parcours
-      return 1 - smooth01((Math.abs(T) / (SPAN / 2) - 0.6) / 0.4);
+      return 1 - smooth01((Math.abs(T) / (len / 2) - 0.6) / 0.4);
     };
     const nFar = Math.max(1, Math.round(this.far.length * q.clouds));
     const nMid = Math.max(1, Math.round(this.mid.length * q.clouds));
@@ -550,7 +504,7 @@ export class NebulaDecor {
       const d = this.far[i];
       if (i >= nFar) d.img.setVisible(false);
       else {
-        const e = place(d, D.drift.far, CD.far);
+        const e = place(d, D.drift.far, CD.far, false);
         d.img.setTint(mix(d.tint)).setAlpha(Math.min(0.8, d.alpha * e * k * light * lum * (0.9 + 0.35 * s.bass)));
       }
     }
@@ -558,7 +512,7 @@ export class NebulaDecor {
       const d = this.smoke[i];
       if (i >= nSmoke) d.img.setVisible(false);
       else {
-        const e = place(d, D.drift.smoke, CD.smoke);
+        const e = place(d, D.drift.smoke, CD.smoke, false);
         // La fumée creuse la profondeur ; épaisse au début (mystère), plus sombre et plus présente dans la pénombre de l'éclipse
         d.img.setTint(mix(d.tint)).setAlpha(Math.min(0.85, d.alpha * e * k * (1.35 - 0.6 * prog) * (1 + 0.8 * ecl.dark) * (1 + 0.5 * calm)));
       }
@@ -567,7 +521,7 @@ export class NebulaDecor {
       const d = this.mid[i];
       if (i >= nMid) d.img.setVisible(false);
       else {
-        const e = place(d, D.drift.mid, CD.mid);
+        const e = place(d, D.drift.mid, CD.mid, false);
         d.img.setTint(bright(d.tint)).setAlpha(Math.min(0.7, d.alpha * e * k * light * lum * (0.9 + 0.5 * s.bass + 0.35 * s.build + 0.25 * s.perc)));
       }
     }
@@ -575,18 +529,16 @@ export class NebulaDecor {
       const d = this.near[i];
       if (i >= nNear) d.img.setVisible(false);
       else {
-        const e = place(d, D.drift.near, CD.near);
+        const e = place(d, D.drift.near, CD.near, false);
         d.img.setTint(bright(d.tint)).setAlpha(Math.min(0.5, d.alpha * e * k * light * lum * (0.8 + 0.6 * s.bass + 0.5 * s.build) * (1 - 0.35 * calm)));
       }
     }
-
-    // Filaments lumineux : les courants les plus rapides, qui traversent tout l'écran
     const nWisp = Math.round(this.wisps.length * q.wisps);
     for (let i = 0; i < this.wisps.length; i++) {
       const d = this.wisps[i];
       if (i >= nWisp) d.img.setVisible(false);
       else {
-        const e = place(d, D.drift.wisp, CD.wisp);
+        const e = place(d, D.drift.wisp, CD.wisp, true);
         d.img.setTint(bright(d.tint)).setAlpha(Math.min(0.6, d.alpha * e * k * light * lum * (0.45 + 0.9 * prog + 0.8 * s.bass + 0.9 * s.build + 0.5 * s.perc) * (1 - 0.5 * calm)));
       }
     }
@@ -634,19 +586,30 @@ export class NebulaDecor {
       r.img.setVisible(true).setPosition(v.cx, v.cy).setDisplaySize(d, d).setTint(bright(C.aqua)).setAlpha(Math.min(0.7, D.shock.alpha * r.power * k * (1 - t) ** 1.6 * (0.6 + 0.4 * light)));
     }
 
-    // Planète à anneau et rayons : elle émerge peu à peu de la brume
+    // LOINTAIN : la planète à anneau DÉRIVE le long du cap, traverse l'écran puis revient par l'autre bord (elle émerge peu à peu de la brume)
     const P = D.planet;
-    const px = v.cx + (P.x * W - camX * u * D.cam.depth.planet) * pull;
-    const py = v.cy + (P.y * H - camY * u * D.cam.depth.planet) * pull;
     const ps = P.size * u;
+    const plen = span + (ps * P.ring * 0.7) / u + 0.3;
+    this.planetS += dtm * P.speed * fs;
+    if (this.planetS > plen) {
+      this.planetS -= plen;
+      const side = Math.random() < 0.5 ? 1 : -1;
+      this.planetLane = side * (0.14 + Math.random() * 0.12);
+      this.planetTilt = P.tilt + (Math.random() - 0.5) * 0.5;
+    }
+    // Départ : en haut, côté droit (comme dans les références) ; l'instant 0 de l'horloge place la planète à 28 % du trajet
+    const pT = ((this.planetS + plen * 0.28) % plen) - plen / 2;
+    const pLane = this.planetLane * pull;
+    const px0 = v.cx + ((fx * pT + px * pLane) * pull - camX * CD.planet) * u;
+    const py0 = v.cy + ((fy * pT + py * pLane) * pull - camY * CD.planet) * u;
     const bob = Math.sin(ck * 0.05) * 0.004 * u;
     const reveal = 0.4 + 0.6 * smooth01(prog / 0.45);
     const pa = Math.min(1, P.alpha * k) * (0.35 + 0.65 * light) * reveal;
-    this.planetGlow.setVisible(true).setPosition(px, py + bob).setDisplaySize(ps * 3.2, ps * 3.2).setTint(bright(C.turquoise)).setAlpha(Math.min(0.7, P.glow * k * light * lum * (0.8 + 0.4 * s.bass + 0.4 * s.drop + 0.4 * climax)));
-    this.ringBack.setVisible(true).setPosition(px, py + bob).setDisplaySize(ps * P.ring, ps * P.ring * 0.31).setRotation(P.tilt).setTint(mix(0xffffff)).setAlpha(pa * 0.8);
-    this.planet.setVisible(true).setPosition(px, py + bob).setDisplaySize(ps, ps).setTint(toWinds > 0 ? mix(0xffffff) : 0xffffff).setAlpha(pa);
-    this.ringFront.setVisible(true).setPosition(px, py + bob).setDisplaySize(ps * P.ring, ps * P.ring * 0.31).setRotation(P.tilt).setTint(mix(0xffffff)).setAlpha(pa * 0.9);
-    const toCore = Math.atan2(v.cy - py, v.cx - px) - Math.PI / 2;
+    this.planetGlow.setVisible(true).setPosition(px0, py0 + bob).setDisplaySize(ps * 3.2, ps * 3.2).setTint(bright(C.turquoise)).setAlpha(Math.min(0.7, P.glow * k * light * lum * (0.8 + 0.4 * s.bass + 0.4 * s.drop + 0.4 * climax)));
+    this.ringBack.setVisible(true).setPosition(px0, py0 + bob).setDisplaySize(ps * P.ring, ps * P.ring * 0.31).setRotation(this.planetTilt + 0.03 * Math.sin(ck * 0.1)).setTint(mix(0xffffff)).setAlpha(pa * 0.8);
+    this.planet.setVisible(true).setPosition(px0, py0 + bob).setDisplaySize(ps, ps).setRotation(ck * 0.012).setTint(toWinds > 0 ? mix(0xffffff) : 0xffffff).setAlpha(pa);
+    this.ringFront.setVisible(true).setPosition(px0, py0 + bob).setDisplaySize(ps * P.ring, ps * P.ring * 0.31).setRotation(this.planetTilt + 0.03 * Math.sin(ck * 0.1)).setTint(mix(0xffffff)).setAlpha(pa * 0.9);
+    const toCore = Math.atan2(v.cy - py0, v.cx - px0) - Math.PI / 2;
     const nRays = Math.round(this.rays.length * q.rays);
     for (let i = 0; i < this.rays.length; i++) {
       const r = this.rays[i];
@@ -656,44 +619,60 @@ export class NebulaDecor {
       }
       const off = (i - (this.rays.length - 1) / 2) * 0.2 + 0.04 * Math.sin(ck * 0.07 + i * 2) + 0.05 * Math.sin(ck * 0.19 + i);
       const a = D.rays.alpha * k * light * (0.25 + 0.75 * prog) * (0.45 + 1.3 * s.build + 1.0 * s.drop + 0.6 * s.bass + 0.8 * climax) * (0.7 + 0.3 * Math.sin(ck * 0.3 + i * 1.9));
-      r.setVisible(true).setPosition(px, py).setRotation(toCore + off).setDisplaySize(u * 0.22, u * D.rays.length).setTint(bright(C.aqua)).setAlpha(Math.min(0.55, a));
+      r.setVisible(true).setPosition(px0, py0).setRotation(toCore + off).setDisplaySize(u * 0.22, u * D.rays.length).setTint(bright(C.aqua)).setAlpha(Math.min(0.55, a));
     }
 
-    // Monolithes et îlots : flottement, balancement (plus ample avec l'arc), parallaxe de la caméra, liseré de lumière sur les percussions, brume, cascades
-    const nRocks = this.rocks.length;
-    const keep = Math.max(1, Math.round(nRocks * q.rocks));
-    const agit = 0.7 + 1.3 * prog;
-    for (let i = 0; i < nRocks; i++) {
-      const r = this.rocks[i];
-      if (i >= keep) {
+    // Blocs rocheux OPAQUES en quatre plans : ils défilent le long du cap, du lointain (lent, pâli) à l'avant-plan (énorme, très rapide) ; ceux du dessus
+    // masquent réellement tout ce qui est derrière eux (la brume atmosphérique n'éclaircit que les plans lointains, par une lueur additive)
+    const keepPlane: Record<Plane, number> = {
+      far: Math.max(1, Math.round(D.rocks.far.count * q.rocks)),
+      mid: Math.max(1, Math.round(D.rocks.mid.count * q.rocks)),
+      near: Math.max(1, Math.round(D.rocks.near.count * q.rocks)),
+      fore: Math.max(1, Math.round(D.rocks.fore.count * q.fore * (0.5 + 0.5 * prog))),
+    };
+    const rnd = Math.random;
+    for (const r of this.rocks) {
+      if (r.idx >= keepPlane[r.plane]) {
         r.img.setVisible(false);
         r.glint.setVisible(false);
         r.fall?.setVisible(false);
         continue;
       }
+      const R = D.rocks[r.plane];
+      const len = span + r.size * 1.25 + 0.1;
+      r.s += dtm * R.speed * fs;
+      if (r.s > len) {
+        r.s -= len;
+        this.rollRock(r, rnd, false, r.idx);
+      }
+      const T = r.s - len / 2;
       const ph = ck * r.rate * 0.4 + r.phase;
-      const par = 0.15 + 1.9 * r.depth * r.depth;
-      const x = r.bx * pull + Math.sin(ph * 0.7) * D.rocks.sway * (0.4 + r.depth) * agit - camX * par;
-      const y = r.by * pull + Math.sin(ph) * D.rocks.bob * agit - camY * par;
-      let X = v.cx + x * W;
-      let Y = v.cy + y * H;
+      const par = 0.15 + 1.9 * R.depth * R.depth;
+      // Flottement latéral et roulis lents ; perspective : le bloc grossit en approchant du bas de l'écran (plans proches)
+      const lat = r.lane + Math.sin(ph) * D.rocks.bob * (0.5 + R.depth);
+      let X = v.cx + ((fx * T + px * lat) * pull - camX * par) * u;
+      let Y = v.cy + ((fy * T + py * lat) * pull - camY * par) * u;
       if (kick > 0) {
         const dx = X - v.cx;
         const dy = Y - v.cy;
         const n = Math.hypot(dx, dy) || 1;
-        X += (dx / n) * kick * r.depth * 3;
-        Y += (dy / n) * kick * r.depth * 3;
+        X += (dx / n) * kick * R.depth * 3;
+        Y += (dy / n) * kick * R.depth * 3;
       }
-      const sz = r.size * u;
-      const rot = r.rot0 + Math.sin(ph * 0.6) * 0.03 * agit + spinUp * 0.15 * (i % 2 ? 1 : -1);
+      const persp = 1 + F.perspective * R.depth * (T / (len / 2)) * 0.6;
+      const sz = r.size * u * persp;
+      r.rot += r.spin * dtm;
+      const rot = r.rot + Math.sin(ph * 0.6) * 0.03 + spinUp * 0.15 * (r.idx % 2 ? 1 : -1);
+      const edgeFade = 1 - smooth01((Math.abs(T) / (len / 2) - 0.97) / 0.03);
       const dark = 1 - ecl.dark * 0.55;
       const shade = lerpColor(0x1a2a30, 0xffffff, dark);
-      r.img.setVisible(true).setPosition(X, Y).setDisplaySize(sz, sz * 1.25).setFlipX(r.flip).setRotation(r.flip ? -rot : rot).setTint(mix(shade)).setAlpha(Math.min(1, r.alpha * amount * s.user));
+      // Opaque : aucune transparence (ni tenue de plan, ni brume) sur le bloc lui-même
+      r.img.setVisible(true).setPosition(X, Y).setDisplaySize(sz, sz * 1.25).setFlipX(r.flip).setRotation(r.flip ? -rot : rot).setTint(mix(shade)).setAlpha(Math.min(1, amount * s.user * edgeFade * 1.6));
       // Lueur additive : brume atmosphérique (plans lointains) + éclat des percussions et des impacts sur les arêtes
-      const gl = r.haze * 0.45 * light + (reduced ? 0 : React.perc * s.perc * 0.55 + 0.25 * s.drop) * (0.4 + 0.6 * r.depth) + 0.12 * climax * r.depth;
-      if (gl > 0.01) r.glint.setVisible(true).setPosition(X, Y).setDisplaySize(sz, sz * 1.25).setFlipX(r.flip).setRotation(r.flip ? -rot : rot).setTint(mix(C.haze)).setAlpha(Math.min(0.75, gl * k));
+      const gl = R.haze * 0.45 * light + (reduced ? 0 : React.perc * s.perc * 0.55 + 0.25 * s.drop) * (0.4 + 0.6 * R.depth) + 0.12 * climax * R.depth;
+      if (gl > 0.01) r.glint.setVisible(true).setPosition(X, Y).setDisplaySize(sz, sz * 1.25).setFlipX(r.flip).setRotation(r.flip ? -rot : rot).setTint(mix(C.haze)).setAlpha(Math.min(0.75, gl * k * edgeFade));
       else r.glint.setVisible(false);
-      if (r.fall && q.falls > 0) {
+      if (r.fall && r.hasFall && q.falls > 0) {
         const fl = sz * 1.25 * 0.78;
         r.fall
           .setVisible(true)
@@ -701,33 +680,35 @@ export class NebulaDecor {
           .setDisplaySize(sz * 0.36, fl)
           .setRotation(rot * 0.3)
           .setTint(mix(C.aqua))
-          .setAlpha(Math.min(0.5, 0.3 * k * light * (0.7 + 0.5 * s.bass + 0.3 * s.build) * (0.8 + 0.2 * Math.sin(ck * 1.3 + i))));
+          .setAlpha(Math.min(0.5, 0.3 * k * light * edgeFade * (0.7 + 0.5 * s.bass + 0.3 * s.build) * (0.8 + 0.2 * Math.sin(ck * 1.3 + r.idx))));
       } else r.fall?.setVisible(false);
     }
 
-    // Géants de passage : dessin (dissous dans la brume au-dessus de la zone de jeu, pour que les menaces restent lisibles)
-    const arenaPx = v.scale * 330;
-    for (const p of this.passers) {
-      if (!p.active) {
-        p.img.setVisible(false);
+    // Débris NETS : petites pierres opaques qui filent le long du cap (les plus proches sont les plus grosses et les plus rapides)
+    const nDeb = Math.round(this.debris.length * q.debris * (0.5 + 0.5 * prog));
+    for (let i = 0; i < this.debris.length; i++) {
+      const d = this.debris[i];
+      if (i >= nDeb) {
+        d.img.setVisible(false);
         continue;
       }
-      const X = v.cx + (p.x * pull - camX * (0.15 + 1.6 * p.depth * p.depth)) * u;
-      const Y = v.cy + (p.y * pull - camY * (0.15 + 1.6 * p.depth * p.depth)) * u;
-      const near = Math.hypot(X - v.cx, Y - v.cy);
-      const over = smooth01((near - arenaPx * 0.55) / (arenaPx * 0.7));
-      const env = smooth01(p.age / 2.5);
-      const sz = p.size * u;
-      const hz = 1 - p.depth;
-      const shade = lerpColor(0x10242b, 0x4f8d98, hz * 0.7);
-      p.img
+      const len = span + 0.2;
+      d.s += dtm * lerp(D.debris.speed[0], D.debris.speed[1], d.z * d.z) * fs;
+      if (d.s > len) {
+        d.s -= len;
+        this.rollDebris(d, Math.random);
+      }
+      const T = d.s - len / 2;
+      const par = 0.3 + 1.6 * d.z;
+      const persp = 0.8 + 0.4 * (d.s / len);
+      d.rot += d.spin * dtm;
+      d.img
         .setVisible(true)
-        .setPosition(X, Y)
-        .setDisplaySize(sz, sz * 1.25)
-        .setFlipX(p.flip)
-        .setRotation(p.rot)
-        .setTint(mix(shade))
-        .setAlpha(Math.min(1, p.alpha * (0.35 + 0.65 * over) * env * amount * s.user * (1 - 0.35 * ecl.dark)));
+        .setPosition(v.cx + ((fx * T + px * d.lane) * pull - camX * par) * u, v.cy + ((fy * T + py * d.lane) * pull - camY * par) * u)
+        .setDisplaySize(d.size * u * persp, d.size * u * persp)
+        .setRotation(d.rot)
+        .setTint(mix(lerpColor(d.fore ? 0xdcecee : 0xb0ccd0, 0xffffff, light)))
+        .setAlpha(Math.min(1, amount * s.user * 1.6));
     }
 
     // Éclipse des géants : la masse glisse devant la lumière, puis se brise sur l'impact ; l'éclat de la révélation éclaire la nébuleuse
@@ -777,36 +758,45 @@ export class NebulaDecor {
       this.burst.setVisible(true).setPosition(v.cx, v.cy).setDisplaySize(b, b).setTint(mix(C.ice)).setAlpha(Math.min(1, E.flash * ecl.flash * amount * (reduced ? 0.5 : 1)));
     } else this.burst.setVisible(false);
 
-    // Lignes de vitesse de l'apogée : le fond file vers l'extérieur
-    const wg = this.warp;
-    wg.clear();
-    const nWarp = reduced ? 0 : Math.round(Math.min(this.warpA.length, D.warp.lines) * q.warp);
-    const warpAmt = smooth01((prog - 0.55) / 0.4) * (1 - 0.7 * calm);
-    if (nWarp > 0 && warpAmt > 0.01) {
-      wg.setVisible(true);
-      for (let i = 0; i < nWarp; i++) {
-        this.warpR[i] += (0.05 + this.warpR[i] * 1.5) * this.warpV[i] * (0.5 + warpAmt) * dtm * 0.9;
-        if (this.warpR[i] > 1.0) this.resetWarp(i, false);
-        const r = this.warpR[i];
-        const a = this.warpA[i];
-        const len = 0.02 + r * 0.22 * warpAmt;
-        const r0 = Math.max(0.1, r - len);
-        const al = Math.min(0.6, D.warp.alpha * warpAmt * k * light * smooth01((r - 0.12) / 0.2) * (1 - smooth01((r - 0.8) / 0.2)) * (0.7 + 0.8 * s.build + 0.6 * s.bass));
-        wg.lineStyle((0.8 + 1.6 * r) * v.dpr, i % 3 === 0 ? 0xffffff : mix(C.aqua), al);
-        wg.lineBetween(v.cx + Math.cos(a) * r0 * u, v.cy + Math.sin(a) * r0 * u, v.cx + Math.cos(a) * r * u, v.cy + Math.sin(a) * r * u);
+    // Lignes de vitesse : poussière d'étoiles qui file le long du cap (discrètes au début, longues et nombreuses à l'apogée)
+    const sg = this.streakG;
+    sg.clear();
+    const ST = D.streaks;
+    const nSt = Math.round(Math.min(STREAKS, ST.lines) * q.warp * (0.35 + 0.65 * prog));
+    if (nSt > 0 && !reduced) {
+      sg.setVisible(true);
+      const slen = span + 0.2;
+      for (let i = 0; i < nSt; i++) {
+        const z = this.stZ[i];
+        const vel = lerp(ST.speed[0], ST.speed[1], z * z) * fs;
+        this.stS[i] += dtm * vel;
+        if (this.stS[i] > slen) {
+          this.stS[i] -= slen;
+          this.stLane[i] = (Math.random() - 0.5) * (span * 0.9 + 0.3);
+          this.stZ[i] = Math.random();
+        }
+        const T = this.stS[i] - slen / 2;
+        const len = (0.012 + ST.length * z * z) * (0.45 + 0.55 * Math.min(1, fs / 2.3)) * (1 + 0.8 * s.drop);
+        const lane = this.stLane[i] * pull;
+        const hx = v.cx + (fx * T + px * lane - camX * (0.3 + 1.4 * z)) * u;
+        const hy = v.cy + (fy * T + py * lane - camY * (0.3 + 1.4 * z)) * u;
+        const env = smooth01((1 - Math.abs(T) / (slen / 2)) * 5);
+        const al = Math.min(0.6, ST.alpha * k * light * env * (0.25 + 0.75 * z) * (0.6 + 0.6 * prog + 0.5 * s.build));
+        sg.lineStyle((0.7 + 1.5 * z) * v.dpr, z > 0.7 ? 0xffffff : mix(C.aqua), al);
+        sg.lineBetween(hx, hy, hx - fx * len * u, hy - fy * len * u);
       }
-    } else wg.setVisible(false);
+    } else sg.setVisible(false);
 
-    // Poussières lumineuses : elles suivent le vent, plus vives et plus rapides avec l'arc
+    // Poussières lumineuses : elles suivent le cap, plus vives et plus rapides avec l'arc
     const m = this.motes;
     m.clear();
     m.setVisible(true);
     const n = Math.min(MOTES, Math.round(s.quality.dust * D.motes));
-    const mv = (reduced ? 0.4 : 1) * (1 + 0.6 * s.build + 1.2 * prog) * (1 - 0.5 * calm);
+    const mv = (reduced ? 0.4 : 1) * (1 + 0.6 * s.build) * (1 - 0.5 * calm) * fs;
     for (let i = 0; i < n; i++) {
-      this.moteY[i] += (this.moteV[i] * wy * mv - 0.004 * mv) * dt;
-      this.moteX[i] += this.moteV[i] * wx * mv * 1.4 * dt + Math.sin(ck * 0.3 + this.moteP[i]) * 0.0012 * mv;
-      if (this.moteY[i] < -0.85 || this.moteX[i] > 0.7) this.resetMote(i, false);
+      this.moteY[i] += this.moteV[i] * fy * mv * dt * 4;
+      this.moteX[i] += this.moteV[i] * fx * mv * dt * 4 + Math.sin(ck * 0.3 + this.moteP[i]) * 0.0006;
+      if (this.moteY[i] > 0.85) this.resetMote(i, false);
       const tw = 0.55 + 0.45 * Math.sin(ck * 1.7 + this.moteP[i] * 3) + s.perc * 0.6;
       m.fillStyle(i % 4 === 0 ? 0xffffff : 0x9ff7ee, Math.min(0.9, 0.34 * tw * k * (0.5 + 0.5 * light)));
       m.fillCircle(v.cx + (this.moteX[i] - camX * 2) * u, v.cy + (this.moteY[i] - camY * 2) * u, (0.7 + (i % 4) * 0.4) * v.dpr);

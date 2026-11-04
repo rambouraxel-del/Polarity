@@ -758,3 +758,33 @@ describe('Mer nébulaire V2 — arc visuel et accès de test', () => {
     expect(html).toContain('data-action="survival-start"');
   });
 });
+
+describe('Mer nébulaire V3 — vol continu, plans et occlusion (réglages)', () => {
+  const D = AMBIENCE.world3.decor;
+  it('les plans de blocs défilent de plus en plus vite avec la proximité et sont rangés lointain → avant-plan', () => {
+    const r = D.rocks;
+    expect(r.far.speed).toBeLessThan(r.mid.speed);
+    expect(r.mid.speed).toBeLessThan(r.near.speed);
+    expect(r.near.speed).toBeLessThan(r.fore.speed);
+    expect(r.far.depth).toBeLessThan(r.mid.depth);
+    expect(r.mid.depth).toBeLessThan(r.near.depth);
+    expect(r.near.depth).toBeLessThanOrEqual(r.fore.depth);
+    expect(D.drift.far).toBeLessThan(D.drift.mid);
+    expect(D.drift.mid).toBeLessThan(D.drift.near);
+    expect(D.debris.speed[0]).toBeLessThan(D.debris.speed[1]);
+  });
+  it("les plans proches restent hors de la zone de jeu (couloirs latéraux) pour garder les menaces lisibles", () => {
+    expect(D.rocks.near.lane[0]).toBeGreaterThanOrEqual(0.2);
+    expect(D.rocks.fore.lane[0]).toBeGreaterThanOrEqual(0.3);
+    expect(D.rocks.fore.size[1]).toBeLessThanOrEqual(0.6);
+  });
+  it('le vol accélère de lui-même du début à l’apogée, même sans musique', () => {
+    const f = D.flight;
+    expect(f.base).toBeGreaterThan(0.5);
+    expect(f.base + f.gain).toBeGreaterThan(2 * f.base);
+  });
+  it('la qualité adaptative garde au moins un bloc d’avant-plan et réduit les débris', () => {
+    for (const t of ['high', 'medium', 'low'] as const) expect(Math.round(D.rocks.fore.count * D.tiers[t].fore)).toBeGreaterThanOrEqual(1);
+    expect(D.tiers.low.debris).toBeLessThan(D.tiers.high.debris);
+  });
+});

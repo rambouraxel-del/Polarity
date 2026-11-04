@@ -280,56 +280,72 @@ export const AMBIENCE = {
       /** Tailles des nuages par plan (× grande dimension d'écran) : les quadrilatères les plus grands coûtent le plus de remplissage au GPU. */
       cloudSize: { far: [0.75, 1.15], smoke: [0.7, 1.1], mid: [0.55, 0.95], near: [0.5, 0.95], wisp: [0.7, 1.2] },
       tiers: {
-        high: { clouds: 1, rocks: 1, falls: 1, rays: 1, wisps: 1, flow: 4, passers: 1, warp: 1, rings: 3 },
-        medium: { clouds: 0.75, rocks: 0.85, falls: 1, rays: 0.67, wisps: 0.8, flow: 3, passers: 0.67, warp: 0.6, rings: 2 },
-        low: { clouds: 0.5, rocks: 0.7, falls: 0, rays: 0.34, wisps: 0.4, flow: 2, passers: 0.34, warp: 0, rings: 1 },
+        high: { clouds: 1, rocks: 1, falls: 1, rays: 1, wisps: 1, flow: 4, fore: 1, warp: 1, rings: 3, debris: 1 },
+        medium: { clouds: 0.75, rocks: 0.85, falls: 1, rays: 0.67, wisps: 0.8, flow: 3, fore: 0.67, warp: 0.6, rings: 2, debris: 0.7 },
+        low: { clouds: 0.5, rocks: 0.7, falls: 0, rays: 0.34, wisps: 0.4, flow: 2, fore: 0.5, warp: 0.4, rings: 1, debris: 0.4 },
       },
       /** Opacités de base de chaque plan de nuages (additif) et de la fumée sombre (qui creuse la profondeur). */
       alpha: { far: 0.42, mid: 0.3, near: 0.18, smoke: 0.55, wisp: 0.42 },
       /**
-       * Courants : les nuages TRAVERSENT l'écran dans le sens du vent (u par seconde au repos ; × la vitesse de l'arc `0,35 + 1,9 × avancement`) : le plan
-       * proche file bien plus vite que le lointain (parallaxe). Les filaments de gaz sont les plus rapides.
+       * VOL : tout le décor défile le long d'un cap (le vaisseau traverse l'espace). `heading` : cap du défilement (rad, écran : y vers le bas ; 1,57 = vers le bas),
+       * `sway` : oscillation lente du cap ; la vitesse de défilement d'un objet = sa vitesse de plan × `base + gain × avancement de l'arc` (le décor accélère de lui-même
+       * du début mystérieux à l'apogée) × la réaction musicale. `perspective` : grossissement des objets proches quand ils approchent du bas de l'écran.
        */
-      drift: { far: 0.012, smoke: 0.009, mid: 0.024, near: 0.05, wisp: 0.075 },
+      flight: { heading: 1.38, sway: 0.2, base: 0.75, gain: 1.6, perspective: 0.32 },
+      /**
+       * Vitesse de défilement (u par seconde au repos) par plan : le lointain dérive, le proche file (parallaxe de mouvement). Nuages, filaments et tuiles de gaz
+       * suivent le même cap à des vitesses différentes : les couches se glissent les unes sur les autres.
+       */
+      drift: { far: 0.016, smoke: 0.024, mid: 0.05, near: 0.1, wisp: 0.16 },
       /**
        * Caméra flottante : amplitude (× u) et fréquence du balancement lent de tout le décor ; chaque plan le suit à sa profondeur (lointain ≈ immobile, proche
        * ample) : la parallaxe reste marquée même sans aucun autre mouvement.
        */
-      cam: { amp: 0.04, rate: 0.047, depth: { far: 0.2, smoke: 0.45, mid: 0.8, near: 1.7, wisp: 1.2, planet: 0.12 } },
+      cam: { amp: 0.05, rate: 0.052, depth: { far: 0.2, smoke: 0.45, mid: 0.8, near: 1.7, wisp: 1.2, planet: 0.12 } },
       /**
-       * Tuiles de gaz sans couture qui défilent : couche sombre (creuse la profondeur), bancs turquoise, filaments étirés (courants lumineux), voile violet à
-       * contre-courant. `speed` : u par seconde au repos ; `dir` : angle du courant (rad, écran : y vers le bas) ; `scale` : taille d'une tuile (× u) ; `stretch` : étirement
-       * dans le sens du courant ; `alpha` : opacité ; `reactive` : part qui s'embrase sur les basses, les impacts et les montées.
+       * Tuiles de gaz sans couture qui défilent le long du cap : couche sombre (creuse la profondeur), bancs turquoise, filaments étirés dans le sens du vol
+       * (traînées de gaz), voile violet. `speed` : u par seconde au repos ; `dir` : écart au cap (rad) ; `scale` : taille d'une tuile (× u) ; `stretch` : étirement
+       * dans le sens du vol ; `alpha` : opacité ; `reactive` : part qui s'embrase sur les basses, les impacts et les montées.
        */
       flow: [
-        { tex: 0, color: 'smoke', add: false, alpha: 0.34, speed: 0.012, dir: -0.45, scale: 1.25, stretch: 1, reactive: 0 },
-        { tex: 0, color: 'turquoise', add: true, alpha: 0.2, speed: 0.024, dir: -0.7, scale: 0.95, stretch: 1, reactive: 0.7 },
-        { tex: 1, color: 'aqua', add: true, alpha: 0.17, speed: 0.06, dir: -0.15, scale: 0.8, stretch: 2.6, reactive: 1 },
-        { tex: 0, color: 'violet', add: true, alpha: 0.1, speed: 0.018, dir: 2.5, scale: 1.7, stretch: 1, reactive: 0.4 },
+        { tex: 0, color: 'smoke', add: false, alpha: 0.34, speed: 0.03, dir: 0.1, scale: 1.25, stretch: 1, reactive: 0 },
+        { tex: 0, color: 'turquoise', add: true, alpha: 0.2, speed: 0.075, dir: -0.08, scale: 0.95, stretch: 1.3, reactive: 0.7 },
+        { tex: 1, color: 'aqua', add: true, alpha: 0.18, speed: 0.24, dir: 0.03, scale: 0.8, stretch: 3, reactive: 1 },
+        { tex: 0, color: 'violet', add: true, alpha: 0.1, speed: 0.045, dir: 0.18, scale: 1.7, stretch: 1.2, reactive: 0.4 },
       ] as readonly { tex: 0 | 1; color: 'smoke' | 'turquoise' | 'aqua' | 'violet'; add: boolean; alpha: number; speed: number; dir: number; scale: number; stretch: number; reactive: number }[],
-      /**
-       * Géants de passage (monolithes qui traversent le fond) : nombre maximal, délai entre deux apparitions (s, du début mystérieux à l'apogée), vitesse
-       * (u/s, × profondeur), taille (× u), opacité. Plus il y en a, plus l'univers s'agite ; certains passent devant la lumière (occultation).
-       */
-      passers: { max: 3, interval: [8, 2.4], speed: [0.03, 0.085], size: [0.34, 0.85], alpha: 0.92, occult: 0.4 },
       /** Ondes de choc des impacts (anneaux qui jaillissent du foyer) : vitesse (u/s), durée (s), opacité. */
       shock: { speed: 0.95, life: 1.5, alpha: 0.4, gap: 0.5 },
-      /** Lignes de vitesse de l'apogée (le fond file vers l'extérieur) : nombre maximal, opacité. */
-      warp: { lines: 26, alpha: 0.28 },
+      /**
+       * Lignes de vitesse (poussière d'étoiles qui file le long du cap) : nombre maximal, opacité, vitesse (u/s, × profondeur) et longueur maximale (u). Peu visibles
+       * au début, de plus en plus longues et nombreuses avec l'arc.
+       */
+      streaks: { lines: 34, alpha: 0.32, speed: [0.12, 0.7], length: 0.3 },
+      /**
+       * Débris : petites pierres NETTES (opaques, liseré clair) qui filent devant le décor ; `size` (× u) et `speed` (u/s) croissent avec la proximité. `near` :
+       * part qui passe au premier plan (au-dessus des gros blocs).
+       */
+      debris: { count: 26, size: [0.016, 0.07], speed: [0.06, 0.5], near: 0.5 },
       /** Tourbillon central : taille (× grande dimension de l'écran), opacité, rotation (rad/s) et opacité du foyer au-dessus du voile. */
       swirl: { size: 1.5, alpha: 0.55, spin: 0.045, coreAlpha: 0.75, coreSize: 240 },
-      /** Planète à anneau (position en fraction d'écran depuis le centre de l'arène, taille × grande dimension, anneau, inclinaison, lueur). */
-      planet: { x: 0.27, y: -0.36, size: 0.22, ring: 2.5, tilt: -0.34, glow: 0.5, alpha: 0.95 },
+      /**
+       * Planète à anneau : elle DÉRIVE le long du cap (vitesse en u/s), traverse l'écran puis revient par l'autre bord ; `x` : couloir (× u, depuis le centre de
+       * l'arène), `size` (× u), anneau, inclinaison, lueur.
+       */
+      planet: { x: 0.12, size: 0.22, ring: 2.5, tilt: -0.34, glow: 0.5, alpha: 0.95, speed: 0.022, lane: [-0.16, 0.2] },
       rays: { alpha: 0.17, length: 1.1 },
-      /** Monolithes flottants : tailles (× grande dimension), opacités (la brume atmosphérique éclaircit les plus lointains), dérive et amplitude de flottement. */
+      /**
+       * Monolithes et îlots, OPAQUES, en quatre plans qui défilent le long du cap : `far` (lointain, pâli par la brume), `mid` (milieu), `near` (proche), `fore`
+       * (avant-plan : très gros, très rapides, masquent réellement planète, nébuleuse et blocs derrière eux). `count` : nombre au plus haut niveau de qualité ;
+       * `size` (× u) ; `speed` (u/s au repos) ; `lane` : couloir latéral (× u, valeur absolue depuis le centre) — les plans proches restent hors de la zone de jeu.
+       */
       rocks: {
-        // Emplacements (fraction de la largeur et de la hauteur d'écran depuis le centre de l'arène) : composition fixe, comme dans les références — de gros blocs
-        // sombres qui cadrent les bords (en haut à droite, en bas), des îlots intermédiaires, de petits blocs perdus dans la brume du lointain.
-        far: { size: [0.09, 0.15], alpha: 0.7, haze: 0.5, slots: [[0.16, -0.36], [-0.3, -0.4], [0.38, 0.04], [-0.4, 0.14]] },
-        mid: { size: [0.17, 0.26], alpha: 0.92, haze: 0.18, slots: [[-0.36, -0.22], [0.36, 0.28], [-0.12, 0.47]] },
-        near: { size: [0.3, 0.44], alpha: 1, haze: 0, slots: [[0.5, -0.5], [-0.54, 0.5], [0.55, 0.56]] },
-        bob: 0.01,
-        sway: 0.03,
+        far: { count: 4, size: [0.09, 0.15], speed: 0.022, haze: 0.5, lane: [0, 0.34], depth: 0.25 },
+        mid: { count: 3, size: [0.17, 0.26], speed: 0.05, haze: 0.18, lane: [0.1, 0.34], depth: 0.55 },
+        near: { count: 3, size: [0.28, 0.4], speed: 0.1, haze: 0, lane: [0.22, 0.4], depth: 0.85 },
+        fore: { count: 2, size: [0.4, 0.56], speed: 0.2, haze: 0, lane: [0.36, 0.5], depth: 1 },
+        /** Dérive propre à chaque bloc (rotation lente, rad/s) et flottement latéral (× u). */
+        spin: 0.05,
+        bob: 0.012,
       },
       /** Bords sombres (vignette) : taille (× demi-diagonale) et opacité ; plus marqués pendant l'éclipse. */
       edge: { size: 2.5, alpha: 0.55 },
